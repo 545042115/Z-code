@@ -1,0 +1,207 @@
+{
+    "name": "coding-agent",
+    "displayName": "Coding Agent",
+    "description": "AI-powered coding assistant with SGLang/OpenAI backend",
+    "version": "0.1.0",
+    "publisher": "545042115",
+    "engines": {
+        "vscode": "^1.85.0"
+    },
+    "categories": [
+        "Machine Learning",
+        "Debuggers",
+        "Other"
+    ],
+    "activationEvents": [
+        "onStartupFinished"
+    ],
+    "main": "./out/extension.js",
+    "contributes": {
+        "commands": [
+            {
+                "command": "codingAgent.openChat",
+                "title": "Open Chat",
+                "category": "Coding Agent",
+                "icon": "$(comment-discussion)"
+            },
+            {
+                "command": "codingAgent.openComposer",
+                "title": "Open Composer",
+                "category": "Coding Agent",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "codingAgent.inlineEdit",
+                "title": "Inline Edit",
+                "category": "Coding Agent",
+                "icon": "$(lightbulb)"
+            },
+            {
+                "command": "codingAgent.sendMessage",
+                "title": "Send Message",
+                "category": "Coding Agent",
+                "icon": "$(comment)"
+            },
+            {
+                "command": "codingAgent.showChatHistory",
+                "title": "Show Chat History",
+                "category": "Coding Agent",
+                "icon": "$(output)"
+            },
+            {
+                "command": "codingAgent.acceptEdit",
+                "title": "Accept Edit",
+                "category": "Coding Agent",
+                "icon": "$(check)"
+            },
+            {
+                "command": "codingAgent.rejectEdit",
+                "title": "Reject Edit",
+                "category": "Coding Agent",
+                "icon": "$(x)"
+            },
+            {
+                "command": "codingAgent.selectProfile",
+                "title": "切换配置",
+                "category": "Coding Agent",
+                "icon": "$(list-selection)"
+            },
+            {
+                "command": "codingAgent.addProfile",
+                "title": "添加配置",
+                "category": "Coding Agent",
+                "icon": "$(add)"
+            },
+            {
+                "command": "codingAgent.editProfile",
+                "title": "编辑配置",
+                "category": "Coding Agent",
+                "icon": "$(edit)"
+            },
+            {
+                "command": "codingAgent.deleteProfile",
+                "title": "删除配置",
+                "category": "Coding Agent",
+                "icon": "$(trash)"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "codingAgent.openChat",
+                "key": "ctrl+shift+l",
+                "mac": "cmd+shift+l"
+            },
+            {
+                "command": "codingAgent.sendMessage",
+                "key": "ctrl+shift+i",
+                "mac": "cmd+shift+i"
+            },
+            {
+                "command": "codingAgent.openComposer",
+                "key": "ctrl+shift+o",
+                "mac": "cmd+shift+o"
+            },
+            {
+                "command": "codingAgent.inlineEdit",
+                "key": "ctrl+k ctrl+i",
+                "mac": "cmd+k cmd+i",
+                "when": "editorHasSelection"
+            }
+        ],
+        "menus": {
+            "editor/context": [
+                {
+                    "command": "codingAgent.inlineEdit",
+                    "when": "editorHasSelection",
+                    "group": "9_cutcopypaste@5"
+                }
+            ]
+        },
+        "configuration": {
+            "title": "Coding Agent",
+            "properties": {
+                "codingAgent.llm.provider": {
+                    "type": "string",
+                    "enum": [
+                        "sglang",
+                        "openai",
+                        "azure",
+                        "deepseek",
+                        "mimo"
+                    ],
+                    "default": "sglang",
+                    "description": "LLM provider (sglang, openai, azure, deepseek, mimo)"
+                },
+                "codingAgent.llm.endpoint": {
+                    "type": "string",
+                    "default": "http://localhost:30000",
+                    "description": "LLM API endpoint. For OpenAI: https://api.openai.com/v1"
+                },
+                "codingAgent.llm.apiKey": {
+                    "type": "string",
+                    "default": "",
+                    "description": "API key for OpenAI/Azure/Deepseek/MiMo (leave empty for SGLang)"
+                },
+                "codingAgent.llm.model": {
+                    "type": "string",
+                    "default": "default",
+                    "description": "Model name (e.g., gpt-4, deepseek-v4-flash, mimo-v2-flash, default)"
+                },
+                "codingAgent.llm.organization": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Organization ID for OpenAI (optional)"
+                },
+                "codingAgent.llm.maxTokens": {
+                    "type": "number",
+                    "default": 4096,
+                    "description": "Maximum tokens for generation"
+                },
+                "codingAgent.llm.temperature": {
+                    "type": "number",
+                    "default": 0.1,
+                    "description": "Sampling temperature (0-1)"
+                },
+                "codingAgent.enableTabCompletion": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Enable Tab code completion"
+                },
+                "codingAgent.tabCompletionDebounce": {
+                    "type": "number",
+                    "default": 300,
+                    "description": "Debounce time for Tab completion (ms)"
+                }
+            }
+        },
+        "viewsContainers": {
+            "activitybar": [
+                {
+                    "id": "codingAgent",
+                    "title": "Coding Agent",
+                    "icon": "media/icon.svg"
+                }
+            ]
+        },
+        "views": {
+            "codingAgent": [
+                {
+                    "type": "webview",
+                    "id": "codingAgent.chat",
+                    "name": "Chat"
+                }
+            ]
+        }
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "devDependencies": {
+        "@types/node": "18.x",
+        "@types/vscode": "^1.85.0",
+        "@vscode/vsce": "^3.9.1",
+        "typescript": "^5.3.3"
+    }
+}
