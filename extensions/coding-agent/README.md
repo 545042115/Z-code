@@ -1,16 +1,22 @@
 # Coding Agent - VS Code Extension
 
-> AI 编程助手 VS Code 扩展 — 基于多后端 LLM，三层混合架构  
-> AI Coding Assistant for VS Code — Multi-Backend LLM, Three-Layer Hybrid Architecture
+> AI 编程助手 VS Code 扩展 — 基于多后端 LLM，三层混合架构，Repo-Level Agent  
+> AI Coding Assistant for VS Code — Multi-Backend LLM, Hybrid Architecture, Repo-Level Agent
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供类似 Cursor/Trae 的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo** and more, delivering a Cursor/Trae-like coding experience.
 
-采用 **三层混合架构**：宏观 Plan-and-Execute + 微观 ReAct + 自动化验证 + 兜底 Reflection。  
-Built on a **Three-Layer Hybrid Architecture**: Macro Planner → Micro ReAct → Auto Verifier → Meta Reflection.
+采用 **三层混合架构 + Repo-Level Agent**：宏观 Plan-and-Execute + 微观 ReAct + 自动化验证 + 兜底 Reflection，配合多轮记忆、语义检索、RepoMap、Planner 分解和增量上下文。  
+Built on a **Three-Layer Hybrid Architecture + Repo-Level Agent**: Macro Planner → Micro ReAct → Auto Verifier → Meta Reflection, with multi-turn memory, semantic retrieval, RepoMap, Planner decomposition, and incremental context.
 
 ## 特性 / Features
 
+- 🧠 **Repo-Level Agent** - 多轮记忆 + 语义 Embedding 检索 + RepoGraph 模块分析 + Planner 管道式分解
+- 💬 **多轮记忆系统** - 按 repo/session/intent 维度存储对话，LLM 每次调用可访问历史上下文
+- 🔍 **语义 Embedding 检索** - TF-IDF 风格词频向量，对 README/核心源码/server/config 文件自动索引，Top-K 语义搜索
+- 🗺️ **RepoGraph** - 模块分层（entry/server/core/ui/config/build）+ 数据流图 + 跨模块依赖分析
+- 📋 **Planner 管道** - intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 上下文构建 → LLM 回答
+- 📦 **增量上下文** - 只加载 embedding top-K 文件 + repograph 相关节点 + intent 相关模块，禁止全量扫描
 - 🤖 **Chat 侧边栏** - 智能代码问答，流式响应，类 Trae 侧边栏体验
 - 🎼 **Composer** - 多文件批量编辑
 - ⚡ **Tab 补全** - 基于 FIM 的智能代码补全
@@ -243,20 +249,32 @@ extensions/coding-agent/
 │   └── icon.svg                      # 侧边栏活动栏图标
 ├── src/
 │   ├── agent/
-│   │   ├── agent-core.ts             # 三层混合架构 Agent Core
-│   │   │                            (Planner → ReAct → Verifier → Reflector)
+│   │   ├── agent-core.ts             # 三层混合架构 + Repo-Level Agent Core
+│   │   │                            (Pipeline: Plan → Memory → Embedding → RepoGraph → Context → LLM)
+│   │   │                            (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
 │   │   └── verifier.ts               # 自动化验证（tsc --noEmit / eslint / npm test）
+│   ├── memory/
+│   │   └── memoryManager.ts          # 多轮记忆系统（按 repo+session+intent 维度存储）
+│   ├── embedding/
+│   │   └── embeddingManager.ts       # TF-IDF 语义检索（对核心文件自动生成向量）
+│   ├── planner/
+│   │   └── planner.ts                # Pipeline Planner（6 步管道：intent → memory → embedding → repograph → context → answer）
 │   ├── config/
 │   │   └── config-manager.ts         # 多配置管理（globalState 存储）
 │   ├── llm/
 │   │   └── llm-provider.ts           # 统一 LLM 接口
 │   ├── context/
-│   │   ├── context-manager.ts        # LSP 上下文管理
+│   │   ├── context-manager.ts        # LSP 上下文管理（集成所有子模块）
+│   │   ├── contextBuilder.ts         # 自动上下文构建（意图分析 + 增量/全量模式）
+│   │   ├── dependencyGraph.ts        # 文件依赖关系图
+│   │   ├── impactAnalyzer.ts         # 变更影响分析
+│   │   ├── repoMap.ts                # 仓库结构地图
+│   │   ├── repoGraph.ts              # 模块层级 + 数据流图（entry/server/core/ui/config/build）
 │   │   ├── symbolIndex.ts            # 符号索引
 │   │   ├── retrieval.ts              # 代码检索
 │   │   └── workspaceScanner.ts       # 工作区扫描
 │   ├── tools/
-│   │   └── tool-registry.ts          # 工具系统（含 LSP 工具链）
+│   │   └── tool-registry.ts          # 工具系统（含 LSP 工具链 + 上下文工具 + 记忆/embedding/Repograph/Planner 工具）
 │   ├── panels/
 │   │   ├── chat-view-provider.ts     # 侧边栏 Chat（WebviewView）
 │   │   ├── chat-panel.ts             # OutputChannel 版本 Chat
@@ -297,40 +315,58 @@ extensions/coding-agent/
 
 ## 更新日志 / Changelog
 
-### v0.3.0 — 2025-06-02
+### v0.2.1 — 2026-06-02
 
-Code Index + Verifier 升级 / Code Index & Verifier Upgrade
+Repo-Level Agent 升级：多轮记忆 + Embedding 检索 + RepoGraph + Planner + 增量上下文
+Repo-Level Agent Upgrade: Multi-turn Memory, Embedding Retrieval, RepoGraph, Planner & Incremental Context
 
 #### ✨ 新特性 / New Features
-- **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
-- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
-- **LSP 工具链**: 新增 search_symbols / get_workspace_context / get_definition / get_references / find_related_files 工具
+- **Memory System**: 多轮记忆管理器，按 repo+session+intent 维度存储对话，LLM 调用时可访问最近 N 轮+同意图历史
+- **Embedding 检索**: TF-IDF 风格词频向量，对 README/架构文档/核心源码/server 模块/config/build 文件自动生成向量，支持 Top-K 语义搜索
+- **RepoGraph**: 模块层级分类（entry/server/core/ui/config/build）+ import 依赖边 + 数据流路径（entry→server→core）+ 跨模块依赖分析
+- **Planner 管道**: 6 步自动分解：intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 增量上下文构建 → LLM 回答
+- **增量上下文**: 禁止全量扫描，只加载 embedding top-K 文件 + repograph 相关节点 + intent 相关模块
+- **项目理解输出**: 当用户问"这个项目是干什么"时，自动输出技术栈/模块分层/数据流图/模块层级树/关键文件/Build System/Dependencies
+- **新工具**: `memory_search` / `embedding_search` / `get_repo_graph` / `planner_execute`
+
+#### 🔧 优化 / Improvements
+- `processRequest` 重写为 pipeline 模式，支持多轮对话自动保存到 MemoryManager
+- ContextBuilder 新增 `buildIncremental()` 方法，仅从 embedding/repoGraph 结果增量构建
+- ContextManager 集成 MemoryManager / EmbeddingManager / RepoGraph / Planner
+- update.ps1 增加 Node.js 自动检测和下载，npm install 增加 `--legacy-peer-deps` 和 `--force` 备选
+- update.ps1 修复 vsce 打包时 npx.cmd 找不到 node 的问题（改用 node.exe 直接运行）
+
+### v0.2.0 — 2025-06-02
+
+体系化升级：三层混合架构 + Code Index + 上下文系统
+Architecture Upgrade: Hybrid Architecture, Code Index & Context System
+
+#### ✨ 新特性 / New Features
+- **三层混合架构**: 宏观 Planner + 微观 ReAct + 自动化 Verifier + 兜底 Reflector
+- **Planner**: 将复杂需求拆解为子任务列表，生成高层计划
+- **ReAct Executor**: 每个子任务内 THINK → ACT → OBSERVE 循环，支持实时自我修正
 - **VERIFIER 状态**: Agent 状态机新增状态，OBSERVE → VERIFIER → REFLECT 流转
+- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
+- **Reflector**: 子任务完成后自动审查，结合验证结果做出通过/修正决策
+- **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
+- **Repo Map**: 仓库结构地图，ASCII 目录树 + 入口点 + 关键文件 + 模块导出符号
+- **Dependency Graph**: 基于 import 解析的文件依赖关系图，支持传递依赖/被依赖分析
+- **Impact Analyzer**: 变更影响分析，评估修改文件的风险范围并识别架构风险
+- **Context Builder**: 自动上下文构建，意图分析 + 符号匹配 + 依赖扩展，TOP 15 文件选择
+- **Agent 工具链**: 新增 build_context / get_repo_map / get_dependency_graph / analyze_impact / search_symbols / get_definition / get_references 等工具
 
 #### 🔧 优化 / Improvements
 - 状态流转图更新：PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)
 - 工作区上下文信息注入 Agent 上下文
+- Agent 上下文自动提示使用 build_context 工具
 - tool-registry 重构为内聚的私有方法模式
+- 服务地址和 API Key 分离配置，配置切换时不清除已有对话
 
 #### 🐛 修复 / Bug Fixes
-- search_symbols kind 过滤顺序修复：先 filter 再 slice，确保 kind 过滤不丢失结果
-
-### v0.2.0 — 2025-06-02
-
-三层混合架构升级 / Three-Layer Hybrid Architecture Upgrade
-
-#### ✨ 新特性 / New Features
-- **三层混合架构**: 宏观 Planner + 微观 ReAct + 兜底 Reflector
-- **Planner**: 将复杂需求拆解为子任务列表，生成高层计划
-- **ReAct Executor**: 每个子任务内 THINK → ACT → OBSERVE 循环
-- **Reflector**: 子任务完成后自动审查，发现缺陷自动迭代修正
-- **计划可视化**: System Prompt 实时展示子任务状态
-
-#### 🔧 优化 / Improvements
-- 服务地址和 API Key 分离配置
-- 配置切换时不清除已有对话
-
-#### 🐛 修复 / Bug Fixes
+- search_symbols kind 过滤顺序修复：先 filter 再 slice
+- REFLECT 状态中 undefined subTaskId/reflection 崩溃修复（fallback 机制）
+- Verifier 在命令不可用时报错修复（运行前先检查 npm/npx 是否存在）
+- View provider 重复注册导致扩展激活失败修复
 - WebviewView provider 重复注册错误处理
 - JSON 解析错误修复（提取首个合法 JSON）
 

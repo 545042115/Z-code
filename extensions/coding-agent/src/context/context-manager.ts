@@ -2,6 +2,14 @@ import * as vscode from 'vscode';
 import { WorkspaceScanner, WorkspaceInfo } from './workspaceScanner';
 import { SymbolIndex, SymbolEntry, IndexStats } from './symbolIndex';
 import { Retrieval, RelevantResult } from './retrieval';
+import { DependencyGraph } from './dependencyGraph';
+import { RepoMap } from './repoMap';
+import { RepoGraph } from './repoGraph';
+import { ImpactAnalyzer, ImpactResult, BatchImpactResult } from './impactAnalyzer';
+import { ContextBuilder, ContextPackage } from './contextBuilder';
+import { MemoryManager } from '../memory/memoryManager';
+import { EmbeddingManager } from '../embedding/embeddingManager';
+import { Planner } from '../planner/planner';
 
 export interface AgentContext {
   currentFile?: string;
@@ -11,12 +19,23 @@ export interface AgentContext {
   diagnostics: vscode.Diagnostic[];
   workspaceInfo?: string;
   symbolStats?: IndexStats;
+  repoMap?: string;
+  dependencyGraph?: string;
+  contextPackage?: ContextPackage;
 }
 
 export class ContextManager {
   readonly scanner: WorkspaceScanner;
   readonly symbolIndex: SymbolIndex;
   readonly retrieval: Retrieval;
+  readonly dependencyGraph: DependencyGraph;
+  readonly repoMap: RepoMap;
+  readonly repoGraph: RepoGraph;
+  readonly impactAnalyzer: ImpactAnalyzer;
+  readonly contextBuilder: ContextBuilder;
+  readonly memoryManager: MemoryManager;
+  readonly embeddingManager: EmbeddingManager;
+  readonly planner: Planner;
 
   private initialized = false;
 
@@ -24,6 +43,14 @@ export class ContextManager {
     this.scanner = new WorkspaceScanner();
     this.symbolIndex = new SymbolIndex();
     this.retrieval = new Retrieval(this.scanner, this.symbolIndex);
+    this.dependencyGraph = new DependencyGraph(this.scanner);
+    this.repoMap = new RepoMap(this.scanner, this.symbolIndex, this.dependencyGraph);
+    this.repoGraph = new RepoGraph(this.scanner, this.symbolIndex, this.dependencyGraph);
+    this.impactAnalyzer = new ImpactAnalyzer(this.symbolIndex, this.dependencyGraph, this.repoMap);
+    this.contextBuilder = new ContextBuilder(this.scanner, this.symbolIndex, this.dependencyGraph, this.repoMap);
+    this.memoryManager = new MemoryManager();
+    this.embeddingManager = new EmbeddingManager(this.scanner);
+    this.planner = new Planner(this.memoryManager, this.embeddingManager, this.repoGraph, this.contextBuilder);
   }
 
   async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -54,6 +81,19 @@ export class ContextManager {
     vscode.window.showInformationMessage(
       `Coding Agent: 索引完成 — ${stats.totalFiles} 个文件, ${stats.totalSymbols} 个符号`
     );
+
+    vscode.window.setStatusBarMessage('$(graph) Coding Agent: 构建依赖关系图...', 3000);
+    await this.dependencyGraph.build();
+    await this.repoMap.build();
+    this.repoGraph.build();
+
+    vscode.window.showInformationMessage(
+      `Coding Agent: 依赖图构建完成 — ${this.dependencyGraph.getAllNodes().length} 个节点`
+    );
+
+    this.embeddingManager.build().catch(err => {
+      console.error('EmbeddingManager build error (non-fatal):', err);
+    });
 
     const watcher = this.scanner.watch();
     context.subscriptions.push(watcher);
@@ -90,6 +130,8 @@ export class ContextManager {
     if (this.initialized) {
       ctx.workspaceInfo = await this.retrieval.summarizeWorkspace();
       ctx.symbolStats = this.symbolIndex.getStats();
+      ctx.repoMap = this.repoMap.formatForPrompt(3);
+      ctx.dependencyGraph = this.dependencyGraph.formatForPrompt();
     }
 
     return ctx;

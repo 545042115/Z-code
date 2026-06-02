@@ -18,6 +18,7 @@ let agent: AgentCore;
 let inlineEditProvider: InlineEditProvider;
 let chatPanel: ChatPanel;
 let contextManager: ContextManager;
+let chatViewProviderDisposable: vscode.Disposable | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
   try {
@@ -39,16 +40,21 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 注册侧边栏 WebviewView
     try {
+      if (chatViewProviderDisposable) {
+        chatViewProviderDisposable.dispose();
+      }
       const chatViewProvider = new ChatViewProvider(context.extensionUri, agent);
-      context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider(
-          ChatViewProvider.VIEW_TYPE,
-          chatViewProvider,
-          { webviewOptions: { retainContextWhenHidden: true } }
-        )
+      chatViewProviderDisposable = vscode.window.registerWebviewViewProvider(
+        ChatViewProvider.VIEW_TYPE,
+        chatViewProvider,
+        { webviewOptions: { retainContextWhenHidden: true } }
       );
+      context.subscriptions.push(chatViewProviderDisposable);
     } catch (err) {
-      console.warn('WebviewView registration skipped (may already exist):', err);
+      if (chatViewProviderDisposable) {
+        chatViewProviderDisposable.dispose();
+        chatViewProviderDisposable = undefined;
+      }
     }
 
     // 先注册所有命令，确保即使初始化失败也能使用
@@ -70,8 +76,13 @@ export async function activate(context: vscode.ExtensionContext) {
 
     console.log('Coding Agent extension activated successfully');
   } catch (err) {
-    console.error('Coding Agent activation error:', err);
-    vscode.window.showErrorMessage(`Coding Agent 激活失败: ${err}`);
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes('already registered')) {
+      console.warn('View provider already registered (non-fatal):', errMsg);
+    } else {
+      console.error('Coding Agent activation error:', err);
+      vscode.window.showErrorMessage(`Coding Agent 激活失败: ${err}`);
+    }
   }
 }
 
@@ -235,6 +246,10 @@ async function initializeConfig(context: vscode.ExtensionContext) {
 
 export function deactivate() {
   console.log('Coding Agent extension deactivated');
+  if (chatViewProviderDisposable) {
+    chatViewProviderDisposable.dispose();
+    chatViewProviderDisposable = undefined;
+  }
   if (chatPanel) {
     chatPanel.dispose();
   }

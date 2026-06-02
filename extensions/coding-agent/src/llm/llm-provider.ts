@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ConfigManager } from '../config/config-manager';
 
 /**
  * LLM Provider 接口
@@ -366,17 +367,37 @@ export class LLMProviderFactory {
     }
   }
 
+  static createFromConfigManager(): LLMProvider {
+    const profile = ConfigManager.getActiveProfile();
+    if (!profile) {
+      return this.createFromVSCodeConfig();
+    }
+
+    const config: LLMConfig = {
+      provider: profile.provider,
+      endpoint: profile.endpoint,
+      apiKey: profile.apiKey,
+      model: profile.model,
+      maxTokens: profile.maxTokens,
+      temperature: profile.temperature,
+    };
+
+    return this.create(config);
+  }
+
   static createFromVSCodeConfig(): LLMProvider {
     const cfg = vscode.workspace.getConfiguration('codingAgent');
-    
+
+    const profile = ConfigManager.getActiveProfile();
+
     const config: LLMConfig = {
       provider: cfg.get<string>('llm.provider') as 'sglang' | 'openai' | 'azure' | 'deepseek' | 'mimo' || 'sglang',
       endpoint: cfg.get<string>('llm.endpoint') || 'http://localhost:30000',
-      apiKey: cfg.get<string>('llm.apiKey') || undefined,
+      apiKey: profile?.apiKey || cfg.get<string>('llm.apiKey') || undefined,
       model: cfg.get<string>('llm.model') || 'default',
       maxTokens: cfg.get<number>('llm.maxTokens') || 4096,
       temperature: cfg.get<number>('llm.temperature') || 0.1,
-      organization: cfg.get<string>('llm.organization') || undefined,
+      organization: profile?.organization || cfg.get<string>('llm.organization') || undefined,
     };
 
     return this.create(config);

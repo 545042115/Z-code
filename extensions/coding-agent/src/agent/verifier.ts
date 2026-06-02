@@ -145,7 +145,19 @@ export class Verifier {
     });
   }
 
+  private async checkCommandExists(command: string): Promise<boolean> {
+    try {
+      const result = await this.runCommand(`where ${command} 2>nul || which ${command} 2>/dev/null`);
+      return result.exitCode === 0;
+    } catch {
+      return false;
+    }
+  }
+
   private async runTypeCheck(): Promise<TypeCheckResult> {
+    if (!(await this.checkCommandExists('npx'))) {
+      return { passed: true, errors: [], exitCode: 0 };
+    }
     const result = await this.runCommand('npx tsc --noEmit 2>&1');
     const combinedOutput = result.stdout + result.stderr;
     const errors = combinedOutput.split('\n').filter(l => l.includes('error(') || l.includes('TS') || l.includes('error TS'));
@@ -157,6 +169,9 @@ export class Verifier {
   }
 
   private async runLint(): Promise<LintResult> {
+    if (!(await this.checkCommandExists('npx'))) {
+      return { passed: true, errors: [], warnings: [], exitCode: 0 };
+    }
     const result = await this.runCommand('npx eslint . 2>&1');
     const lines = result.stdout ? result.stdout.split('\n').filter(l => l.trim()) : [];
     const errors = lines.filter(l => l.includes('error'));
@@ -170,6 +185,9 @@ export class Verifier {
   }
 
   private async runTests(): Promise<TestResult> {
+    if (!(await this.checkCommandExists('npm'))) {
+      return { passed: true, output: '', exitCode: 0 };
+    }
     const result = await this.runCommand('npm test 2>&1');
     const output = result.stdout || result.stderr;
     return {

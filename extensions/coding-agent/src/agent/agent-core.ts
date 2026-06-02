@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import { LLMProvider, Message, GenerateRequest, LLMProviderFactory } from '../llm/llm-provider';
 import { ToolRegistry } from '../tools/tool-registry';
 import { ContextManager } from '../context/context-manager';
+import { MemoryManager } from '../memory/memoryManager';
+import { EmbeddingManager } from '../embedding/embeddingManager';
+import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
+import { RepoGraph } from '../context/repoGraph';
 import { DiffEngine } from '../utils/diff-engine';
 import { Verifier, VerifierOutput } from './verifier';
 
@@ -41,6 +45,7 @@ export interface AgentContext {
   openFiles: string[];
   diagnostics: vscode.Diagnostic[];
   workspaceInfo?: string;
+  repoMap?: string;
 }
 
 export interface StateResponse {
@@ -125,7 +130,7 @@ const STATE_SCHEMAS: Record<AgentState, object> = {
       toolCall: {
         type: 'object',
         properties: {
-          name: { type: 'string', enum: ['read_file', 'write_file', 'search_code', 'run_terminal', 'list_directory', 'get_diagnostics'] },
+          name: { type: 'string', enum: ['read_file', 'write_file', 'search_code', 'run_terminal', 'list_directory', 'get_diagnostics', 'build_context', 'project_context', 'memory_search', 'embedding_search', 'get_repo_graph', 'planner_execute'] },
           params: { type: 'object' },
         },
         required: ['name', 'params'],
@@ -233,6 +238,7 @@ export class AgentCore {
   private messageHistory: Message[] = [];
   private isRunning: boolean = false;
   private lastVerificationResult: VerifierOutput | null = null;
+  private pendingSubTaskForReflect: string | null = null;
 
   private subTasks: SubTask[] = [];
   private currentSubTaskIndex: number = 0;
@@ -245,7 +251,7 @@ export class AgentCore {
     private readonly extensionContext: vscode.ExtensionContext,
     private readonly contextManager: ContextManager
   ) {
-    this.llm = LLMProviderFactory.createFromVSCodeConfig();
+    this.llm = LLMProviderFactory.createFromConfigManager();
     this.tools = new ToolRegistry(this.contextManager);
     this.diffEngine = new DiffEngine();
     this.verifier = new Verifier();
@@ -254,7 +260,7 @@ export class AgentCore {
 
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('codingAgent.llm')) {
-        this.llm = LLMProviderFactory.createFromVSCodeConfig();
+        this.llm = LLMProviderFactory.createFromConfigManager();
       }
     });
   }
@@ -270,38 +276,71 @@ export class AgentCore {
     }
 
     this.isRunning = true;
-    this.currentState = 'PLANNING';
-    this.subTasks = [];
-    this.currentSubTaskIndex = 0;
-    this.currentSubTaskReActCount = 0;
 
     try {
-      const editorCtx = await this.contextManager.gatherContext();
+      const sessionId = this.getSessionId();
+      const intent = this.contextManager.contextBuilder.classifyIntent(userMessage);
 
-      this.messageHistory = [
-        { role: 'system', content: this.SYSTEM_PROMPT },
-        { role: 'user', content: this.formatContextMessage(editorCtx, userMessage) },
-      ];
+      if (intent === 'project_understanding') {
+        await this.handleProjectUnderstanding(userMessage, onStream, sessionId);
+        return;
+      }
 
-      while (this.currentState !== 'DONE' && this.currentState !== 'WAIT_USER' && this.isRunning) {
-        onStateChange(this.currentState);
+      const planner = this.contextManager.planner;
+      const memoryManager = this.contextManager.memoryManager;
 
-        const response = await this.executeState(
-          this.currentState,
-          onStream,
-          onEditPreview
-        );
+      await onStream(`\n## 🧠 分析请求中...\n\n`);
 
-        if (response.nextState && VALID_STATES.includes(response.nextState)) {
-          this.currentState = response.nextState;
+      const plan = planner.create(userMessage, sessionId);
+      const context = plan.context;
+
+      for (const step of plan.steps) {
+        onStateChange('PLANNING');
+
+        const description = step.description;
+        onStream(`- ${description}... `);
+
+        const result = await planner.executeStep(step, userMessage, sessionId, context);
+
+        if (result.status === 'completed') {
+          onStream(`✅\n`);
         } else {
-          this.currentState = this.getDefaultNextState(this.currentState);
+          onStream(`❌\n`);
         }
       }
 
-      if (this.currentState === 'WAIT_USER') {
-        onStateChange('WAIT_USER');
+      onStream(`\n## 🤖 回答\n\n`);
+
+      const editorCtx = await this.contextManager.gatherContext();
+      const answerPrompt = this.buildPipelinePrompt(userMessage, plan, context, editorCtx);
+
+      this.messageHistory = [
+        { role: 'system', content: answerPrompt },
+        { role: 'user', content: userMessage },
+      ];
+
+      const request: GenerateRequest = {
+        messages: this.messageHistory,
+        stream: true,
+      };
+
+      let fullResponse = '';
+      for await (const chunk of this.llm.generateStream(request)) {
+        fullResponse += chunk;
+        onStream(chunk);
       }
+
+      onStream(`\n\n`);
+
+      memoryManager.addEntry(sessionId, 'user', userMessage, plan.intent);
+      memoryManager.addEntry(sessionId, 'assistant', fullResponse, plan.intent);
+      memoryManager.addEntry(sessionId, 'context', plan.summary, plan.intent);
+
+      this.currentState = 'DONE';
+      onStateChange('DONE');
+    } catch (err) {
+      this.isRunning = false;
+      throw err;
     } finally {
       this.isRunning = false;
     }
@@ -346,6 +385,88 @@ export class AgentCore {
     }
   }
 
+  private async handleProjectUnderstanding(userMessage: string, onStream: (chunk: string) => void, sessionId: string): Promise<void> {
+    this.reset();
+    onStream(`\n## 🧠 项目理解\n\n自动分析项目结构和架构...\n\n`);
+
+    const planner = this.contextManager.planner;
+    const plan = planner.create(userMessage, sessionId);
+    const context = plan.context;
+
+    for (const step of plan.steps) {
+      const description = step.description;
+      onStream(`- ${description}... `);
+
+      const result = await planner.executeStep(step, userMessage, sessionId, context);
+
+      if (result.status === 'completed') {
+        onStream(`✅\n`);
+      } else {
+        onStream(`❌\n`);
+      }
+    }
+
+    onStream(`\n## 📋 项目架构概览\n\n`);
+
+    const repoGraph = this.contextManager.repoGraph;
+    const depOverview = repoGraph.getDependencyOverview();
+    const hierarchy = repoGraph.formatForPrompt();
+    const embeddingResults = context.embeddingResults;
+
+    onStream(`### 技术栈\n\n`);
+    const techStack = this.buildTechStackSummary(context);
+    onStream(techStack);
+
+    onStream(`\n### 模块分层\n\n`);
+    onStream(depOverview);
+
+    onStream(`\n### 模块层级树\n\n`);
+    onStream(hierarchy);
+
+    onStream(`\n### 关键文件\n\n`);
+    if (embeddingResults.length > 0) {
+      for (const r of embeddingResults.slice(0, 10)) {
+        const shortPath = r.filePath.split(/[/\\]/).slice(-3).join('/');
+        onStream(`- **${shortPath}** (相关性: ${r.score})\n`);
+        if (r.summary) {
+          onStream(`  ${r.summary.slice(0, 120)}\n`);
+        }
+      }
+    }
+
+    onStream(`\n### 数据流\n\n`);
+    onStream(`\`\`\`\nRequest → Entry Point → Server Layer → Core Layer → Response\nUI Layer → Server Layer → Core Layer → Data\nConfig/Build → All Layers (cross-cutting)\n\`\`\`\n\n`);
+
+    const buildFiles = context.selectedFiles.filter(f =>
+      /CMakeLists\.txt$|package\.json$|\.config\.(js|ts|json)$|tsconfig\..+\.json$|webpack\.config|Dockerfile|docker-compose|Makefile$/i.test(f)
+    );
+    if (buildFiles.length > 0) {
+      onStream(`### Build System\n\n`);
+      for (const f of buildFiles) {
+        onStream(`- ${f.split(/[/\\]/).pop()}\n`);
+      }
+      onStream(`\n`);
+    }
+
+    onStream(`\n### Dependencies\n\n`);
+    const deps = this.detectDependencies(context);
+    if (deps.length > 0) {
+      for (const dep of deps) {
+        onStream(`- ${dep}\n`);
+      }
+    } else {
+      onStream('（可从 package.json 等配置文件查看详细依赖）\n');
+    }
+
+    onStream(`\n## ✅ 完成\n\n项目架构信息已收集完毕。你可以进一步询问具体模块的细节。\n\n`);
+
+    this.contextManager.memoryManager.addEntry(sessionId, 'user', userMessage, 'project_understanding');
+    this.contextManager.memoryManager.addEntry(sessionId, 'assistant', `[项目理解] ${plan.summary}`, 'project_understanding');
+    this.contextManager.memoryManager.addEntry(sessionId, 'context', hierarchy, 'project_understanding');
+
+    this.currentState = 'DONE';
+  }
+
   stop(): void {
     this.isRunning = false;
   }
@@ -357,6 +478,7 @@ export class AgentCore {
     this.currentSubTaskIndex = 0;
     this.currentSubTaskReActCount = 0;
     this.lastVerificationResult = null;
+    this.pendingSubTaskForReflect = null;
     this.isRunning = false;
   }
 
@@ -462,6 +584,7 @@ export class AgentCore {
 
         if (response.subTaskStatus === 'complete') {
           this.markSubTaskCompleted(response.subTaskId || '');
+          this.pendingSubTaskForReflect = response.subTaskId || null;
           onStream(`→ 子任务 "**${taskLabel}**" 完成，正在验证...\n\n`);
           this.messageHistory.push({ role: 'assistant', content: responseText });
           return { state: 'OBSERVE', content: response.content, subTaskId: response.subTaskId, subTaskStatus: 'complete', nextState: 'VERIFIER' };
@@ -474,9 +597,9 @@ export class AgentCore {
       case 'REFLECT': {
         const currentTask = this.subTasks.find(st => st.id === response.subTaskId);
         const taskLabel = currentTask ? currentTask.description : response.subTaskId;
-        const reflection = response.reflection!;
+        const reflection = response.reflection || { verdict: 'pass', feedback: 'Automatic pass (no reflection data from LLM)', issues: [] };
 
-        onStream(`## 反思审查（${taskLabel}）\n\n${response.content}\n\n`);
+        onStream(`## 反思审查（${taskLabel || 'unknown'}）\n\n${response.content || 'No detailed review provided.'}\n\n`);
         if (reflection.issues && reflection.issues.length > 0) {
           onStream(`发现的问题:\n`);
           for (const issue of reflection.issues) {
@@ -492,7 +615,7 @@ export class AgentCore {
           this.currentSubTaskReActCount = 0;
         }
 
-        return response;
+        return { ...response, reflection, subTaskId: response.subTaskId || this.pendingSubTaskForReflect || '' };
       }
 
       case 'WAIT_USER':
@@ -522,7 +645,10 @@ export class AgentCore {
       content: `[验证结果]\n${result.summary}`,
     });
 
-    return { state: 'VERIFIER', content: result.summary, nextState: 'REFLECT' };
+    const subTaskId = this.pendingSubTaskForReflect || '';
+    this.pendingSubTaskForReflect = null;
+
+    return { state: 'VERIFIER', content: result.summary, subTaskId, nextState: 'REFLECT' };
   }
 
   private buildMessagesForState(state: AgentState): Message[] {
@@ -545,7 +671,11 @@ export class AgentCore {
         .filter(st => st.status === 'completed')
         .map(st => `  ${st.id}: ${st.description}`)
         .join('\n');
-      let reflectPrompt = `## 已完成子任务\n\n${completedTasks}\n\n请审查上一个子任务的输出质量。`;
+      const lastCompleted = this.subTasks
+        .filter(st => st.status === 'completed')
+        .pop();
+      const lastId = lastCompleted ? lastCompleted.id : '';
+      let reflectPrompt = `## 已完成子任务\n\n${completedTasks}\n\n请审查子任务 ${lastId} 的输出质量。你的响应必须包含 subTaskId 字段（值为 "${lastId}"）和 reflection 字段。`;
 
       if (this.lastVerificationResult) {
         const result = this.lastVerificationResult;
@@ -659,6 +789,12 @@ PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (T
 - DONE: All done
 
 ## Available Tools
+- build_context: Analyze a user request and build a focused context package (optional: currentFile). Call this FIRST when starting a new task.
+- project_context: Build a comprehensive project understanding. Collects architecture files, build configs, server modules, core modules, entry points. Use when user asks "what does this project do" or "analyze project architecture".
+- memory_search: Search conversation history from previous sessions. Retrieves relevant context by intent (project_understanding, bug_fix, feature_add, refactor) or recent N entries.
+- embedding_search: Search for semantically relevant files using TF-IDF style embedding. Returns top-K files ranked by relevance to a natural language query.
+- get_repo_graph: Get the RepoGraph: module dependency overview, data flow direction, cross-module dependencies, and module hierarchy tree.
+- planner_execute: Execute the full pipeline planner: intent → memory → embedding → repo graph → context building.
 - read_file: Read file content (required: path, optional: startLine, lineCount)
 - write_file: Write file content (required: path, content)
 - search_code: Search text patterns across workspace files (required: pattern, optional: filePattern)
@@ -670,9 +806,15 @@ PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (T
 - find_related_files: Find files related to a given file (required: filePath, optional: maxResults)
 - get_definition: Find definition of a symbol at a position using LSP (required: filePath, line, column)
 - get_references: Find all references to a symbol at a position using LSP (required: filePath, line, column, optional: maxResults)
+- get_repo_map: Get structured repository overview: directory tree, entry points, critical files, module breakdown (optional: depth, detail)
+- get_dependency_graph: Get dependency relationships for a file or overall graph (optional: filePath, depth)
+- analyze_impact: Analyze impact of changing a file or symbol: dependents, entry points, critical score (optional: filePath, symbolName, depth)
 
-Before making any code changes, use search_symbols or get_workspace_context to understand the codebase.
+Before making any code changes, use search_symbols or get_repo_map to understand the codebase.
+Use get_dependency_graph and analyze_impact before modifying critical files.
 Use get_definition and get_references when you need to understand how symbols are connected.
+Use embedding_search to find files related to a concept.
+Use memory_search to recall previous conversation context.
 
 ## Response Formats
 
@@ -790,6 +932,10 @@ If revision needed:
       parts.push(`Workspace overview:\n${ctx.workspaceInfo}`);
     }
 
+    if (ctx.repoMap) {
+      parts.push(`Repository structure:\n${ctx.repoMap}`);
+    }
+
     if (ctx.currentFile) {
       parts.push(`Current file: ${ctx.currentFile}`);
     }
@@ -805,8 +951,165 @@ If revision needed:
       parts.push(`Diagnostics:\n${errors}`);
     }
 
+    if (this.contextManager.isInitialized()) {
+      const reason = `Auto-built context for: "${userMsg.slice(0, 50)}"`;
+      parts.push(`\nContext package:\n`);
+      parts.push(`To analyze this request, use \`build_context\` tool with request="${userMsg.slice(0, 60)}" to get focused file selection.`);
+    }
+
     parts.push(`\nUser request: ${userMsg}`);
 
     return parts.join('\n\n');
+  }
+
+  private buildPipelinePrompt(
+    request: string,
+    plan: ExecutionPlan,
+    context: IncrementalContext,
+    editorCtx: AgentContext
+  ): string {
+    const parts: string[] = [];
+
+    parts.push(`You are a coding assistant with multi-turn memory and repo-level context awareness.`);
+    parts.push(``);
+    parts.push(`## Intent\n${plan.intent}`);
+    parts.push(``);
+
+    if (context.memoryFragment) {
+      parts.push(`## Previous Conversation\n${context.memoryFragment}`);
+      parts.push(``);
+    }
+
+    if (context.embeddingResults.length > 0) {
+      parts.push(`## Semantically Relevant Files\n`);
+      for (const r of context.embeddingResults.slice(0, 5)) {
+        parts.push(`- ${r.filePath} (relevance: ${r.score})`);
+      }
+      parts.push(``);
+    }
+
+    if (context.repoGraphOverview) {
+      parts.push(context.repoGraphOverview);
+      parts.push(``);
+    }
+
+    if (context.contextPackage) {
+      const pkg = context.contextPackage;
+      parts.push(`## Focused Files for This Task\n`);
+      parts.push(`Reason: ${pkg.reason}`);
+      parts.push(`Selected ${pkg.selectedFiles.length} files:`);
+      for (const f of pkg.selectedFiles.slice(0, 10)) {
+        parts.push(`- ${f}`);
+      }
+      if (pkg.selectedFiles.length > 10) {
+        parts.push(`... and ${pkg.selectedFiles.length - 10} more`);
+      }
+      parts.push(``);
+    }
+
+    if (editorCtx.workspaceInfo) {
+      parts.push(`## Workspace Overview\n${editorCtx.workspaceInfo}`);
+      parts.push(``);
+    }
+
+    if (editorCtx.repoMap) {
+      parts.push(context.repoGraphOverview || `## Repo Structure\n${editorCtx.repoMap}`);
+      parts.push(``);
+    }
+
+    parts.push(`## Task\n${request}`);
+    parts.push(``);
+    parts.push(`Provide a clear, detailed answer based on the above context.`);
+    parts.push(`Only load and read files when necessary. Use the incremental context already provided.`);
+
+    return parts.join('\n');
+  }
+
+  private buildTechStackSummary(context: IncrementalContext): string {
+    const lines: string[] = [];
+    const allFiles = context.selectedFiles;
+
+    const extensions = new Set<string>();
+    const frameworks = new Set<string>();
+    const languages = new Set<string>();
+
+    for (const f of allFiles) {
+      const ext = f.split('.').pop()?.toLowerCase();
+      if (ext) extensions.add(ext);
+
+      const lower = f.toLowerCase();
+      if (lower.includes('node_modules') || lower.includes('package.json')) {
+        frameworks.add('Node.js');
+      }
+      if (lower.includes('tsconfig')) {
+        languages.add('TypeScript');
+        frameworks.add('TypeScript');
+      }
+      if (lower.includes('webpack')) {
+        frameworks.add('Webpack');
+      }
+      if (lower.includes('vite')) {
+        frameworks.add('Vite');
+      }
+      if (lower.includes('react')) {
+        frameworks.add('React');
+      }
+      if (lower.includes('vue')) {
+        frameworks.add('Vue');
+      }
+      if (lower.includes('express') || lower.includes('server')) {
+        frameworks.add('Express');
+      }
+      if (lower.includes('docker')) {
+        frameworks.add('Docker');
+      }
+      if (lower.includes('jest') || lower.includes('mocha') || lower.includes('vitest')) {
+        frameworks.add('Test Framework');
+      }
+    }
+
+    if (languages.size > 0) {
+      lines.push(`**Languages:** ${Array.from(languages).join(', ')}`);
+    }
+    if (frameworks.size > 0) {
+      lines.push(`**Frameworks:** ${Array.from(frameworks).join(', ')}`);
+    }
+    if (extensions.size > 0) {
+      lines.push(`**File Types:** ${Array.from(extensions).join(', ')}`);
+    }
+
+    return lines.length > 0 ? lines.join('\n') : '（技术栈信息可从项目文件分析得出）\n';
+  }
+
+  private detectDependencies(context: IncrementalContext): string[] {
+    const deps: string[] = [];
+    for (const f of context.selectedFiles) {
+      const lower = f.toLowerCase();
+      if (lower.endsWith('package.json')) {
+        const dir = f.replace(/\\/g, '/').split('/').slice(-2, -1)[0];
+        deps.push(`npm project: ${dir || f.split(/[/\\]/).pop()}`);
+      }
+      if (lower.endsWith('cargo.toml')) {
+        deps.push('Rust/Cargo project');
+      }
+      if (lower.endsWith('go.mod')) {
+        deps.push('Go module project');
+      }
+      if (lower.endsWith('pom.xml') || lower.endsWith('build.gradle')) {
+        deps.push('Java/Maven/Gradle project');
+      }
+      if (lower.endsWith('requirements.txt') || lower.endsWith('pyproject.toml')) {
+        deps.push('Python project');
+      }
+      if (lower.endsWith('docker-compose.yml') || lower.endsWith('docker-compose.yaml')) {
+        deps.push('Docker Compose');
+      }
+    }
+    return [...new Set(deps)];
+  }
+
+  private getSessionId(): string {
+    const repoPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
+    return `session-${repoPath.replace(/[^a-zA-Z0-9]/g, '-')}`;
   }
 }

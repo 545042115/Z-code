@@ -75,11 +75,11 @@ export class ConfigManager {
     const config = vscode.workspace.getConfiguration('codingAgent');
     await config.update('llm.provider', profile.provider, vscode.ConfigurationTarget.Global);
     await config.update('llm.endpoint', profile.endpoint, vscode.ConfigurationTarget.Global);
-    await config.update('llm.apiKey', profile.apiKey, vscode.ConfigurationTarget.Global);
+    await config.update('llm.apiKey', '', vscode.ConfigurationTarget.Global);
     await config.update('llm.model', profile.model, vscode.ConfigurationTarget.Global);
     await config.update('llm.maxTokens', profile.maxTokens, vscode.ConfigurationTarget.Global);
     await config.update('llm.temperature', profile.temperature, vscode.ConfigurationTarget.Global);
-    await config.update('llm.organization', profile.organization, vscode.ConfigurationTarget.Global);
+    await config.update('llm.organization', '', vscode.ConfigurationTarget.Global);
   }
 
   static async initDefaultProfiles(): Promise<void> {

@@ -37,6 +37,15 @@ export class ToolRegistry {
       this.register(this.makeFindRelatedFilesTool());
       this.register(this.makeGetDefinitionTool());
       this.register(this.makeGetReferencesTool());
+      this.register(this.makeGetRepoMapTool());
+      this.register(this.makeGetDependencyGraphTool());
+      this.register(this.makeAnalyzeImpactTool());
+      this.register(this.makeBuildContextTool());
+      this.register(this.makeProjectContextTool());
+      this.register(this.makeMemorySearchTool());
+      this.register(this.makeEmbeddingSearchTool());
+      this.register(this.makeRepoGraphTool());
+      this.register(this.makePlannerExecuteTool());
     }
   }
 
@@ -404,5 +413,231 @@ export class ToolRegistry {
         ).join('\n');
       },
     };
+  }
+
+  private makeGetRepoMapTool(): Tool {
+    return {
+      name: 'get_repo_map',
+      description: 'Get a structured overview of the repository: directory tree, entry points, critical files, and module breakdown. Use this to understand the overall architecture before making changes.',
+      parameters: [
+        { name: 'depth', type: 'number', description: 'Directory tree depth (default: 3)', required: false },
+        { name: 'detail', type: 'string', description: 'Level: overview (default) or full', required: false, enum: ['overview', 'full'] },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+        const depth = params.depth || 3;
+        if (params.detail === 'full') {
+          const overview = this.contextManager.repoMap.formatForPrompt(depth);
+          const risks = this.contextManager.impactAnalyzer.getArchitectureRisks();
+          const riskLines = risks.map(r =>
+            `  [${r.risk.toUpperCase()}] ${this.shortenPath(r.file)}: ${r.reason}`
+          ).join('\n');
+          return `${overview}\n\nArchitecture Risks:\n${riskLines}`;
+        }
+        return this.contextManager.repoMap.formatForPrompt(depth);
+      },
+    };
+  }
+
+  private makeGetDependencyGraphTool(): Tool {
+    return {
+      name: 'get_dependency_graph',
+      description: 'Get dependency relationships for a file or view the overall dependency graph. Shows what a file imports and what imports it, including transitive dependents.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'Absolute path to the file. If omitted, returns the overall graph summary.', required: false },
+        { name: 'depth', type: 'number', description: 'Transitive depth for impact scope (default: 2)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+        const depth = params.depth || 2;
+        if (params.filePath) {
+          return this.contextManager.dependencyGraph.formatForPrompt(params.filePath, depth);
+        }
+        return this.contextManager.dependencyGraph.formatForPrompt();
+      },
+    };
+  }
+
+  private makeAnalyzeImpactTool(): Tool {
+    return {
+      name: 'analyze_impact',
+      description: 'Analyze the potential impact of changing a file or symbol. Returns direct/transitive dependents, affected entry points, modules, and a critical score (low/medium/high/critical).',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'Absolute path to the file to analyze', required: false },
+        { name: 'symbolName', type: 'string', description: 'Symbol name to analyze (alternative to filePath)', required: false },
+        { name: 'depth', type: 'number', description: 'Transitive analysis depth (default: 3)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+        const depth = params.depth || 3;
+        let result: import('../context/impactAnalyzer').ImpactResult | null = null;
+
+        if (params.filePath) {
+          result = this.contextManager.impactAnalyzer.analyze(params.filePath, depth);
+        } else if (params.symbolName) {
+          result = this.contextManager.impactAnalyzer.analyzeSymbol(params.symbolName);
+        } else {
+          return 'Please provide either filePath or symbolName.';
+        }
+
+        if (!result) {
+          return 'No analysis result: file or symbol not found.';
+        }
+
+        return result.summary;
+      },
+    };
+  }
+
+  private makeBuildContextTool(): Tool {
+    return {
+      name: 'build_context',
+      description: 'Analyze a user request and automatically build a focused context package. Uses intent analysis, symbol search, and dependency graph to select the most relevant files. Use this as the FIRST tool when starting a new task.',
+      parameters: [
+        { name: 'request', type: 'string', description: 'The user request or task description', required: true },
+        { name: 'currentFile', type: 'string', description: 'The currently open file path (optional)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+        const pkg = await this.contextManager.contextBuilder.build(params.request, params.currentFile);
+        return this.contextManager.contextBuilder.formatForPrompt(pkg);
+      },
+    };
+  }
+
+  private makeProjectContextTool(): Tool {
+    return {
+      name: 'project_context',
+      description: 'Build a comprehensive project understanding context. Collects architecture files, build configs, server modules, core modules, entry points, and generates a project summary. Use this when the user asks about what the project does, its architecture, structure, or wants an overview.',
+      parameters: [
+        { name: 'request', type: 'string', description: 'The user request about the project', required: true },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+        const pkg = this.contextManager.contextBuilder.buildProjectContext(params.request);
+        return this.contextManager.contextBuilder.formatProjectContextForPrompt(pkg);
+      },
+    };
+  }
+
+  private makeMemorySearchTool(): Tool {
+    return {
+      name: 'memory_search',
+      description: 'Search conversation history from previous sessions. Retrieves relevant context by intent or content from multi-turn memory.',
+      parameters: [
+        { name: 'sessionId', type: 'string', description: 'Session ID to search in', required: false },
+        { name: 'intent', type: 'string', description: 'Filter by intent: project_understanding, bug_fix, feature_add, refactor', required: false, enum: ['project_understanding', 'bug_fix', 'feature_add', 'refactor'] },
+        { name: 'recentN', type: 'number', description: 'Number of recent entries to return (default: 5)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager) {
+          return 'ContextManager not available.';
+        }
+        const mm = this.contextManager.memoryManager;
+        const sessionId = params.sessionId || `session-${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath?.replace(/[^a-zA-Z0-9]/g, '-') || 'unknown'}`;
+
+        if (params.intent) {
+          const entries = mm.findByIntent(sessionId, params.intent);
+          if (entries.length === 0) return `No memory entries found for intent "${params.intent}".`;
+          return entries.slice(-10).map(e =>
+            `[${e.role}] ${e.content.slice(0, 300)}`
+          ).join('\n\n');
+        }
+
+        const recentN = params.recentN || 5;
+        const context = mm.getContextForPrompt(sessionId, recentN);
+        return context || 'No conversation history found.';
+      },
+    };
+  }
+
+  private makeEmbeddingSearchTool(): Tool {
+    return {
+      name: 'embedding_search',
+      description: 'Search for semantically relevant files using TF-IDF style embedding. Returns top-K files ranked by relevance to the query. Use this to find files related to a concept without knowing exact file names.',
+      parameters: [
+        { name: 'query', type: 'string', description: 'Natural language query describing what you are looking for', required: true },
+        { name: 'topK', type: 'number', description: 'Number of results to return (default: 8)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.embeddingManager.isBuilt) {
+          return 'Embedding index not yet built. Please wait for initialization to complete.';
+        }
+        const results = this.contextManager.embeddingManager.search(params.query, params.topK || 8);
+        if (results.length === 0) {
+          return `No semantically relevant files found for "${params.query}".`;
+        }
+        return results.map((r, i) =>
+          `${i + 1}. ${r.filePath} (score: ${r.score})\n   ${r.summary.slice(0, 100)}`
+        ).join('\n');
+      },
+    };
+  }
+
+  private makeRepoGraphTool(): Tool {
+    return {
+      name: 'get_repo_graph',
+      description: 'Get the RepoGraph: module dependency overview, data flow direction, cross-module dependencies, and module hierarchy tree. Shows server/core/UI/config/build layer relationships and data flow paths.',
+      parameters: [
+        { name: 'detail', type: 'string', description: 'Detail level: overview (default) or full', required: false, enum: ['overview', 'full'] },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.repoGraph.isBuilt) {
+          return 'RepoGraph not yet built. Please wait for initialization.';
+        }
+        if (params.detail === 'full') {
+          return this.contextManager.repoGraph.formatForPrompt();
+        }
+        return this.contextManager.repoGraph.getDependencyOverview();
+      },
+    };
+  }
+
+  private makePlannerExecuteTool(): Tool {
+    return {
+      name: 'planner_execute',
+      description: 'Execute the full pipeline planner for a user request: intent classification → memory retrieval → embedding search → repo graph query → context building → answer generation preparation. Returns the accumulated incremental context.',
+      parameters: [
+        { name: 'request', type: 'string', description: 'The user request to plan and execute', required: true },
+        { name: 'sessionId', type: 'string', description: 'Session ID for memory retrieval', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.isInitialized()) {
+          return 'Code index not yet initialized.';
+        }
+
+        const planner = this.contextManager.planner;
+        const sessionId = params.sessionId || `session-${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath?.replace(/[^a-zA-Z0-9]/g, '-') || 'unknown'}`;
+
+        const plan = planner.create(params.request, sessionId);
+        const context = plan.context;
+
+        for (const step of plan.steps) {
+          await planner.executeStep(step, params.request, sessionId, context);
+        }
+
+        return planner.formatPlanForPrompt(plan);
+      },
+    };
+  }
+
+  private shortenPath(filePath: string): string {
+    const parts = filePath.replace(/\\/g, '/').split('/');
+    const srcIndex = parts.lastIndexOf('src');
+    if (srcIndex >= 0 && srcIndex < parts.length - 1) {
+      return parts.slice(srcIndex + 1).join('/');
+    }
+    if (parts.length <= 3) return parts.join('/');
+    return parts.slice(-3).join('/');
   }
 }

@@ -1,7 +1,7 @@
 # Z Code
 
-> AI 编程助手集合 — 基于多后端 LLM 的 VS Code 扩展  
-> AI Coding Assistant Collection — VS Code Extension with Multi-Backend LLM Support
+> AI 编程助手集合 — 基于多后端 LLM 的 VS Code 扩展，三层混合架构 + Repo-Level Agent  
+> AI Coding Assistant Collection — VS Code Extension with Multi-Backend LLM, Hybrid Architecture & Repo-Level Agent
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供类似 Cursor/Trae 的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo** and more, delivering a Cursor/Trae-like coding experience.
@@ -15,20 +15,32 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 │   └── coding-agent/               VS Code 扩展（核心项目 / Core project）
 │       ├── src/
 │       │   ├── agent/
-│       │   │   ├── agent-core.ts    三层混合架构 Agent Core
-│       │   │   │                    (Planner → ReAct → Verifier → Reflector)
+│       │   │   ├── agent-core.ts    三层混合架构 + Repo-Level Agent Core
+│       │   │   │                    (Pipeline: Plan → Memory → Embedding → RepoGraph → Context → LLM)
+│       │   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
 │       │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
+│       │   ├── memory/
+│       │   │   └── memoryManager.ts 多轮记忆系统（按 repo+session+intent 维度存储）
+│       │   ├── embedding/
+│       │   │   └── embeddingManager.ts TF-IDF 语义检索
+│       │   ├── planner/
+│       │   │   └── planner.ts       Pipeline Planner（6 步管道）
 │       │   ├── config/
 │       │   │   └── config-manager.ts 多配置管理 / Multi-config management
 │       │   ├── llm/
 │       │   │   └── llm-provider.ts   统一 LLM 接口 / Unified LLM interface
 │       │   ├── context/
-│       │   │   ├── context-manager.ts LSP 上下文管理 / Context management
-│       │   │   ├── symbolIndex.ts    符号索引 / Symbol index
-│       │   │   ├── retrieval.ts      代码检索 / Code retrieval
-│       │   │   └── workspaceScanner.ts 工作区扫描 / Workspace scanner
+│       │   │   ├── context-manager.ts LSP 上下文管理（集成所有子模块）
+│       │   │   ├── contextBuilder.ts  增量/全量上下文构建
+│       │   │   ├── repoGraph.ts       模块层级 + 数据流图
+│       │   │   ├── repoMap.ts         仓库结构地图
+│       │   │   ├── symbolIndex.ts     符号索引
+│       │   │   ├── retrieval.ts       代码检索
+│       │   │   ├── dependencyGraph.ts 文件依赖关系图
+│       │   │   ├── impactAnalyzer.ts  变更影响分析
+│       │   │   └── workspaceScanner.ts 工作区扫描
 │       │   ├── tools/
-│       │   │   └── tool-registry.ts  工具系统（含 LSP 工具链）
+│       │   │   └── tool-registry.ts  工具系统（含 LSP + 上下文 + 记忆/embedding/Repograph 工具）
 │       │   ├── panels/
 │       │   │   ├── chat-view-provider.ts 侧边栏 Chat（WebviewView）
 │       │   │   ├── chat-panel.ts     输出面板 Chat
@@ -57,6 +69,12 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 
 | 特性 / Feature | 说明 / Description |
 |---|---|
+| 🧠 **Repo-Level Agent** | 多轮记忆 + Embedding 检索 + RepoGraph + Planner 管道 |
+| 💬 **多轮记忆系统** | 按 repo/session/intent 维度存储对话，LLM 可访问历史 |
+| 🔍 **语义 Embedding 检索** | TF-IDF 向量索引，Top-K 语义搜索 |
+| 🗺️ **RepoGraph** | 模块分层 + 数据流图 + 跨模块依赖 |
+| 📋 **Planner 管道** | 6 步自动分解：intent → memory → embedding → repograph → context → answer |
+| 📦 **增量上下文** | 只加载相关文件，禁止全量扫描 |
 | 🤖 **Chat 侧边栏 / Sidebar Chat** | 智能代码问答，流式响应 / Intelligent Q&A with streaming |
 | 🎼 **Composer** | 多文件批量编辑 / Multi-file batch editing |
 | ⚡ **Tab 补全 / Tab Completion** | 基于 FIM 的智能代码补全 / FIM-based code completion |
@@ -149,6 +167,19 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.2.1 — 2026-06-02
+
+Repo-Level Agent 升级：多轮记忆 + Embedding 检索 + RepoGraph + Planner + 增量上下文
+Repo-Level Agent Upgrade: Multi-turn Memory, Embedding Retrieval, RepoGraph, Planner & Incremental Context
+
+#### ✨ 新特性 / New Features
+- **Memory System**: 多轮记忆管理器，按 repo+session+intent 维度存储对话
+- **Embedding 检索**: TF-IDF 风格词频向量，Top-K 语义搜索
+- **RepoGraph**: 模块层级分类 + 数据流图 + 跨模块依赖分析
+- **Planner 管道**: intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 增量上下文构建 → LLM 回答
+- **增量上下文**: 禁止全量扫描，只加载 embedding top-K 文件 + repograph 相关节点
+- **项目理解输出**: 自动输出技术栈/模块分层/数据流图/模块层级树/关键文件/Build System
 
 ### v0.3.0 — 2025-06-02
 

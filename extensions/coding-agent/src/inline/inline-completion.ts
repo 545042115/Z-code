@@ -12,12 +12,12 @@ export class InlineCompletionProvider implements vscode.InlineCompletionItemProv
   private readonly DEBOUNCE_MS = 300;
 
   constructor() {
-    this.llm = LLMProviderFactory.createFromVSCodeConfig();
+    this.llm = LLMProviderFactory.createFromConfigManager();
     
     // 监听配置变更
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('codingAgent.llm')) {
-        this.llm = LLMProviderFactory.createFromVSCodeConfig();
+        this.llm = LLMProviderFactory.createFromConfigManager();
       }
     });
   }
@@ -151,12 +151,11 @@ export class InlineEditProvider {
   private llm: LLMProvider;
 
   constructor() {
-    this.llm = LLMProviderFactory.createFromVSCodeConfig();
+    this.llm = LLMProviderFactory.createFromConfigManager();
     
-    // 监听配置变更
     vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('codingAgent.llm')) {
-        this.llm = LLMProviderFactory.createFromVSCodeConfig();
+        this.llm = LLMProviderFactory.createFromConfigManager();
       }
     });
   }
