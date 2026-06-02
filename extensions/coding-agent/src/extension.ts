@@ -29,14 +29,18 @@ export async function activate(context: vscode.ExtensionContext) {
     chatPanel = ChatPanel.init(agent);
 
     // 注册侧边栏 WebviewView
-    const chatViewProvider = new ChatViewProvider(context.extensionUri, agent);
-    context.subscriptions.push(
-      vscode.window.registerWebviewViewProvider(
-        ChatViewProvider.VIEW_TYPE,
-        chatViewProvider,
-        { webviewOptions: { retainContextWhenHidden: true } }
-      )
-    );
+    try {
+      const chatViewProvider = new ChatViewProvider(context.extensionUri, agent);
+      context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+          ChatViewProvider.VIEW_TYPE,
+          chatViewProvider,
+          { webviewOptions: { retainContextWhenHidden: true } }
+        )
+      );
+    } catch (err) {
+      console.warn('WebviewView registration skipped (may already exist):', err);
+    }
 
     // 先注册所有命令，确保即使初始化失败也能使用
     registerCommands(context);
