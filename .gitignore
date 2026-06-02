@@ -1,3 +1,6 @@
+# Chrome 浏览器扩展（已废弃）
+coding-agent-extension/
+
 # Node.js 二进制
 tools/node-v*/
 tools/nodejs*.zip
