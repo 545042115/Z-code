@@ -1,0 +1,25 @@
+# Node.js 二进制
+tools/node-v*/
+tools/nodejs*.zip
+
+# 编译输出
+out/
+*.js
+*.js.map
+!src/**
+
+# 依赖
+node_modules/
+
+# 打包文件
+*.vsix
+
+# VS Code 测试
+.vscode-test/
+
+# 系统文件
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
