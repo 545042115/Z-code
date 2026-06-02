@@ -5,6 +5,10 @@ import { ComposerPanel } from './panels/composer-panel';
 import { InlineCompletionProvider, InlineEditProvider } from './inline/inline-completion';
 import { ConfigManager } from './config/config-manager';
 import { ChatViewProvider } from './panels/chat-view-provider';
+import { ContextManager } from './context/context-manager';
+import { WorkspaceScanner } from './context/workspaceScanner';
+import { SymbolIndex } from './context/symbolIndex';
+import { Retrieval } from './context/retrieval';
 
 /**
  * Coding Agent 扩展入口
@@ -13,6 +17,7 @@ import { ChatViewProvider } from './panels/chat-view-provider';
 let agent: AgentCore;
 let inlineEditProvider: InlineEditProvider;
 let chatPanel: ChatPanel;
+let contextManager: ContextManager;
 
 export async function activate(context: vscode.ExtensionContext) {
   try {
@@ -21,8 +26,12 @@ export async function activate(context: vscode.ExtensionContext) {
     // 初始化配置管理器
     ConfigManager.init(context);
 
-    // 初始化 Agent Core
-    agent = new AgentCore(context);
+    // 初始化共享 ContextManager（含 WorkspaceScanner + SymbolIndex + Retrieval）
+    contextManager = new ContextManager();
+    initializeCodeIndex(context);
+
+    // 初始化 Agent Core（传入共享 ContextManager）
+    agent = new AgentCore(context, contextManager);
     inlineEditProvider = new InlineEditProvider();
 
     // 初始化原生 ChatPanel（OutputChannel + StatusBar）
@@ -63,6 +72,17 @@ export async function activate(context: vscode.ExtensionContext) {
   } catch (err) {
     console.error('Coding Agent activation error:', err);
     vscode.window.showErrorMessage(`Coding Agent 激活失败: ${err}`);
+  }
+}
+
+/**
+ * 异步初始化代码索引（后台执行，不阻塞扩展激活）
+ */
+async function initializeCodeIndex(context: vscode.ExtensionContext) {
+  try {
+    await contextManager.initialize(context);
+  } catch (err) {
+    console.error('Code index initialization error (non-fatal):', err);
   }
 }
 

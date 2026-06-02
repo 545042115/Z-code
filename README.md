@@ -14,15 +14,30 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 ├── extensions/
 │   └── coding-agent/               VS Code 扩展（核心项目 / Core project）
 │       ├── src/
-│       │   ├── agent/              三层混合架构 Agent Core
-│       │   │                       (Planner → ReAct → Reflector)
-│       │   ├── config/             多配置管理 / Multi-config management
-│       │   ├── llm/                统一 LLM 接口 / Unified LLM interface
-│       │   ├── context/            LSP 上下文管理 / Context management
-│       │   ├── tools/              工具系统 / Tool system
-│       │   ├── panels/             Chat / Composer 面板
-│       │   ├── inline/             Tab 补全和行内编辑 / Tab completion & inline editing
-│       │   └── utils/              工具库 / Utilities
+│       │   ├── agent/
+│       │   │   ├── agent-core.ts    三层混合架构 Agent Core
+│       │   │   │                    (Planner → ReAct → Verifier → Reflector)
+│       │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
+│       │   ├── config/
+│       │   │   └── config-manager.ts 多配置管理 / Multi-config management
+│       │   ├── llm/
+│       │   │   └── llm-provider.ts   统一 LLM 接口 / Unified LLM interface
+│       │   ├── context/
+│       │   │   ├── context-manager.ts LSP 上下文管理 / Context management
+│       │   │   ├── symbolIndex.ts    符号索引 / Symbol index
+│       │   │   ├── retrieval.ts      代码检索 / Code retrieval
+│       │   │   └── workspaceScanner.ts 工作区扫描 / Workspace scanner
+│       │   ├── tools/
+│       │   │   └── tool-registry.ts  工具系统（含 LSP 工具链）
+│       │   ├── panels/
+│       │   │   ├── chat-view-provider.ts 侧边栏 Chat（WebviewView）
+│       │   │   ├── chat-panel.ts     输出面板 Chat
+│       │   │   └── composer-panel.ts Composer 面板
+│       │   ├── inline/
+│       │   │   └── inline-completion.ts Tab 补全和行内编辑
+│       │   ├── utils/
+│       │   │   └── diff-engine.ts    工具库 / Utilities
+│       │   └── extension.ts          扩展入口
 │       └── package.json
 ├── tools/                           开发工具脚本 / Dev scripts
 │   ├── update.ps1                   更新/打包脚本 / Update & package
@@ -36,7 +51,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 
 ## Coding Agent — VS Code Extension
 
-三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 兜底 Reflection**
+三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 自动化 Verifier + 兜底 Reflection**
 
 ### 特性 / Features
 
@@ -48,6 +63,9 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 | ✏️ **行内编辑 / Inline Editing** | 选中代码直接修改 / Edit selected code inline |
 | 🔧 **多配置管理 / Multi-Config** | 保存多个 LLM 配置，一键切换 / Save & switch LLM configs |
 | 🌐 **多后端支持 / Multi-Backend** | SGLang / OpenAI / Deepseek / Xiaomi MiMo |
+| 📚 **Code Index** | LSP 符号索引，支持按名称和类型搜索类/函数/接口 |
+| ✅ **Verifier** | 子任务完成后自动运行 tsc --noEmit / eslint / npm test |
+| 🔍 **LSP 工具链** | 跳转定义、查找引用、关联文件发现 |
 
 ### 支持的后端 / Supported Backends
 
@@ -131,6 +149,24 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.3.0 — 2025-06-02
+
+Code Index + Verifier 升级 / Code Index & Verifier Upgrade
+
+#### ✨ 新特性 / New Features
+- **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
+- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
+- **LSP 工具链**: 新增 search_symbols / get_workspace_context / get_definition / get_references / find_related_files 工具
+- **VERIFIER 状态**: Agent 状态机新增状态，OBSERVE → VERIFIER → REFLECT 流转
+
+#### 🔧 优化 / Improvements
+- 状态流转图更新：PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)
+- 工作区上下文信息注入 Agent 上下文
+- tool-registry 重构为内聚的私有方法模式
+
+#### 🐛 修复 / Bug Fixes
+- search_symbols kind 过滤顺序修复：先 filter 再 slice，确保 kind 过滤不丢失结果
 
 ### v0.2.0 — 2025-06-02
 

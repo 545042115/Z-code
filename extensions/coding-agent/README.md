@@ -6,8 +6,8 @@
 支持 **SGLang**（本地推理）、**OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供类似 Cursor/Trae 的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo** and more, delivering a Cursor/Trae-like coding experience.
 
-采用 **三层混合架构**：宏观 Plan-and-Execute + 微观 ReAct + 兜底 Reflection。  
-Built on a **Three-Layer Hybrid Architecture**: Macro Planner → Micro ReAct → Meta Reflection.
+采用 **三层混合架构**：宏观 Plan-and-Execute + 微观 ReAct + 自动化验证 + 兜底 Reflection。  
+Built on a **Three-Layer Hybrid Architecture**: Macro Planner → Micro ReAct → Auto Verifier → Meta Reflection.
 
 ## 特性 / Features
 
@@ -17,6 +17,9 @@ Built on a **Three-Layer Hybrid Architecture**: Macro Planner → Micro ReAct �
 - ✏️ **行内编辑** - 选中代码直接修改
 - 🔧 **多配置管理** - 保存多个 LLM 配置，一键切换
 - 🌐 **多后端支持** - SGLang / OpenAI / Deepseek / 小米 MiMo
+- 📚 **Code Index** - LSP 符号索引，按名称和类型搜索类/函数/接口
+- ✅ **Verifier** - 子任务完成后自动运行 tsc --noEmit / eslint / npm test
+- 🔍 **LSP 工具链** - 跳转定义、查找引用、关联文件发现
 
 ## 支持的后端 / Supported Backends
 
@@ -240,15 +243,20 @@ extensions/coding-agent/
 │   └── icon.svg                      # 侧边栏活动栏图标
 ├── src/
 │   ├── agent/
-│   │   └── agent-core.ts             # 三层混合架构 Agent Core
+│   │   ├── agent-core.ts             # 三层混合架构 Agent Core
+│   │   │                            (Planner → ReAct → Verifier → Reflector)
+│   │   └── verifier.ts               # 自动化验证（tsc --noEmit / eslint / npm test）
 │   ├── config/
 │   │   └── config-manager.ts         # 多配置管理（globalState 存储）
 │   ├── llm/
 │   │   └── llm-provider.ts           # 统一 LLM 接口
 │   ├── context/
-│   │   └── context-manager.ts        # LSP 上下文管理
+│   │   ├── context-manager.ts        # LSP 上下文管理
+│   │   ├── symbolIndex.ts            # 符号索引
+│   │   ├── retrieval.ts              # 代码检索
+│   │   └── workspaceScanner.ts       # 工作区扫描
 │   ├── tools/
-│   │   └── tool-registry.ts          # 工具系统
+│   │   └── tool-registry.ts          # 工具系统（含 LSP 工具链）
 │   ├── panels/
 │   │   ├── chat-view-provider.ts     # 侧边栏 Chat（WebviewView）
 │   │   ├── chat-panel.ts             # OutputChannel 版本 Chat
@@ -288,6 +296,24 @@ extensions/coding-agent/
 ---
 
 ## 更新日志 / Changelog
+
+### v0.3.0 — 2025-06-02
+
+Code Index + Verifier 升级 / Code Index & Verifier Upgrade
+
+#### ✨ 新特性 / New Features
+- **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
+- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
+- **LSP 工具链**: 新增 search_symbols / get_workspace_context / get_definition / get_references / find_related_files 工具
+- **VERIFIER 状态**: Agent 状态机新增状态，OBSERVE → VERIFIER → REFLECT 流转
+
+#### 🔧 优化 / Improvements
+- 状态流转图更新：PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)
+- 工作区上下文信息注入 Agent 上下文
+- tool-registry 重构为内聚的私有方法模式
+
+#### 🐛 修复 / Bug Fixes
+- search_symbols kind 过滤顺序修复：先 filter 再 slice，确保 kind 过滤不丢失结果
 
 ### v0.2.0 — 2025-06-02
 

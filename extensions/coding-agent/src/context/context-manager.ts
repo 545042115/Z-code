@@ -1,74 +1,100 @@
 import * as vscode from 'vscode';
-import { AgentContext } from '../agent/agent-core';
+import { WorkspaceScanner, WorkspaceInfo } from './workspaceScanner';
+import { SymbolIndex, SymbolEntry, IndexStats } from './symbolIndex';
+import { Retrieval, RelevantResult } from './retrieval';
 
-/**
- * 上下文管理器
- * 严格遵循 AGENT_SPEC.md 规范：
- * 1. LSP 精确语义优先
- * 2. 编辑器实时状态
- * 3. Tree-sitter AST（兜底）
- * 4. 文件名/路径匹配
- * 5. 向量语义检索（最后手段）
- */
+export interface AgentContext {
+  currentFile?: string;
+  selectedCode?: string;
+  cursorPosition?: vscode.Position;
+  openFiles: string[];
+  diagnostics: vscode.Diagnostic[];
+  workspaceInfo?: string;
+  symbolStats?: IndexStats;
+}
 
 export class ContextManager {
-  
-  /**
-   * 收集编辑器上下文
-   * 优先级：LSP > Editor State > Tree-sitter > Path Match > Vector Search
-   */
+  readonly scanner: WorkspaceScanner;
+  readonly symbolIndex: SymbolIndex;
+  readonly retrieval: Retrieval;
+
+  private initialized = false;
+
+  constructor() {
+    this.scanner = new WorkspaceScanner();
+    this.symbolIndex = new SymbolIndex();
+    this.retrieval = new Retrieval(this.scanner, this.symbolIndex);
+  }
+
+  async initialize(context: vscode.ExtensionContext): Promise<void> {
+    if (this.initialized) return;
+
+    vscode.window.showInformationMessage('Coding Agent: 正在扫描工作区文件...');
+
+    await this.scanner.scan();
+
+    const sourceFiles = this.scanner.getSourceFiles();
+    const uris = sourceFiles.map(f => vscode.Uri.file(f.path));
+
+    vscode.window.showInformationMessage(
+      `Coding Agent: 正在索引 ${uris.length} 个源文件...`
+    );
+
+    await this.symbolIndex.buildForFiles(uris, (done, total) => {
+      if (done % Math.max(1, Math.floor(total / 10)) === 0 || done === total) {
+        const pct = Math.round((done / total) * 100);
+        vscode.window.setStatusBarMessage(
+          `$(sync) Coding Agent: 索引中 ${pct}% (${done}/${total})`,
+          3000
+        );
+      }
+    });
+
+    const stats = this.symbolIndex.getStats();
+    vscode.window.showInformationMessage(
+      `Coding Agent: 索引完成 — ${stats.totalFiles} 个文件, ${stats.totalSymbols} 个符号`
+    );
+
+    const watcher = this.scanner.watch();
+    context.subscriptions.push(watcher);
+
+    this.scanner.onFileChange((uri) => {
+      const ext = uri.fsPath.substring(uri.fsPath.lastIndexOf('.'));
+      if (this.scanner.SOURCE_EXTENSIONS.has(ext)) {
+        this.symbolIndex.buildForFile(uri);
+      }
+    });
+
+    this.initialized = true;
+  }
+
   async gatherContext(): Promise<AgentContext> {
+    const editor = vscode.window.activeTextEditor;
     const ctx: AgentContext = {
-      openFiles: [],
+      currentFile: editor?.document.uri.fsPath,
+      selectedCode: editor?.document.getText(editor.selection),
+      cursorPosition: editor?.selection.active,
+      openFiles: vscode.window.tabGroups.all
+        .flatMap(g => g.tabs)
+        .filter(t => t.input instanceof vscode.TabInputText)
+        .map(t => (t.input as vscode.TabInputText).uri.fsPath),
       diagnostics: [],
+      workspaceInfo: undefined,
     };
 
-    // 1. 当前文件和选中的代码
-    const editor = vscode.window.activeTextEditor;
     if (editor) {
-      ctx.currentFile = editor.document.uri.fsPath;
-      ctx.cursorPosition = editor.selection.active;
-      
-      if (!editor.selection.isEmpty) {
-        ctx.selectedCode = editor.document.getText(editor.selection);
-      }
-
-      // 2. 获取 LSP 诊断信息
-      ctx.diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+      ctx.diagnostics = vscode.languages.getDiagnostics(editor.document.uri)
+        .filter(d => d.severity <= vscode.DiagnosticSeverity.Warning);
     }
 
-    // 3. 获取打开的文件列表
-    ctx.openFiles = vscode.workspace.textDocuments
-      .filter(d => !d.isUntitled)
-      .map(d => d.uri.fsPath);
-
-    // 4. 获取 LSP 符号信息（如果可用）
-    if (editor) {
-      try {
-        const symbols = await this.getDocumentSymbols(editor.document.uri);
-        // 可以在这里添加符号信息到上下文
-      } catch {
-        // LSP 不可用，使用 Tree-sitter 兜底
-      }
+    if (this.initialized) {
+      ctx.workspaceInfo = await this.retrieval.summarizeWorkspace();
+      ctx.symbolStats = this.symbolIndex.getStats();
     }
 
     return ctx;
   }
 
-  /**
-   * 获取 LSP 文档符号
-   */
-  private async getDocumentSymbols(uri: vscode.Uri): Promise<vscode.DocumentSymbol[]> {
-    const symbols = await vscode.commands.executeCommand<vscode.DocumentSymbol[]>(
-      'vscode.executeDocumentSymbolProvider',
-      uri
-    );
-    return symbols || [];
-  }
-
-  /**
-   * 获取符号定义（LSP）
-   */
   async getDefinition(uri: vscode.Uri, position: vscode.Position): Promise<vscode.Location[]> {
     try {
       const locations = await vscode.commands.executeCommand<vscode.Location[]>(
@@ -82,9 +108,6 @@ export class ContextManager {
     }
   }
 
-  /**
-   * 获取符号引用（LSP）
-   */
   async getReferences(uri: vscode.Uri, position: vscode.Position): Promise<vscode.Location[]> {
     try {
       const locations = await vscode.commands.executeCommand<vscode.Location[]>(
@@ -98,9 +121,6 @@ export class ContextManager {
     }
   }
 
-  /**
-   * 工作区符号搜索（LSP）
-   */
   async searchWorkspaceSymbols(query: string): Promise<vscode.SymbolInformation[]> {
     try {
       const symbols = await vscode.commands.executeCommand<vscode.SymbolInformation[]>(
@@ -113,68 +133,67 @@ export class ContextManager {
     }
   }
 
-  /**
-   * 获取悬停信息（LSP）
-   */
-  async getHover(uri: vscode.Uri, position: vscode.Position): Promise<vscode.Hover[]> {
+  async getHover(uri: vscode.Uri, position: vscode.Position): Promise<string> {
     try {
-      const hovers = await vscode.commands.executeCommand<vscode.Hover[]>(
+      const hover = await vscode.commands.executeCommand<vscode.Hover[]>(
         'vscode.executeHoverProvider',
         uri,
         position
       );
-      return hovers || [];
+      if (hover && hover.length > 0) {
+        return hover[0].contents
+          .map(c => typeof c === 'string' ? c : c instanceof vscode.MarkdownString ? c.value : '')
+          .join('\n');
+      }
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  async getCompletions(uri: vscode.Uri, position: vscode.Position): Promise<string[]> {
+    try {
+      const list = await vscode.commands.executeCommand<vscode.CompletionList>(
+        'vscode.executeCompletionItemProvider',
+        uri,
+        position
+      );
+      if (list) {
+        return list.items.slice(0, 10).map(item => item.label.toString());
+      }
+      return [];
     } catch {
       return [];
     }
   }
 
-  /**
-   * 获取代码补全（LSP）
-   */
-  async getCompletions(uri: vscode.Uri, position: vscode.Position): Promise<vscode.CompletionList> {
+  async findImplementations(uri: vscode.Uri, position: vscode.Position): Promise<vscode.Location[]> {
     try {
-      const completions = await vscode.commands.executeCommand<vscode.CompletionList>(
-        'vscode.executeCompletionItemProvider',
+      const locations = await vscode.commands.executeCommand<vscode.Location[]>(
+        'vscode.executeImplementationProvider',
         uri,
         position
       );
-      return completions || new vscode.CompletionList();
+      return locations || [];
     } catch {
-      return new vscode.CompletionList();
+      return [];
     }
   }
 
-  /**
-   * 获取相关文件
-   * 基于：导入语句、相同目录、最近修改
-   */
-  async getRelatedFiles(currentFile: string): Promise<string[]> {
-    const related: Set<string> = new Set();
-    
-    // 1. 同目录文件
-    const dir = currentFile.substring(0, currentFile.lastIndexOf('/'));
-    const dirUri = vscode.Uri.file(dir);
-    
+  async getCodeActions(uri: vscode.Uri, range: vscode.Range): Promise<vscode.CodeAction[]> {
     try {
-      const entries = await vscode.workspace.fs.readDirectory(dirUri);
-      entries.forEach(([name, type]) => {
-        if (type === vscode.FileType.File) {
-          related.add(`${dir}/${name}`);
-        }
-      });
+      const actions = await vscode.commands.executeCommand<vscode.CodeAction[]>(
+        'vscode.executeCodeActionProvider',
+        uri,
+        range
+      );
+      return actions || [];
     } catch {
-      // 忽略错误
+      return [];
     }
+  }
 
-    // 2. 最近打开的文件
-    const recent = vscode.workspace.textDocuments
-      .filter(d => d.uri.fsPath !== currentFile)
-      .slice(0, 5)
-      .map(d => d.uri.fsPath);
-    
-    recent.forEach(f => related.add(f));
-
-    return Array.from(related).slice(0, 10);
+  isInitialized(): boolean {
+    return this.initialized;
   }
 }

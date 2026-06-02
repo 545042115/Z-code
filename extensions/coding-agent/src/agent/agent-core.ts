@@ -3,6 +3,7 @@ import { LLMProvider, Message, GenerateRequest, LLMProviderFactory } from '../ll
 import { ToolRegistry } from '../tools/tool-registry';
 import { ContextManager } from '../context/context-manager';
 import { DiffEngine } from '../utils/diff-engine';
+import { Verifier, VerifierOutput } from './verifier';
 
 /**
  * 三层混合架构 Agent Core
@@ -22,9 +23,9 @@ import { DiffEngine } from '../utils/diff-engine';
  * └─────────────────────────────────────────────────────┘
  */
 
-export type AgentState = 'PLANNING' | 'THINK' | 'ACT' | 'OBSERVE' | 'REFLECT' | 'WAIT_USER' | 'DONE';
+export type AgentState = 'PLANNING' | 'THINK' | 'ACT' | 'OBSERVE' | 'VERIFIER' | 'REFLECT' | 'WAIT_USER' | 'DONE';
 
-export const VALID_STATES: AgentState[] = ['PLANNING', 'THINK', 'ACT', 'OBSERVE', 'REFLECT', 'WAIT_USER', 'DONE'];
+export const VALID_STATES: AgentState[] = ['PLANNING', 'THINK', 'ACT', 'OBSERVE', 'VERIFIER', 'REFLECT', 'WAIT_USER', 'DONE'];
 
 export interface SubTask {
   id: string;
@@ -39,6 +40,7 @@ export interface AgentContext {
   cursorPosition?: vscode.Position;
   openFiles: string[];
   diagnostics: vscode.Diagnostic[];
+  workspaceInfo?: string;
 }
 
 export interface StateResponse {
@@ -160,6 +162,16 @@ const STATE_SCHEMAS: Record<AgentState, object> = {
     required: ['state', 'subTaskId', 'content', 'subTaskStatus', 'nextState'],
   },
 
+  VERIFIER: {
+    type: 'object',
+    properties: {
+      state: { const: 'VERIFIER' },
+      content: { type: 'string', description: '验证结果总结' },
+      nextState: { const: 'REFLECT' },
+    },
+    required: ['state', 'content', 'nextState'],
+  },
+
   REFLECT: {
     type: 'object',
     properties: {
@@ -215,11 +227,12 @@ const STATE_SCHEMAS: Record<AgentState, object> = {
 export class AgentCore {
   private llm: LLMProvider;
   private tools: ToolRegistry;
-  private context: ContextManager;
   private diffEngine: DiffEngine;
+  private verifier: Verifier;
   private currentState: AgentState = 'PLANNING';
   private messageHistory: Message[] = [];
   private isRunning: boolean = false;
+  private lastVerificationResult: VerifierOutput | null = null;
 
   private subTasks: SubTask[] = [];
   private currentSubTaskIndex: number = 0;
@@ -228,11 +241,14 @@ export class AgentCore {
 
   private readonly SYSTEM_PROMPT: string;
 
-  constructor(private readonly extensionContext: vscode.ExtensionContext) {
+  constructor(
+    private readonly extensionContext: vscode.ExtensionContext,
+    private readonly contextManager: ContextManager
+  ) {
     this.llm = LLMProviderFactory.createFromVSCodeConfig();
-    this.tools = new ToolRegistry();
-    this.context = new ContextManager();
+    this.tools = new ToolRegistry(this.contextManager);
     this.diffEngine = new DiffEngine();
+    this.verifier = new Verifier();
 
     this.SYSTEM_PROMPT = this.buildSystemPrompt();
 
@@ -260,7 +276,7 @@ export class AgentCore {
     this.currentSubTaskReActCount = 0;
 
     try {
-      const editorCtx = await this.context.gatherContext();
+      const editorCtx = await this.contextManager.gatherContext();
 
       this.messageHistory = [
         { role: 'system', content: this.SYSTEM_PROMPT },
@@ -340,6 +356,7 @@ export class AgentCore {
     this.subTasks = [];
     this.currentSubTaskIndex = 0;
     this.currentSubTaskReActCount = 0;
+    this.lastVerificationResult = null;
     this.isRunning = false;
   }
 
@@ -348,6 +365,10 @@ export class AgentCore {
     onStream: (chunk: string) => void,
     onEditPreview: (ops: EditOperation[]) => void
   ): Promise<StateResponse> {
+    if (state === 'VERIFIER') {
+      return this.executeVerifier(onStream);
+    }
+
     const schema = STATE_SCHEMAS[state];
     const messagesForRequest = this.buildMessagesForState(state);
 
@@ -441,7 +462,9 @@ export class AgentCore {
 
         if (response.subTaskStatus === 'complete') {
           this.markSubTaskCompleted(response.subTaskId || '');
-          onStream(`→ 子任务 "**${taskLabel}**" 完成\n\n`);
+          onStream(`→ 子任务 "**${taskLabel}**" 完成，正在验证...\n\n`);
+          this.messageHistory.push({ role: 'assistant', content: responseText });
+          return { state: 'OBSERVE', content: response.content, subTaskId: response.subTaskId, subTaskStatus: 'complete', nextState: 'VERIFIER' };
         }
 
         this.messageHistory.push({ role: 'assistant', content: responseText });
@@ -486,6 +509,22 @@ export class AgentCore {
     }
   }
 
+  private async executeVerifier(onStream: (chunk: string) => void): Promise<StateResponse> {
+    onStream(`**验证**\n\n`);
+    const result = await this.verifier.verify();
+    this.lastVerificationResult = result;
+
+    const icon = result.hasIssues ? '❌' : '✅';
+    onStream(`${icon} 验证完成\n\`\`\`\n${result.summary}\n\`\`\`\n\n`);
+
+    this.messageHistory.push({
+      role: 'user',
+      content: `[验证结果]\n${result.summary}`,
+    });
+
+    return { state: 'VERIFIER', content: result.summary, nextState: 'REFLECT' };
+  }
+
   private buildMessagesForState(state: AgentState): Message[] {
     const planContext = this.buildPlanContext();
 
@@ -506,9 +545,16 @@ export class AgentCore {
         .filter(st => st.status === 'completed')
         .map(st => `  ${st.id}: ${st.description}`)
         .join('\n');
+      let reflectPrompt = `## 已完成子任务\n\n${completedTasks}\n\n请审查上一个子任务的输出质量。`;
+
+      if (this.lastVerificationResult) {
+        const result = this.lastVerificationResult;
+        reflectPrompt += `\n\n## 验证结果\n\n${result.summary}\n\n请参考以上验证结果进行审查。如果存在问题未解决，请设置 verdict 为 "needs_revision"。`;
+      }
+
       messages[0] = {
         role: 'system',
-        content: `${messages[0].content}\n\n## 已完成子任务\n\n${completedTasks}\n\n请审查上一个子任务的输出质量。`,
+        content: `${messages[0].content}\n\n${reflectPrompt}`,
       };
     }
 
@@ -537,6 +583,7 @@ export class AgentCore {
       THINK: 'ACT',
       ACT: 'OBSERVE',
       OBSERVE: 'THINK',
+      VERIFIER: 'REFLECT',
       REFLECT: 'THINK',
       WAIT_USER: 'WAIT_USER',
       DONE: 'DONE',
@@ -600,23 +647,32 @@ In REFLECT, review the work critically:
 - If quality is good → verdict: "pass" → moves to next sub-task or DONE
 
 ## State Flow
-PLANNING → THINK → ACT → OBSERVE → (THINK | REFLECT) → (THINK | DONE)
+PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (THINK | DONE)
 
 - PLANNING: Create a plan with sub-tasks
 - THINK: Reason about current sub-task, decide what to do
 - ACT: Execute tool call or edit
 - OBSERVE: Review result. Set subTaskStatus to "continue" or "complete"
-- REFLECT: Review completed sub-task. Pass or request revision
+- VERIFIER: (auto) Automated verification: tsc --noEmit, eslint, npm test. Runs when subTaskStatus is "complete".
+- REFLECT: Review completed sub-task with verification results. Pass or request revision
 - WAIT_USER: Need user input
 - DONE: All done
 
 ## Available Tools
-- read_file: Read file content (required: path)
+- read_file: Read file content (required: path, optional: startLine, lineCount)
 - write_file: Write file content (required: path, content)
-- search_code: Search code patterns (required: pattern)
+- search_code: Search text patterns across workspace files (required: pattern, optional: filePattern)
 - run_terminal: Execute terminal commands
 - list_directory: List directory contents
-- get_diagnostics: Get error diagnostics
+- get_diagnostics: Get error/warning diagnostics
+- search_symbols: Search for code symbols (classes, functions, interfaces) by name using LSP index (required: query, optional: kind, maxResults)
+- get_workspace_context: Get workspace overview: file counts, languages, symbol statistics (optional: detail)
+- find_related_files: Find files related to a given file (required: filePath, optional: maxResults)
+- get_definition: Find definition of a symbol at a position using LSP (required: filePath, line, column)
+- get_references: Find all references to a symbol at a position using LSP (required: filePath, line, column, optional: maxResults)
+
+Before making any code changes, use search_symbols or get_workspace_context to understand the codebase.
+Use get_definition and get_references when you need to understand how symbols are connected.
 
 ## Response Formats
 
@@ -729,6 +785,10 @@ If revision needed:
 
   private formatContextMessage(ctx: AgentContext, userMsg: string): string {
     const parts: string[] = [];
+
+    if (ctx.workspaceInfo) {
+      parts.push(`Workspace overview:\n${ctx.workspaceInfo}`);
+    }
 
     if (ctx.currentFile) {
       parts.push(`Current file: ${ctx.currentFile}`);
