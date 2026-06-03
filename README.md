@@ -65,6 +65,9 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 
 三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 自动化 Verifier + 兜底 Reflection**
 
+> 说明 / Note  
+> 根目录 `README.md` 用于仓库总览。扩展本体的安装、配置、使用说明、更新日志与发布信息，请以 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md) 为准。
+
 ### 特性 / Features
 
 | 特性 / Feature | 说明 / Description |
@@ -75,7 +78,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 | 🗺️ **RepoGraph** | 模块分层 + 数据流图 + 跨模块依赖 |
 | 📋 **Planner 管道** | 6 步自动分解：intent → memory → embedding → repograph → context → answer |
 | 📦 **增量上下文** | 只加载相关文件，禁止全量扫描 |
-| 🤖 **Chat 侧边栏 / Sidebar Chat** | 智能代码问答，流式响应 / Intelligent Q&A with streaming |
+| 🤖 **Chat 侧边栏 / Sidebar Chat** | 多会话持久化、流式响应、Markdown 渲染、自动应用修改 + Diff / 回退 |
 | 🎼 **Composer** | 多文件批量编辑 / Multi-file batch editing |
 | ⚡ **Tab 补全 / Tab Completion** | 基于 FIM 的智能代码补全 / FIM-based code completion |
 | ✏️ **行内编辑 / Inline Editing** | 选中代码直接修改 / Edit selected code inline |
@@ -118,6 +121,12 @@ npm run compile
 1. `Ctrl+Shift+P` → `Coding Agent: 添加配置`，按照向导配置 LLM
 2. 点击左侧活动栏的 **Coding Agent 图标** 打开侧边聊天栏
 3. 在底部输入框输入你的问题
+
+### 扩展详细文档 / Extension Docs
+
+- 安装、配置、使用说明： [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
+- 扩展更新日志与发布说明： [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
+- 扩展源码目录： [extensions/coding-agent](file:///d:/mycode/Z%20Code/extensions/coding-agent)
 
 ### 配置管理 / Configuration
 
@@ -168,69 +177,23 @@ npm run compile
 
 ## 更新日志 / Changelog
 
-### v0.2.1 — 2026-06-02
+### v0.3.0 — 2026-06-03
 
-Repo-Level Agent 升级：多轮记忆 + Embedding 检索 + RepoGraph + Planner + 增量上下文
-Repo-Level Agent Upgrade: Multi-turn Memory, Embedding Retrieval, RepoGraph, Planner & Incremental Context
+Chat 工作流升级 / Chat Workflow Upgrade
 
-#### ✨ 新特性 / New Features
-- **Memory System**: 多轮记忆管理器，按 repo+session+intent 维度存储对话
-- **Embedding 检索**: TF-IDF 风格词频向量，Top-K 语义搜索
-- **RepoGraph**: 模块层级分类 + 数据流图 + 跨模块依赖分析
-- **Planner 管道**: intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 增量上下文构建 → LLM 回答
-- **增量上下文**: 禁止全量扫描，只加载 embedding top-K 文件 + repograph 相关节点
-- **项目理解输出**: 自动输出技术栈/模块分层/数据流图/模块层级树/关键文件/Build System
+#### ✨ 版本摘要 / Highlights
+- Chat 侧边栏支持项目内多会话、历史恢复与更接近 Trae 的交互体验
+- Assistant 回复支持 Markdown 渲染、流式展示与更自然的状态文案
+- 代码修改默认自动应用，并支持单条 Diff、整文件 Diff、单文件回退与整批回退
+- 轻量任务默认启用 Compact Mode，减少内部 Planning / ReAct 噪音
+- Webview、Diff 预览与回退链路做了稳定性修复
 
-### v0.3.0 — 2025-06-02
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
-Code Index + Verifier 升级 / Code Index & Verifier Upgrade
+### 历史版本 / Previous Versions
 
-#### ✨ 新特性 / New Features
-- **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
-- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
-- **LSP 工具链**: 新增 search_symbols / get_workspace_context / get_definition / get_references / find_related_files 工具
-- **VERIFIER 状态**: Agent 状态机新增状态，OBSERVE → VERIFIER → REFLECT 流转
-
-#### 🔧 优化 / Improvements
-- 状态流转图更新：PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)
-- 工作区上下文信息注入 Agent 上下文
-- tool-registry 重构为内聚的私有方法模式
-
-#### 🐛 修复 / Bug Fixes
-- search_symbols kind 过滤顺序修复：先 filter 再 slice，确保 kind 过滤不丢失结果
-
-### v0.2.0 — 2025-06-02
-
-三层混合架构升级 / Three-Layer Hybrid Architecture Upgrade
-
-#### ✨ 新特性 / New Features
-- **三层混合架构**: 宏观 Planner + 微观 ReAct + 兜底 Reflector
-- **Planner**: 将复杂需求拆解为子任务列表，生成高层计划
-- **ReAct Executor**: 每个子任务内 THINK → ACT → OBSERVE 循环
-- **Reflector**: 子任务完成后自动审查，发现缺陷自动迭代修正
-- **计划可视化**: System Prompt 实时展示子任务状态（✅完成 / 🔄进行中）
-
-#### 🔧 优化 / Improvements
-- 服务地址和 API Key 分离配置
-- 配置切换时不清除已有对话
-
-#### 🐛 修复 / Bug Fixes
-- WebviewView provider 重复注册错误处理
-- JSON 解析错误修复（提取首个合法 JSON）
-
-### v0.1.0 — 2025-05-30
-
-初始版本 / Initial Release
-
-#### ✨ 新特性 / New Features
-- Chat 侧边栏，流式响应
-- 多 LLM 后端支持（SGLang / OpenAI / Deepseek / 小米 MiMo）
-- 多配置管理（添加 / 切换 / 编辑 / 删除）
-- Tab 代码补全（FIM）
-- 行内编辑（选中代码直接修改）
-- Composer 多文件编辑
-- 对话历史持久化保存
-- 状态机架构 Agent Core
+- 旧版本的详细更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ---
 

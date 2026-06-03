@@ -316,6 +316,9 @@ extensions/coding-agent/
 
 ## 更新日志 / Changelog
 
+> 说明 / Note  
+> 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
 ### v0.3.0 — 2026-06-03
 
 产品体验升级：Chat 侧边栏更接近 Trae 的工作流，支持多会话、富文本展示、自动应用修改与可视化回退  
@@ -355,60 +358,41 @@ Product Experience Upgrade: Chat sidebar now feels closer to Trae, with multi-se
 - 修复自动应用后回退链路中“显示成功但实际文件未恢复”的静默失败问题，写回后会进行内容校验
 - 修复面板内回退确认交互与 VS Code Webview 不兼容导致的阻塞行为，改为非阻塞二次确认
 
-### v0.2.1 — 2026-06-02
+### v0.2.0 — 2026-06-02
 
-Repo-Level Agent 升级：多轮记忆 + Embedding 检索 + RepoGraph + Planner + 增量上下文
-Repo-Level Agent Upgrade: Multi-turn Memory, Embedding Retrieval, RepoGraph, Planner & Incremental Context
-
-#### ✨ 新特性 / New Features
-- **Memory System**: 多轮记忆管理器，按 repo+session+intent 维度存储对话，LLM 调用时可访问最近 N 轮+同意图历史
-- **Embedding 检索**: TF-IDF 风格词频向量，对 README/架构文档/核心源码/server 模块/config/build 文件自动生成向量，支持 Top-K 语义搜索
-- **RepoGraph**: 模块层级分类（entry/server/core/ui/config/build）+ import 依赖边 + 数据流路径（entry→server→core）+ 跨模块依赖分析
-- **Planner 管道**: 6 步自动分解：intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 增量上下文构建 → LLM 回答
-- **增量上下文**: 禁止全量扫描，只加载 embedding top-K 文件 + repograph 相关节点 + intent 相关模块
-- **项目理解输出**: 当用户问"这个项目是干什么"时，自动输出技术栈/模块分层/数据流图/模块层级树/关键文件/Build System/Dependencies
-- **新工具**: `memory_search` / `embedding_search` / `get_repo_graph` / `planner_execute`
-
-#### 🔧 优化 / Improvements
-- `processRequest` 重写为 pipeline 模式，支持多轮对话自动保存到 MemoryManager
-- ContextBuilder 新增 `buildIncremental()` 方法，仅从 embedding/repoGraph 结果增量构建
-- ContextManager 集成 MemoryManager / EmbeddingManager / RepoGraph / Planner
-- update.ps1 增加 Node.js 自动检测和下载，npm install 增加 `--legacy-peer-deps` 和 `--force` 备选
-- update.ps1 修复 vsce 打包时 npx.cmd 找不到 node 的问题（改用 node.exe 直接运行）
-
-### v0.2.0 — 2025-06-02
-
-体系化升级：三层混合架构 + Code Index + 上下文系统
-Architecture Upgrade: Hybrid Architecture, Code Index & Context System
+体系化升级：三层混合架构 + Code Index + Repo-Level Agent  
+Architecture Upgrade: Hybrid Architecture, Code Index & Repo-Level Agent
 
 #### ✨ 新特性 / New Features
 - **三层混合架构**: 宏观 Planner + 微观 ReAct + 自动化 Verifier + 兜底 Reflector
-- **Planner**: 将复杂需求拆解为子任务列表，生成高层计划
-- **ReAct Executor**: 每个子任务内 THINK → ACT → OBSERVE 循环，支持实时自我修正
-- **VERIFIER 状态**: Agent 状态机新增状态，OBSERVE → VERIFIER → REFLECT 流转
-- **Verifier**: 子任务完成后自动运行 tsc --noEmit / eslint / npm test，结果反馈给 Reflector
-- **Reflector**: 子任务完成后自动审查，结合验证结果做出通过/修正决策
+- **Planner / ReAct / Verifier / Reflector**: 复杂需求先拆解计划，再进入可验证的循环执行与反思修正
 - **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
-- **Repo Map**: 仓库结构地图，ASCII 目录树 + 入口点 + 关键文件 + 模块导出符号
-- **Dependency Graph**: 基于 import 解析的文件依赖关系图，支持传递依赖/被依赖分析
-- **Impact Analyzer**: 变更影响分析，评估修改文件的风险范围并识别架构风险
-- **Context Builder**: 自动上下文构建，意图分析 + 符号匹配 + 依赖扩展，TOP 15 文件选择
-- **Agent 工具链**: 新增 build_context / get_repo_map / get_dependency_graph / analyze_impact / search_symbols / get_definition / get_references 等工具
+- **Repo Map / Dependency Graph / Impact Analyzer**: 支持仓库结构梳理、依赖分析与改动影响评估
+- **Context Builder**: 自动上下文构建，按意图、符号、依赖扩展选择高价值文件
+- **Memory System**: 多轮记忆管理器，按 repo+session+intent 维度存储对话，LLM 调用时可访问最近 N 轮及同意图历史
+- **Embedding 检索**: TF-IDF 风格词频向量，对 README、架构文档、核心源码、server/config/build 文件自动生成向量，支持 Top-K 语义搜索
+- **RepoGraph**: 模块层级分类、import 依赖边、数据流路径与跨模块依赖分析
+- **增量上下文**: 禁止全量扫描，只加载 embedding top-K 文件、repograph 相关节点和 intent 相关模块
+- **项目理解输出**: 用户询问项目用途时，自动输出技术栈、模块分层、数据流图、模块层级树、关键文件、Build System 与 Dependencies
+- **Agent 工具链**: 新增 `build_context` / `get_repo_map` / `get_dependency_graph` / `analyze_impact` / `search_symbols` / `get_definition` / `get_references` / `memory_search` / `embedding_search` / `get_repo_graph` / `planner_execute`
 
 #### 🔧 优化 / Improvements
-- 状态流转图更新：PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)
-- 工作区上下文信息注入 Agent 上下文
-- Agent 上下文自动提示使用 build_context 工具
-- tool-registry 重构为内聚的私有方法模式
+- 状态流转图更新为 `PLANNING → THINK → ACT → OBSERVE → VERIFIER → REFLECT → (THINK | DONE)`
+- `processRequest` 重写为 pipeline 模式，支持多轮对话自动保存到 `MemoryManager`
+- `ContextBuilder` 新增 `buildIncremental()` 方法，仅从 embedding / repoGraph 结果增量构建
+- `ContextManager` 集成 `MemoryManager`、`EmbeddingManager`、`RepoGraph` 与 `Planner`
+- 工作区上下文信息注入 Agent 上下文，并自动提示使用 `build_context`
+- `tool-registry` 重构为更内聚的私有方法模式
 - 服务地址和 API Key 分离配置，配置切换时不清除已有对话
+- `update.ps1` 增加 Node.js 自动检测和下载，`npm install` 增加 `--legacy-peer-deps` 和 `--force` 备选
+- `update.ps1` 修复 `vsce` 打包时 `npx.cmd` 找不到 `node` 的问题，改为直接调用 `node.exe`
 
 #### 🐛 修复 / Bug Fixes
-- search_symbols kind 过滤顺序修复：先 filter 再 slice
-- REFLECT 状态中 undefined subTaskId/reflection 崩溃修复（fallback 机制）
-- Verifier 在命令不可用时报错修复（运行前先检查 npm/npx 是否存在）
-- View provider 重复注册导致扩展激活失败修复
-- WebviewView provider 重复注册错误处理
-- JSON 解析错误修复（提取首个合法 JSON）
+- 修复 `search_symbols` 的 `kind` 过滤顺序，改为先 `filter` 再 `slice`
+- 修复 `REFLECT` 状态中 `undefined subTaskId/reflection` 导致的崩溃，增加 fallback 机制
+- 修复 `Verifier` 在命令不可用时报错的问题，运行前先检查 `npm/npx` 是否存在
+- 修复 `View provider` 重复注册导致的扩展激活失败与 `WebviewView provider` 异常
+- 修复 JSON 解析错误，改为提取首个合法 JSON
 
 ### v0.1.0 — 2025-05-30
 
