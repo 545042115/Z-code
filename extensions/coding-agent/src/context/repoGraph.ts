@@ -45,6 +45,8 @@ export class RepoGraph {
   private nodes: GraphNode[] = [];
   private edges: GraphEdge[] = [];
   private dataFlows: DataFlowPath[] = [];
+  private nodeById: Map<string, GraphNode> = new Map();
+  private adjacencyList: Map<string, string[]> = new Map();
   private built = false;
 
   private readonly MODULE_PATTERNS: { tag: string; type: GraphNode['type']; patterns: RegExp[] }[] = [
@@ -89,6 +91,8 @@ export class RepoGraph {
     this.nodes = [];
     this.edges = [];
     this.dataFlows = [];
+    this.nodeById = new Map();
+    this.adjacencyList = new Map();
 
     const allNodes = this.dependencyGraph.getAllNodes();
     const sourceFiles = this.scanner.getSourceFiles();
@@ -114,20 +118,23 @@ export class RepoGraph {
       }
 
       this.nodes.push(graphNode);
+      this.nodeById.set(graphNode.id, graphNode);
+      this.adjacencyList.set(graphNode.id, []);
     }
 
     for (const node of allNodes) {
       const srcId = node.filePath;
-      if (!this.nodes.some(n => n.id === srcId)) continue;
+      if (!this.nodeById.has(srcId)) continue;
 
       for (const dep of node.dependencies) {
-        if (!this.nodes.some(n => n.id === dep)) continue;
+        if (!this.nodeById.has(dep)) continue;
         this.edges.push({
           source: srcId,
           target: dep,
           type: 'import',
           weight: 1,
         });
+        this.adjacencyList.get(srcId)!.push(dep);
       }
     }
 
@@ -349,9 +356,10 @@ export class RepoGraph {
       if (current === target) return true;
       if (visited.has(current)) continue;
       visited.add(current);
-      for (const edge of this.edges) {
-        if (edge.source === current && !visited.has(edge.target)) {
-          queue.push(edge.target);
+      const neighbors = this.adjacencyList.get(current) || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          queue.push(neighbor);
         }
       }
     }
@@ -370,10 +378,11 @@ export class RepoGraph {
       if (visited.has(current)) continue;
       visited.add(current);
 
-      for (const edge of this.edges) {
-        if (edge.source === current && !visited.has(edge.target) && !parent.has(edge.target)) {
-          parent.set(edge.target, current);
-          queue.push(edge.target);
+      const neighbors = this.adjacencyList.get(current) || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor) && !parent.has(neighbor)) {
+          parent.set(neighbor, current);
+          queue.push(neighbor);
         }
       }
     }
@@ -390,8 +399,8 @@ export class RepoGraph {
 
   private getCrossModuleEdges(): GraphEdge[] {
     return this.edges.filter(edge => {
-      const sourceNode = this.nodes.find(n => n.id === edge.source);
-      const targetNode = this.nodes.find(n => n.id === edge.target);
+      const sourceNode = this.nodeById.get(edge.source);
+      const targetNode = this.nodeById.get(edge.target);
       return sourceNode && targetNode && sourceNode.moduleTag !== targetNode.moduleTag;
     });
   }

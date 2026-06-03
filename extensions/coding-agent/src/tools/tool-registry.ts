@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { ContextManager } from '../context/context-manager';
 
@@ -57,6 +58,55 @@ export class ToolRegistry {
     return this.tools.get(name);
   }
 
+  /**
+   * 将用户传入的路径解析为绝对路径。
+   * 支持绝对路径和相对于工作区根目录的相对路径。
+   */
+  private resolveWorkspacePath(inputPath: string): string {
+    if (!inputPath) {
+      const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      if (!root) throw new Error('No workspace folder open');
+      return root;
+    }
+    // 已经是绝对路径
+    if (inputPath.match(/^[a-zA-Z]:[\\/]/) || inputPath.startsWith('/')) {
+      return inputPath;
+    }
+    // 相对路径：解析为工作区根目录下的绝对路径
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) throw new Error('No workspace folder open. Please provide an absolute path.');
+    const sep = root.includes('\\') ? '\\' : '/';
+    return `${root}${sep}${inputPath.replace(/\//g, sep)}`;
+  }
+
+  private resolveWritableWorkspacePath(inputPath: string): string {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root) {
+      throw new Error('No workspace folder open. Please provide a path inside an open workspace.');
+    }
+
+    const normalizedRoot = path.resolve(root);
+    const isWindowsWorkspace = /^[a-zA-Z]:[\\/]/.test(normalizedRoot);
+    let normalizedInput = inputPath || '';
+
+    // Windows 工作区下，将形如 "/foo/bar.py" 的伪绝对路径视为误用，改为相对路径处理。
+    if (isWindowsWorkspace && /^\/[^/]/.test(normalizedInput)) {
+      normalizedInput = normalizedInput.replace(/^\/+/, '');
+    }
+
+    const resolvedPath = path.isAbsolute(normalizedInput)
+      ? path.resolve(normalizedInput)
+      : path.resolve(normalizedRoot, normalizedInput);
+
+    const relative = path.relative(normalizedRoot, resolvedPath);
+    const isInsideWorkspace = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    if (!isInsideWorkspace) {
+      throw new Error(`Path must be inside workspace root: ${normalizedRoot}. Use a relative path like "snake_game.py".`);
+    }
+
+    return resolvedPath;
+  }
+
   getAll(): Tool[] {
     return Array.from(this.tools.values());
   }
@@ -75,6 +125,15 @@ export class ToolRegistry {
     if (!tool) {
       throw new Error(`Tool not found: ${name}`);
     }
+
+    // 校验必填参数
+    const missingParams = tool.parameters
+      .filter(p => p.required && (params[p.name] === undefined || params[p.name] === null || params[p.name] === ''))
+      .map(p => p.name);
+    if (missingParams.length > 0) {
+      throw new Error(`Missing required parameter(s) for ${name}: ${missingParams.join(', ')}. Expected: ${tool.parameters.map(p => `${p.name}${p.required ? ' (required)' : ' (optional)'}`).join(', ')}`);
+    }
+
     return await tool.execute(params);
   }
 
@@ -83,27 +142,24 @@ export class ToolRegistry {
       name: 'read_file',
       description: 'Read the content of a file. Returns the full file content.',
       parameters: [
-        { name: 'path', type: 'string', description: 'Absolute path to the file', required: true },
+        { name: 'path', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
         { name: 'startLine', type: 'number', description: 'Starting line number (1-based, optional)', required: false },
         { name: 'lineCount', type: 'number', description: 'Number of lines to read (optional)', required: false },
       ],
       execute: async (params) => {
-        const uri = vscode.Uri.file(params.path);
-        try {
-          const doc = await vscode.workspace.openTextDocument(uri);
-          const content = doc.getText();
-          const lines = content.split('\n');
+        const resolvedPath = this.resolveWorkspacePath(params.path);
+        const uri = vscode.Uri.file(resolvedPath);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const content = doc.getText();
+        const lines = content.split('\n');
 
-          if (params.startLine !== undefined) {
-            const start = Math.max(0, (params.startLine || 1) - 1);
-            const count = params.lineCount || lines.length;
-            return lines.slice(start, start + count).join('\n');
-          }
-
-          return content;
-        } catch (err) {
-          return `Error reading file: ${err}`;
+        if (params.startLine !== undefined) {
+          const start = Math.max(0, (params.startLine || 1) - 1);
+          const count = params.lineCount || lines.length;
+          return lines.slice(start, start + count).join('\n');
         }
+
+        return content;
       },
     };
   }
@@ -113,18 +169,17 @@ export class ToolRegistry {
       name: 'write_file',
       description: 'Write content to a file. Creates the file if it does not exist.',
       parameters: [
-        { name: 'path', type: 'string', description: 'Absolute path to the file', required: true },
+        { name: 'path', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
         { name: 'content', type: 'string', description: 'Full file content to write', required: true },
       ],
       execute: async (params) => {
-        const uri = vscode.Uri.file(params.path);
-        try {
-          const encoder = new TextEncoder();
-          await vscode.workspace.fs.writeFile(uri, encoder.encode(params.content));
-          return `File written: ${params.path}`;
-        } catch (err) {
-          return `Error writing file: ${err}`;
-        }
+        const resolvedPath = this.resolveWritableWorkspacePath(params.path);
+        const uri = vscode.Uri.file(resolvedPath);
+        const encoder = new TextEncoder();
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
+        await vscode.workspace.fs.writeFile(uri, encoder.encode(params.content));
+        await vscode.workspace.fs.stat(uri);
+        return `File written successfully: ${resolvedPath}`;
       },
     };
   }
@@ -141,65 +196,88 @@ export class ToolRegistry {
       execute: async (params) => {
         const maxResults = params.maxResults || 20;
         const includePattern = params.filePattern ? `**/${params.filePattern}` : '**/*';
-        const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**}';
+        const excludePattern = '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/Pods/**,**/vendor/**,**/.cache/**}';
 
-        try {
-          const uris = await vscode.workspace.findFiles(
-            includePattern,
-            excludePattern,
-            200
-          );
+        const uris = await vscode.workspace.findFiles(
+          includePattern,
+          excludePattern,
+          200
+        );
 
-          const results: { file: string; line: number; text: string }[] = [];
-          const regex = new RegExp(params.pattern, 'gi');
+        const results: { file: string; line: number; text: string }[] = [];
+        // 不使用 g 标志，避免 lastIndex 递增导致交替漏匹配
+        const regex = new RegExp(params.pattern, 'i');
 
-          for (const uri of uris) {
-            if (results.length >= maxResults) break;
-            try {
-              const doc = await vscode.workspace.openTextDocument(uri);
-              for (let i = 0; i < doc.lineCount; i++) {
-                const line = doc.lineAt(i);
-                if (regex.test(line.text)) {
-                  results.push({
-                    file: uri.fsPath,
-                    line: i + 1,
-                    text: line.text.trim().substring(0, 150),
-                  });
-                  if (results.length >= maxResults) break;
-                }
+        for (const uri of uris) {
+          if (results.length >= maxResults) break;
+          try {
+            const doc = await vscode.workspace.openTextDocument(uri);
+            for (let i = 0; i < doc.lineCount; i++) {
+              const line = doc.lineAt(i);
+              if (regex.test(line.text)) {
+                results.push({
+                  file: uri.fsPath,
+                  line: i + 1,
+                  text: line.text.trim().substring(0, 150),
+                });
+                if (results.length >= maxResults) break;
               }
-            } catch {
-              continue;
             }
+          } catch {
+            continue;
           }
-
-          if (results.length === 0) {
-            return 'No results found.';
-          }
-
-          return results.map(r => `${r.file}:${r.line}: ${r.text}`).join('\n');
-        } catch (err) {
-          return `Error searching code: ${err}`;
         }
+
+        if (results.length === 0) {
+          return `[搜索结果] 未找到匹配 "${params.pattern}" 的代码。请尝试：1) 简化搜索词 2) 使用 search_symbols 工具 3) 使用 list_directory 浏览项目结构`;
+        }
+
+        return results.map(r => `${r.file}:${r.line}: ${r.text}`).join('\n');
       },
     };
   }
 
+  private static readonly DANGEROUS_COMMAND_PATTERNS = [
+    /\brm\s+-rf\b/, /\brm\s+-r\b/, /\bdel\s+\/[sfq]/i,
+    /\bformat\s+[a-z]:/i, /\bshutdown\b/i, /\breboot\b/i,
+    /\bmkfs\b/i, /\bdd\s+if=/i, /\b:\(\)\{.*;\}\s*;/,
+    /\bchmod\s+-R\s+777\b/, /\bchown\s+-R\b/,
+    /\bgit\s+push\s+--force/i, /\bgit\s+reset\s+--hard/i,
+    /\bgit\s+clean\s+-f/i, /\bgit\s+checkout\s+\.\s*$/i,
+  ];
+
   private makeRunTerminalTool(): Tool {
     return {
       name: 'run_terminal',
-      description: 'Execute a terminal command in the workspace root.',
+      description: 'Execute a terminal command in the workspace root. Destructive commands require user confirmation.',
       parameters: [
         { name: 'command', type: 'string', description: 'Command to execute', required: true },
         { name: 'cwd', type: 'string', description: 'Working directory (default: workspace root)', required: false },
         { name: 'timeoutMs', type: 'number', description: 'Timeout in milliseconds', required: false },
       ],
       execute: async (params) => {
+        const command: string = params.command || '';
+
+        // 安全检查：检测危险命令
+        for (const pattern of ToolRegistry.DANGEROUS_COMMAND_PATTERNS) {
+          if (pattern.test(command)) {
+            const confirm = await vscode.window.showWarningMessage(
+              `⚠️ 该命令可能具有破坏性：\n\`${command}\`\n\n确认执行？`,
+              { modal: true },
+              '确认执行'
+            );
+            if (confirm !== '确认执行') {
+              return 'Command cancelled by user (dangerous pattern detected).';
+            }
+            break;
+          }
+        }
+
         const cwd = params.cwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
         const timeout = params.timeoutMs || 30000;
         return new Promise<string>((resolve) => {
           const { exec } = require('child_process');
-          exec(params.command, { cwd, timeout, maxBuffer: 1024 * 1024 }, (err: any, stdout: string, stderr: string) => {
+          exec(command, { cwd, timeout, maxBuffer: 1024 * 1024 }, (err: any, stdout: string, stderr: string) => {
             let result = '';
             if (stdout) result += `[stdout]\n${stdout.substring(0, 3000)}`;
             if (stderr) result += `\n[stderr]\n${stderr.substring(0, 1000)}`;
@@ -216,22 +294,19 @@ export class ToolRegistry {
       name: 'list_directory',
       description: 'List files and directories in a given path.',
       parameters: [
-        { name: 'path', type: 'string', description: 'Absolute path to the directory', required: true },
+        { name: 'path', type: 'string', description: 'Directory path (absolute or relative to workspace root). Omit to list workspace root.', required: false },
         { name: 'depth', type: 'number', description: 'Maximum depth to traverse (default: 1)', required: false },
       ],
       execute: async (params) => {
         const depth = params.depth || 1;
-        try {
-          const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(params.path));
-          const result: string[] = [];
-          for (const [name, type] of entries) {
-            const icon = type === vscode.FileType.Directory ? '[DIR]' : '[FILE]';
-            result.push(`${icon} ${name}`);
-          }
-          return result.join('\n');
-        } catch (err) {
-          return `Error listing directory: ${err}`;
+        const resolvedPath = this.resolveWorkspacePath(params.path || '');
+        const entries = await vscode.workspace.fs.readDirectory(vscode.Uri.file(resolvedPath));
+        const result: string[] = [];
+        for (const [name, type] of entries) {
+          const icon = type === vscode.FileType.Directory ? '[DIR]' : '[FILE]';
+          result.push(`${icon} ${name}`);
         }
+        return result.join('\n');
       },
     };
   }

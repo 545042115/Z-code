@@ -16,11 +16,12 @@ export interface EmbeddingResult {
 
 export class EmbeddingManager {
   private vectors: EmbeddingVector[] = [];
+  private documentFrequency: Map<string, number> = new Map();
+  private totalDocuments: number = 0;
   private built = false;
   private readonly TOP_K_DEFAULT = 10;
 
   private readonly TARGET_PATTERNS = [
-    /readme\.md$/i,
     /architect|developing|design|overview|structure/i,
     /package\.json$/,
     /tsconfig\./,
@@ -38,6 +39,7 @@ export class EmbeddingManager {
     /app\.(ts|js|py)$/,
     /core|util|helper|common|shared|base/i,
     /plugin|extension|module|provider/i,
+    /readme\.md$/i,
   ];
 
   private readonly EXCLUDE_PATTERNS = [
@@ -45,9 +47,21 @@ export class EmbeddingManager {
     /\.git/,
     /dist/,
     /out/,
+    /build/,
     /\.test\./,
     /\.spec\./,
     /__tests__/,
+    /\/Pods\//,
+    /\/Carthage\//,
+    /\/vendor\/bundle\//,
+    /\.cache/,
+    /\.gradle/,
+    /\/target\//,
+    /DerivedData/,
+    /\.venv/,
+    /\/venv\//,
+    /\/env\//,
+    /\.tox/,
   ];
 
   constructor(private readonly scanner: WorkspaceScanner) {}
@@ -61,22 +75,46 @@ export class EmbeddingManager {
     const targetFiles = allFiles.filter(f => this.shouldIndex(f.path));
 
     this.vectors = [];
+    this.documentFrequency = new Map();
+    this.totalDocuments = 0;
+
+    // Phase 1: 收集所有文档的词频并统计文档频率
+    const rawVectors: { filePath: string; termFreq: Map<string, number>; tokens: string[]; summary: string }[] = [];
+
     for (const file of targetFiles) {
       try {
         const content = await this.readFileContent(file.path);
         if (!content || content.length < 20) continue;
 
-        const vector = this.buildVector(content);
+        const { vector: termFreq, tokens } = this.buildTermFrequency(content);
         const summary = this.extractSummary(content);
-        this.vectors.push({
-          filePath: file.path,
-          vector: vector.vector,
-          tokens: vector.tokens,
-          summary,
-        });
+
+        // 统计文档频率
+        for (const term of termFreq.keys()) {
+          this.documentFrequency.set(term, (this.documentFrequency.get(term) || 0) + 1);
+        }
+        this.totalDocuments++;
+
+        rawVectors.push({ filePath: file.path, termFreq, tokens, summary });
       } catch {
         continue;
       }
+    }
+
+    // Phase 2: 计算 TF-IDF 权重
+    for (const raw of rawVectors) {
+      const tfidfVector = new Map<string, number>();
+      for (const [term, tf] of raw.termFreq) {
+        const df = this.documentFrequency.get(term) || 1;
+        const idf = Math.log(this.totalDocuments / df) + 1;
+        tfidfVector.set(term, tf * idf);
+      }
+      this.vectors.push({
+        filePath: raw.filePath,
+        vector: tfidfVector,
+        tokens: raw.tokens,
+        summary: raw.summary,
+      });
     }
 
     this.built = true;
@@ -85,11 +123,19 @@ export class EmbeddingManager {
   search(query: string, topK: number = this.TOP_K_DEFAULT): EmbeddingResult[] {
     if (!this.built || this.vectors.length === 0) return [];
 
-    const queryVector = this.buildVector(query);
+    const { vector: queryTf } = this.buildTermFrequency(query);
+    // 对查询也应用 IDF
+    const queryVector = new Map<string, number>();
+    for (const [term, tf] of queryTf) {
+      const df = this.documentFrequency.get(term) || 1;
+      const idf = Math.log(this.totalDocuments / df) + 1;
+      queryVector.set(term, tf * idf);
+    }
+
     const scored: { filePath: string; score: number; summary: string }[] = [];
 
     for (const vec of this.vectors) {
-      const score = this.cosineSimilarity(queryVector.vector, vec.vector);
+      const score = this.cosineSimilarity(queryVector, vec.vector);
       const boost = this.getPathBoost(query, vec.filePath);
       scored.push({
         filePath: vec.filePath,
@@ -149,7 +195,7 @@ export class EmbeddingManager {
     }
   }
 
-  private buildVector(text: string): { vector: Map<string, number>; tokens: string[] } {
+  private buildTermFrequency(text: string): { vector: Map<string, number>; tokens: string[] } {
     const tokens = this.tokenize(text);
     const termFreq = new Map<string, number>();
 
@@ -264,7 +310,26 @@ export class EmbeddingManager {
       boost += 0.1;
     }
 
+    if (this.isProjectUnderstandingQuery(lowerQuery)) {
+      if (/readme\.md$/i.test(lowerPath)) {
+        boost -= 0.25;
+      }
+      if (/\/(main|index|app|entry)\.(ts|js|tsx|jsx|py|go|rs|java)$/i.test(lowerPath)) {
+        boost += 0.2;
+      }
+      if (/\/(agent|core|engine|service|server|router)\.(ts|js|tsx|jsx|py|go|rs|java)$/i.test(lowerPath)) {
+        boost += 0.15;
+      }
+      if (/src\/(agent|core|engine|service|server|router)\//i.test(lowerPath)) {
+        boost += 0.1;
+      }
+    }
+
     return boost;
+  }
+
+  private isProjectUnderstandingQuery(query: string): boolean {
+    return /这个项目是干什么|项目是干什么|项目是做什么|介绍项目|项目简介|项目介绍|解释项目|about this project|项目功能|项目模块|项目作用|项目说明|项目用途|项目结构|目录结构|项目架构|分析项目|分析架构|项目组织|查看.*项目.*作用|查看.*项目.*功能|查看.*项目.*用途|当前项目.*作用|当前项目.*功能|当前项目.*用途|项目概述|项目概况/i.test(query);
   }
 
   private extractSummary(content: string): string {

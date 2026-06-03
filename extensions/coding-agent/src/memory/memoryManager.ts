@@ -20,6 +20,39 @@ export interface SessionMemory {
 export class MemoryManager {
   private sessions: Map<string, SessionMemory> = new Map();
   private readonly MAX_ENTRIES_PER_SESSION = 50;
+  private storage: vscode.Memento | null = null;
+  private readonly STORAGE_KEY = 'codingAgent.sessions';
+  private saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  init(context: vscode.ExtensionContext): void {
+    this.storage = context.globalState;
+    this.loadFromStorage();
+  }
+
+  private loadFromStorage(): void {
+    if (!this.storage) return;
+    const data = this.storage.get<Record<string, SessionMemory>>(this.STORAGE_KEY, {});
+    for (const [key, session] of Object.entries(data)) {
+      this.sessions.set(key, session);
+    }
+  }
+
+  private scheduleSave(): void {
+    if (this.saveTimer) clearTimeout(this.saveTimer);
+    // 防抖：500ms 内多次修改只保存一次
+    this.saveTimer = setTimeout(() => {
+      this.saveToStorage();
+    }, 500);
+  }
+
+  private async saveToStorage(): Promise<void> {
+    if (!this.storage) return;
+    const data: Record<string, SessionMemory> = {};
+    for (const [key, session] of this.sessions) {
+      data[key] = session;
+    }
+    await this.storage.update(this.STORAGE_KEY, data);
+  }
 
   private getRepoPath(): string {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || 'unknown';
@@ -59,6 +92,7 @@ export class MemoryManager {
     }
     session.updatedAt = Date.now();
     if (intent) session.lastIntent = intent;
+    this.scheduleSave();
   }
 
   getRecentContext(sessionId: string, n: number = 10): MemoryEntry[] {
@@ -78,6 +112,31 @@ export class MemoryManager {
     return parts.join('\n');
   }
 
+  getContextForPromptWithBudget(sessionId: string, maxTotalChars: number = 3000): string {
+    const entries = this.getRecentContext(sessionId, 20);
+    if (entries.length === 0) return '';
+
+    // 按相关性排序：有 intent 匹配的优先
+    const sorted = [...entries].sort((a, b) => {
+      if (a.intent && !b.intent) return -1;
+      if (!a.intent && b.intent) return 1;
+      return b.timestamp - a.timestamp;
+    });
+
+    const parts: string[] = ['## Conversation History\n'];
+    let totalChars = 0;
+
+    for (const entry of sorted) {
+      const roleLabel = entry.role === 'user' ? 'User' : entry.role === 'assistant' ? 'Assistant' : 'Context';
+      const line = `[${roleLabel}]: ${entry.content.slice(0, 300)}`;
+      if (totalChars + line.length > maxTotalChars) break;
+      parts.push(line);
+      totalChars += line.length;
+    }
+
+    return parts.join('\n');
+  }
+
   getSessionSummary(sessionId: string): string {
     const session = this.getOrCreateSession(sessionId);
     const userCount = session.entries.filter(e => e.role === 'user').length;
@@ -92,10 +151,27 @@ export class MemoryManager {
   clearSession(sessionId: string): void {
     const key = this.getSessionKey(sessionId);
     this.sessions.delete(key);
+    this.scheduleSave();
   }
 
   findByIntent(sessionId: string, intent: string): MemoryEntry[] {
     const session = this.getOrCreateSession(sessionId);
     return session.entries.filter(e => e.intent === intent);
+  }
+
+  /**
+   * 跨会话搜索：在所有会话中按 intent 检索
+   */
+  findByIntentAcrossSessions(intent: string, limit: number = 10): MemoryEntry[] {
+    const results: MemoryEntry[] = [];
+    for (const session of this.sessions.values()) {
+      for (const entry of session.entries) {
+        if (entry.intent === intent) {
+          results.push(entry);
+        }
+        if (results.length >= limit) return results;
+      }
+    }
+    return results;
   }
 }

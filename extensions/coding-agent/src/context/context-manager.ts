@@ -38,6 +38,7 @@ export class ContextManager {
   readonly planner: Planner;
 
   private initialized = false;
+  private embeddingManagerDirty = false;
 
   constructor() {
     this.scanner = new WorkspaceScanner();
@@ -98,10 +99,19 @@ export class ContextManager {
     const watcher = this.scanner.watch();
     context.subscriptions.push(watcher);
 
-    this.scanner.onFileChange((uri) => {
+    this.scanner.onFileChange(async (uri) => {
       const ext = uri.fsPath.substring(uri.fsPath.lastIndexOf('.'));
       if (this.scanner.SOURCE_EXTENSIONS.has(ext)) {
         this.symbolIndex.buildForFile(uri);
+        // Incremental rebuild dependency graph and repo graph
+        try {
+          await this.dependencyGraph.build();
+          this.repoGraph.build();
+        } catch {
+          // non-fatal: incremental rebuild failed
+        }
+        // Mark embedding as needing rebuild
+        this.embeddingManagerDirty = true;
       }
     });
 
@@ -109,6 +119,11 @@ export class ContextManager {
   }
 
   async gatherContext(): Promise<AgentContext> {
+    if (this.embeddingManagerDirty && this.initialized) {
+      this.embeddingManagerDirty = false;
+      this.embeddingManager.build().catch(() => {});
+    }
+
     const editor = vscode.window.activeTextEditor;
     const ctx: AgentContext = {
       currentFile: editor?.document.uri.fsPath,

@@ -27,6 +27,7 @@ export interface IncrementalContext {
   contextPackage?: ContextPackage;
   selectedFiles: string[];
   accumulated: string;
+  currentFile?: string;
 }
 
 export class Planner {
@@ -50,6 +51,7 @@ export class Planner {
         repoGraphOverview: '',
         selectedFiles: [],
         accumulated: '',
+        currentFile: undefined,
       },
       summary: `Plan for [${intent}]: ${request.slice(0, 80)}`,
     };
@@ -98,7 +100,7 @@ export class Planner {
       }
 
       case 'build_context': {
-        const pkg = await this.contextBuilder.build(request);
+        const pkg = await this.contextBuilder.build(request, context.currentFile);
         context.contextPackage = pkg;
 
         const embeddingPaths = new Set(context.embeddingResults.map(r => r.filePath));
@@ -125,29 +127,25 @@ export class Planner {
   private classifyIntent(request: string): IntentType {
     const lower = request.toLowerCase();
 
-    if (/这个项目是干什么|项目是干什么|项目是做什么|介绍项目|项目简介|about this project|项目功能|项目模块|项目作用|项目说明|项目用途/i.test(lower)) {
-      return 'project_understanding';
-    }
-    if (/项目结构|目录结构|项目架构|分析项目|分析架构|项目组织/i.test(lower)) {
-      return 'project_understanding';
-    }
-    if (/修复|fix|bug|error|issue|crash|fail|not work|wrong|broken/i.test(lower)) {
-      return 'bug_fix';
-    }
-    if (/添加|增加|新增|new|add|create|implement|feature/i.test(lower)) {
-      return 'feature_add';
-    }
-    if (/重构|refactor|clean|improve|optimize|restruct/i.test(lower)) {
-      return 'refactor';
-    }
-    if (/删除|remove|delete|drop/i.test(lower)) {
-      return 'removal';
-    }
-    if (/测试|test|spec|unit|integration/i.test(lower)) {
-      return 'testing';
-    }
-    if (/文档|doc|readme|comment|documentation|explain/i.test(lower)) {
-      return 'documentation';
+    // NOTE: 此逻辑与 contextBuilder.classifyIntent() 保持同步
+    // 如需修改，请同步更新 contextBuilder 中的对应方法
+    const intentChecks: [RegExp, IntentType][] = [
+      [/这个项目是干什么|项目是干什么|项目是做什么|介绍项目|项目简介|项目介绍|解释项目|about this project|项目功能|项目模块|项目作用|项目说明|项目用途/i, 'project_understanding'],
+      [/介绍.*项目|解释.*项目|这个项目.*作用|这个项目.*功能|这个项目.*用途/i, 'project_understanding'],
+      [/查看.*项目.*作用|查看.*项目.*功能|查看.*项目.*用途|当前项目.*作用|当前项目.*功能|当前项目.*用途|项目概述|项目概况/i, 'project_understanding'],
+      [/项目结构|目录结构|项目架构|分析项目|分析架构|项目组织/i, 'project_understanding'],
+      [/修复|fix|bug|error|issue|crash|fail|not work|wrong|broken/i, 'bug_fix'],
+      [/添加|增加|新增|new|add|create|implement|feature/i, 'feature_add'],
+      [/重构|refactor|clean|improve|optimize|restruct/i, 'refactor'],
+      [/删除|remove|delete|drop/i, 'removal'],
+      [/测试|test|spec|unit|integration/i, 'testing'],
+      [/文档|doc|readme|comment|documentation|explain/i, 'documentation'],
+    ];
+
+    for (const [pattern, intent] of intentChecks) {
+      if (pattern.test(lower)) {
+        return intent;
+      }
     }
 
     return 'other';
@@ -156,25 +154,29 @@ export class Planner {
   private buildSteps(intent: IntentType, request: string, sessionId: string): PlanStep[] {
     const steps: PlanStep[] = [];
 
-    if (intent === 'project_understanding') {
+    // 所有意图都需要分类和记忆检索
+    steps.push(
+      { id: 'step-1', description: 'Classify user intent', action: 'classify_intent', status: 'pending' },
+      { id: 'step-2', description: 'Relevant memory retrieval', action: 'retrieve_memory', status: 'pending' },
+    );
+
+    // 只有需要深度理解项目的意图才执行 embedding + repo graph + context
+    const needsDeepContext = intent === 'project_understanding' || intent === 'refactor';
+    const needsTargetedContext = intent === 'bug_fix' || intent === 'feature_add' || intent === 'removal' || intent === 'testing';
+
+    if (needsDeepContext) {
       steps.push(
-        { id: 'step-1', description: 'Classify user intent', action: 'classify_intent', status: 'pending' },
-        { id: 'step-2', description: 'Relevant memory retrieval', action: 'retrieve_memory', status: 'pending' },
         { id: 'step-3', description: 'Embedding search for architecture docs', action: 'search_embedding', status: 'pending' },
         { id: 'step-4', description: 'Query repo graph for module overview', action: 'query_repograph', status: 'pending' },
         { id: 'step-5', description: 'Build comprehensive project context', action: 'build_context', status: 'pending' },
-        { id: 'step-6', description: 'Generate project understanding answer', action: 'generate_answer', status: 'pending' },
       );
-    } else {
+    } else if (needsTargetedContext) {
       steps.push(
-        { id: 'step-1', description: 'Classify user intent', action: 'classify_intent', status: 'pending' },
-        { id: 'step-2', description: 'Retrieve relevant conversation history', action: 'retrieve_memory', status: 'pending' },
-        { id: 'step-3', description: 'Search semantically relevant files', action: 'search_embedding', status: 'pending' },
-        { id: 'step-4', description: 'Query repo graph for relevant modules', action: 'query_repograph', status: 'pending' },
-        { id: 'step-5', description: 'Build focused context package', action: 'build_context', status: 'pending' },
-        { id: 'step-6', description: 'Generate answer with incremental context', action: 'generate_answer', status: 'pending' },
+        { id: 'step-3', description: 'Search relevant files', action: 'search_embedding', status: 'pending' },
+        { id: 'step-4', description: 'Build focused context', action: 'build_context', status: 'pending' },
       );
     }
+    // documentation / other 等简单意图只做分类+记忆，其余由 ReAct 循环中的工具调用完成
 
     return steps;
   }

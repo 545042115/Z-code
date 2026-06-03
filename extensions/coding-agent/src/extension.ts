@@ -29,6 +29,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
     // 初始化共享 ContextManager（含 WorkspaceScanner + SymbolIndex + Retrieval）
     contextManager = new ContextManager();
+    contextManager.memoryManager.init(context);
     initializeCodeIndex(context);
 
     // 初始化 Agent Core（传入共享 ContextManager）
@@ -43,7 +44,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (chatViewProviderDisposable) {
         chatViewProviderDisposable.dispose();
       }
-      const chatViewProvider = new ChatViewProvider(context.extensionUri, agent);
+      const chatViewProvider = new ChatViewProvider(context.extensionUri, agent, context);
       chatViewProviderDisposable = vscode.window.registerWebviewViewProvider(
         ChatViewProvider.VIEW_TYPE,
         chatViewProvider,

@@ -51,7 +51,7 @@ export class ImpactAnalyzer {
       moduleSet.add(dir);
     }
 
-    const score = this.calculateScore(affectedFiles.length, entryPoints.length, allAffected.size);
+    const score = this.calculateScore(entryPoints.length, allAffected.size);
 
     const summary = [
       `Impact analysis for: ${this.shortenPath(filePath)}`,
@@ -83,10 +83,6 @@ export class ImpactAnalyzer {
       if (sym.name === symbolName || sym.name.toLowerCase() === symbolName.toLowerCase()) {
         return this.analyze(sym.filePath);
       }
-    }
-
-    if (matches.length > 0) {
-      return this.analyze(matches[0].filePath);
     }
 
     return null;
@@ -170,7 +166,7 @@ export class ImpactAnalyzer {
     return this.analyze(filePath).summary;
   }
 
-  private calculateScore(affectedCount: number, entryPointCount: number, totalAffected: number): 'low' | 'medium' | 'high' | 'critical' {
+  private calculateScore(entryPointCount: number, totalAffected: number): 'low' | 'medium' | 'high' | 'critical' {
     if (totalAffected > 50 || entryPointCount > 3) return 'critical';
     if (totalAffected > 20 || entryPointCount > 1) return 'high';
     if (totalAffected > 5) return 'medium';

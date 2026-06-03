@@ -190,28 +190,37 @@ export class ContextBuilder {
     };
   }
 
+  private isExcludedPath(filePath: string): boolean {
+    const lower = filePath.replace(/\\/g, '/').toLowerCase();
+    const excludeDirs = ['/node_modules/', '/.git/', '/dist/', '/build/', '/out/',
+      '/pods/', '/carthage/', '/vendor/bundle/', '/.cache/', '/.gradle/',
+      '/target/', '/deriveddata/', '/.venv/', '/venv/', '/env/', '/.tox/'];
+    return excludeDirs.some(d => lower.includes(d));
+  }
+
   buildProjectContext(request: string): ProjectContextPackage {
     const intent = this.classifyProjectIntent(request);
 
-    const allFiles = this.scanner.getFiles();
+    // 使用主工作区文件，避免多工作区场景下上下文污染
+    const allFiles = this.scanner.getPrimaryWorkspaceFiles();
+    const sourceFiles = this.scanner.getPrimaryWorkspaceSourceFiles().map(f => f.path);
 
     const readmeFiles = allFiles.filter(f =>
-      /readme\.md$/i.test(f.path)
+      /readme\.md$/i.test(f.path) && !this.isExcludedPath(f.path)
     ).map(f => f.path);
 
     const architectureFiles = allFiles.filter(f =>
-      /architect|developing|design|overview|structure/i.test(f.path) && /\.(md|txt)$/i.test(f.path)
+      /architect|developing|design|overview|structure/i.test(f.path) && /\.(md|txt)$/i.test(f.path) && !this.isExcludedPath(f.path)
     ).map(f => f.path);
 
     const buildFiles = allFiles.filter(f =>
-      /CMakeLists\.txt$|package\.json$|\.config\.(js|ts|json)$|tsconfig\..+\.json$|webpack\.config|Dockerfile|docker-compose|Makefile$/i.test(f.path) && !f.path.includes('node_modules')
+      /CMakeLists\.txt$|package\.json$|\.config\.(js|ts|json)$|tsconfig\..+\.json$|webpack\.config|Dockerfile|docker-compose|Makefile$/i.test(f.path) && !this.isExcludedPath(f.path)
     ).map(f => f.path);
 
     const serverModules = allFiles.filter(f =>
-      /server|api|route|controller|handler|nav_server|render_server|map_server|map_editor/i.test(f.path) && !f.path.includes('node_modules')
+      /server|api|route|controller|handler|nav_server|render_server|map_server|map_editor/i.test(f.path) && !this.isExcludedPath(f.path)
     ).map(f => f.path);
 
-    const sourceFiles = this.scanner.getSourceFiles().map(f => f.path);
     const nodeDegrees = sourceFiles.map(fp => ({
       path: fp,
       degree: (this.dependencyGraph.getNode(fp)?.dependencies.length || 0) +
@@ -227,8 +236,16 @@ export class ContextBuilder {
 
     const selectedSet = new Set<string>();
 
-    for (const f of [...readmeFiles, ...architectureFiles, ...buildFiles, ...serverModules, ...coreModules, ...entryPoints]) {
+    // 项目介绍类问题优先放入源码证据，README 仅作为补充兜底。
+    for (const f of [...entryPoints, ...coreModules, ...serverModules, ...buildFiles, ...architectureFiles]) {
       selectedSet.add(f);
+    }
+
+    if (selectedSet.size < 8) {
+      for (const f of readmeFiles) {
+        selectedSet.add(f);
+        if (selectedSet.size >= 8) break;
+      }
     }
 
     const selectedFiles = Array.from(selectedSet).slice(0, 15);
@@ -238,7 +255,7 @@ export class ContextBuilder {
 
     return {
       projectSummary,
-      architectureFiles: readmeFiles.concat(architectureFiles).slice(0, 5),
+      architectureFiles: architectureFiles.slice(0, 5),
       buildFiles: buildFiles.slice(0, 5),
       serverModules: serverModules.slice(0, 5),
       coreModules: coreModules.slice(0, 5),
@@ -346,7 +363,13 @@ export class ContextBuilder {
   classifyIntent(request: string): string {
     const lower = request.toLowerCase();
 
-    if (/这个项目是干什么|项目是干什么|项目是做什么|介绍项目|项目简介|about this project/i.test(lower)) {
+    if (/这个项目是干什么|项目是干什么|项目是做什么|介绍项目|项目简介|项目介绍|解释项目|about this project/i.test(lower)) {
+      return 'project_understanding';
+    }
+    if (/介绍.*项目|解释.*项目|这个项目.*作用|这个项目.*功能|这个项目.*用途/i.test(lower)) {
+      return 'project_understanding';
+    }
+    if (/查看.*项目.*作用|查看.*项目.*功能|查看.*项目.*用途|当前项目.*作用|当前项目.*功能|当前项目.*用途|项目概述|项目概况/i.test(lower)) {
       return 'project_understanding';
     }
     if (/项目结构|目录结构|项目架构|分析项目|分析架构|项目组织/i.test(lower)) {

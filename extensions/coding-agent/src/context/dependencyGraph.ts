@@ -21,12 +21,20 @@ export class DependencyGraph {
   private nodes: Map<string, DependencyNode> = new Map();
   private edges: DependencyEdge[] = [];
   private built = false;
+  private normalizedPathMap: Map<string, string> = new Map();
 
-  private readonly IMPORT_PATTERNS = [
-    /import\s+(?:(?:\{[^}]*\}|[^;{]+)\s+from\s+)?['"]([^'"]+)['"]/g,
-    /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-    /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
-  ];
+  /**
+   * 返回新的正则实例，避免带 g 标志的正则在并发调用中共享 lastIndex 导致竞态条件。
+   */
+  private getImportPatterns(): RegExp[] {
+    return [
+      /import\s+(?:(?:\{[^}]*\}|[^;{]+)\s+from\s+)?['"]([^'"]+)['"]/g,
+      /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+      /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+      /export\s*\*\s*from\s+['"]([^'"]+)['"]/g,
+      /import\s+type\s+(?:(?:\{[^}]*\}|[^;{]+)\s+from\s+)?['"]([^'"]+)['"]/g,
+    ];
+  }
 
   constructor(private readonly scanner: WorkspaceScanner) {}
 
@@ -54,8 +62,16 @@ export class DependencyGraph {
       }
     }
 
-    for (const file of files) {
-      const deps = await this.parseImports(file);
+    this.normalizedPathMap.clear();
+    for (const key of this.nodes.keys()) {
+      this.normalizedPathMap.set(key.replace(/\\/g, '/'), key);
+    }
+
+    const parseResults = await Promise.all(
+      files.map(async file => ({ file, deps: await this.parseImports(file) }))
+    );
+
+    for (const { file, deps } of parseResults) {
       const node = this.nodes.get(file.path)!;
 
       for (const rawImport of deps) {
@@ -239,8 +255,7 @@ export class DependencyGraph {
       const text = new TextDecoder().decode(content);
 
       const imports = new Set<string>();
-      for (const pattern of this.IMPORT_PATTERNS) {
-        pattern.lastIndex = 0;
+      for (const pattern of this.getImportPatterns()) {
         let match: RegExpExecArray | null;
         while ((match = pattern.exec(text)) !== null) {
           imports.add(match[1]);
@@ -277,10 +292,7 @@ export class DependencyGraph {
 
     const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.mts', '.mjs', '.cts', '.cjs', '.d.ts', '/index.ts', '/index.tsx', '/index.js', '/index.jsx'];
 
-    const normalizedToActual = new Map<string, string>();
-    for (const key of this.nodes.keys()) {
-      normalizedToActual.set(key.replace(/\\/g, '/'), key);
-    }
+    const normalizedToActual = this.normalizedPathMap;
 
     for (const ext of extensions) {
       const candidate = resolved + ext;

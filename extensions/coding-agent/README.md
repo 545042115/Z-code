@@ -17,7 +17,7 @@ Built on a **Three-Layer Hybrid Architecture + Repo-Level Agent**: Macro Planner
 - 🗺️ **RepoGraph** - 模块分层（entry/server/core/ui/config/build）+ 数据流图 + 跨模块依赖分析
 - 📋 **Planner 管道** - intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 上下文构建 → LLM 回答
 - 📦 **增量上下文** - 只加载 embedding top-K 文件 + repograph 相关节点 + intent 相关模块，禁止全量扫描
-- 🤖 **Chat 侧边栏** - 智能代码问答，流式响应，类 Trae 侧边栏体验
+- 🤖 **Chat 侧边栏** - 多会话持久化、流式响应、Markdown 渲染、自动应用修改 + Diff / 回退，类 Trae 侧边栏体验
 - 🎼 **Composer** - 多文件批量编辑
 - ⚡ **Tab 补全** - 基于 FIM 的智能代码补全
 - ✏️ **行内编辑** - 选中代码直接修改
@@ -178,7 +178,8 @@ Coding Agent 支持保存多个 LLM 配置，方便在不同场景下快速切�
 2. 侧边栏顶部显示当前模型名称，**点击可切换配置**
 3. 在底部输入框输入问题，`Enter` 发送，`Shift+Enter` 换行
 4. 或者按 `Ctrl+Shift+I` 使用全局快捷键弹出输入框
-5. 对话历史自动保存，关闭侧边栏后重新打开不会丢失
+5. 支持项目内多会话，刷新窗口后历史会自动恢复
+6. 代码修改默认自动应用，可在消息卡片中查看单条 Diff、整文件 Diff，并支持单文件或整批回退
 
 **示例问题：**
    - "解释这段代码"
@@ -314,6 +315,45 @@ extensions/coding-agent/
 ---
 
 ## 更新日志 / Changelog
+
+### v0.3.0 — 2026-06-03
+
+产品体验升级：Chat 侧边栏更接近 Trae 的工作流，支持多会话、富文本展示、自动应用修改与可视化回退  
+Product Experience Upgrade: Chat sidebar now feels closer to Trae, with multi-session history, rich rendering, auto-apply edits and visual rollback flow
+
+#### ✨ 新特性 / New Features
+- **项目内多会话 Chat**: 支持新建会话、切换会话、删除会话，历史按项目维度持久化保存，刷新窗口后自动恢复
+- **Markdown 渲染聊天面板**: Assistant 回复支持标题、列表、引用、行内代码、代码块与链接，流式输出时实时重渲染
+- **Compact Mode**: 对单文件修复、小程序生成、简单解释等轻量任务默认启用紧凑执行流，减少内部状态噪音
+- **自动应用修改工作流**: Chat 生成 `editOps` 后自动写入工作区文件，并在面板中展示变更卡片
+- **可视化 Diff / 回退**: 支持单条 Diff、整文件 Diff、单文件回退、整批回退，以及面板内非阻塞二次确认
+- **只读 Diff 预览**: Diff 页面改为只读虚拟文档，关闭时不再弹出保存提示
+
+#### 🔧 优化 / Improvements
+- **更自然的状态文案**: `PLANNING / THINK / ACT` 等内部状态改为面向用户的中文提示，不再写入聊天历史
+- **项目介绍输出收敛**: 强化项目介绍与最终答复的结构化输出，减少暴露内部 Planning / ReAct / Reflect 过程
+- **Chat 视觉层级优化**: 调整消息气泡、标题、代码块、状态徽标和文件分组样式，信息密度更高、可读性更好
+- **文件级变更分组**: 同一文件下的多条修改会合并展示，支持默认折叠已回退文件组
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **Compact Mode 执行流**: 在 `agent-core` 中为轻量任务增加紧凑模式，简单请求优先走更短的执行链路，复杂请求再回退到完整 Planner + ReAct + Reflect
+- **项目介绍直答链路**: 为 `project_understanding` 增加专门的直答路径和固定输出模板，降低只看 README、忽略源码结构的倾向
+- **最终答复格式统一**: 收敛 `DONE` 阶段提示词，统一输出结构，减少状态机过程泄漏到用户界面
+- **Chat 接管 Composer 核心编辑流**: 将多文件修改的自动应用、Diff 预览、文件级回退能力收敛到 Chat 主入口，弱化独立 Composer 面板的必要性
+- **只读虚拟 Diff 文档**: Diff 预览改为基于自定义 scheme 的只读虚拟文档，不再依赖可保存的 `untitled` 临时页
+- **项目级多会话存储**: 聊天历史、编辑批次状态、回退结果随项目保存，刷新窗口或重开侧边栏后可恢复上下文
+- **Webview 消息链路重构**: 状态展示、流式渲染、变更卡片、回退确认改为更稳定的前后端消息同步方式
+- **文件级变更批次模型**: 自动应用后的修改按文件分组展示，支持文件级状态、折叠、Diff 和回退，前端形成独立的变更审阅状态机
+
+#### 🐛 修复 / Bug Fixes
+- 修复 Webview Markdown 脚本被模板字符串转义破坏后，发送按钮无响应、历史消息不恢复的问题
+- 修复 `chat-view-provider.ts` 中脚本正则导致的 TypeScript 编译错误
+- 修复回退按钮点击无响应的问题（移除不兼容 VS Code Webview 的阻塞式确认框）
+- 修复 Diff 预览被当成可保存临时文件的问题，避免关闭时反复提示保存
+- 修复 Windows 下回退路径解析与实际应用路径不一致的问题
+- 修复同一文件多条 edit 时回退快照污染，降低误删文件和后续任务死循环风险
+- 修复自动应用后回退链路中“显示成功但实际文件未恢复”的静默失败问题，写回后会进行内容校验
+- 修复面板内回退确认交互与 VS Code Webview 不兼容导致的阻塞行为，改为非阻塞二次确认
 
 ### v0.2.1 — 2026-06-02
 

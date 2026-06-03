@@ -233,6 +233,10 @@ export class SymbolIndex {
     return this.searchByKind('interface', query);
   }
 
+  isBuilt(): boolean {
+    return this.symbols.size > 0 && this.stats.totalFiles > 0;
+  }
+
   getStats(): IndexStats {
     return { ...this.stats };
   }
