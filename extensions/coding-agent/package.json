@@ -2,7 +2,7 @@
     "name": "coding-agent",
     "displayName": "Coding Agent",
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "publisher": "545042115",
     "engines": {
         "vscode": "^1.85.0"
@@ -201,7 +201,7 @@
     "devDependencies": {
         "@types/node": "18.x",
         "@types/vscode": "^1.85.0",
-        "@vscode/vsce": "^3.9.1",
+        "@vscode/vsce": "^3.9.2",
         "typescript": "^5.3.3"
     }
 }

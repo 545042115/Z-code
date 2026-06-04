@@ -1,40 +1,58 @@
 # Coding Agent - VS Code Extension
 
-> AI 编程助手 VS Code 扩展 — 基于多后端 LLM，三层混合架构，Repo-Level Agent  
-> AI Coding Assistant for VS Code — Multi-Backend LLM, Hybrid Architecture, Repo-Level Agent
+> 面向 VS Code 的 AI 编程助手，支持多后端 LLM、Repo 级上下文、结构化计划与可视化改动审阅。  
+> An AI coding assistant for VS Code with multi-backend LLM support, repo-aware context, structured planning, and visual edit review.
 
-支持 **SGLang**（本地推理）、**OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供类似 Cursor/Trae 的编程体验。  
-Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo** and more, delivering a Cursor/Trae-like coding experience.
+支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
+Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
 
-采用 **三层混合架构 + Repo-Level Agent**：宏观 Plan-and-Execute + 微观 ReAct + 自动化验证 + 兜底 Reflection，配合多轮记忆、语义检索、RepoMap、Planner 分解和增量上下文。  
-Built on a **Three-Layer Hybrid Architecture + Repo-Level Agent**: Macro Planner → Micro ReAct → Auto Verifier → Meta Reflection, with multi-turn memory, semantic retrieval, RepoMap, Planner decomposition, and incremental context.
+当前版本采用 **三层混合架构 + Repo-Level Agent**：宏观 **Plan-and-Execute**、微观 **ReAct**、自动 **Verifier**、兜底 **Reflection**，并额外引入了 **缓存友好的 Prompt 组织**、**结构化 To-Do Checklist**、**Auto-Compact 上下文压缩** 与 **LLM 驱动的轻量/完整流程决策**。  
+The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Agent** built around **Plan-and-Execute**, **ReAct**, **Verifier**, and **Reflection**, together with **cache-friendly prompt layout**, **structured To-Do checklists**, **Auto-Compact context compression**, and **LLM-driven routing between compact and full execution**.
 
 ## 特性 / Features
 
-- 🧠 **Repo-Level Agent** - 多轮记忆 + 语义 Embedding 检索 + RepoGraph 模块分析 + Planner 管道式分解
-- 💬 **多轮记忆系统** - 按 repo/session/intent 维度存储对话，LLM 每次调用可访问历史上下文
-- 🔍 **语义 Embedding 检索** - TF-IDF 风格词频向量，对 README/核心源码/server/config 文件自动索引，Top-K 语义搜索
-- 🗺️ **RepoGraph** - 模块分层（entry/server/core/ui/config/build）+ 数据流图 + 跨模块依赖分析
-- 📋 **Planner 管道** - intent 分类 → 记忆检索 → embedding 搜索 → repograph 查询 → 上下文构建 → LLM 回答
-- 📦 **增量上下文** - 只加载 embedding top-K 文件 + repograph 相关节点 + intent 相关模块，禁止全量扫描
-- 🤖 **Chat 侧边栏** - 多会话持久化、流式响应、Markdown 渲染、自动应用修改 + Diff / 回退，类 Trae 侧边栏体验
-- 🎼 **Composer** - 多文件批量编辑
+- 🧠 **Repo-Level Agent** - 多轮记忆、Embedding 检索、RepoGraph、Planner、LSP 工具链协同工作
+- 🧭 **LLM 路由决策** - 由模型判断任务适合轻量流程还是完整规划流程，代码侧负责兜底校验
+- 📋 **结构化 To-Do Checklist** - `PLANNING` 阶段输出可执行清单，侧边栏实时打勾展示进度
+- 🗜️ **Auto-Compact 上下文压缩** - 长对话接近窗口上限时自动压缩旧历史，保留当前计划、关键证据和未完成事项
+- 🧱 **缓存友好的 Prompt 组织** - 静态上下文前置、动态上下文后置，降低首字延迟和重复 Token 成本
+- 🔁 **事务化重规划** - 轻量流程变复杂时，先由 LLM 生成新计划，再安全切换到完整流程，避免状态损坏
+- 💬 **Chat 侧边栏** - 多会话持久化、流式响应、Markdown 渲染、计划卡片、自动应用修改、Diff 与回退
+- 🎼 **Composer** - 多文件批量编辑面板
 - ⚡ **Tab 补全** - 基于 FIM 的智能代码补全
-- ✏️ **行内编辑** - 选中代码直接修改
-- 🔧 **多配置管理** - 保存多个 LLM 配置，一键切换
-- 🌐 **多后端支持** - SGLang / OpenAI / Deepseek / 小米 MiMo
-- 📚 **Code Index** - LSP 符号索引，按名称和类型搜索类/函数/接口
-- ✅ **Verifier** - 子任务完成后自动运行 tsc --noEmit / eslint / npm test
-- 🔍 **LSP 工具链** - 跳转定义、查找引用、关联文件发现
+- ✏️ **行内编辑** - 选中代码后直接下达修改指令
+- 🔧 **多配置管理** - 保存多个 LLM 配置，一键切换提供商和模型
+- 🌐 **多后端支持** - SGLang / OpenAI / Azure OpenAI / Deepseek / 小米 MiMo
+- ✅ **Verifier** - 子任务完成后自动运行 `tsc --noEmit` / `eslint` / `npm test`
+- 🔍 **LSP 工具链** - 跳转定义、查找引用、符号检索、关联文件发现
 
 ## 支持的后端 / Supported Backends
 
 | 提供商 | 说明 | 需要 API Key |
 |--------|------|-------------|
 | **SGLang** | 本地高性能推理 | ❌ |
-| **OpenAI** | GPT-4 / GPT-3.5 | ✅ |
+| **OpenAI** | GPT 系列模型 | ✅ |
+| **Azure OpenAI** | Azure 托管的 OpenAI 服务 | ✅ |
 | **Deepseek** | 国产大模型 | ✅ |
 | **小米 MiMo** | 小米大模型 | ✅ |
+
+## 架构概览 / Architecture Overview
+
+### 核心执行流
+
+`Planner → ReAct → Verifier → Reflector`
+
+- **Planner**：识别意图、决定执行模式、生成结构化 To-Do List
+- **ReAct**：在子任务内循环执行 `THINK → ACT → OBSERVE`
+- **Verifier**：对修改结果执行自动校验
+- **Reflector**：根据结果决定通过、返工或继续
+
+### 当前版本新增机制
+
+- **Prompt Cache Optimization**：稳定的系统规则、项目概览、关键源码前置；最新请求、诊断、上下文包后置
+- **Cursor 风格计划清单**：计划阶段强制生成 JSON To-Do List，并在侧边栏展示为 Checklist
+- **Claude Code 风格 Auto-Compact**：历史消息接近上限时自动摘要压缩，保留关键进度继续推理
+- **LLM-Driven Routing**：由模型判断走 `compact` 还是 `full`，避免固定规则误判任务复杂度
 
 ## 安装 / Installation
 
@@ -75,6 +93,8 @@ npm run compile
 2. 按照向导配置你的 LLM（SGLang 本地 / Deepseek / OpenAI 等）
 3. **点击左侧活动栏的 Coding Agent 图标** 打开侧边聊天栏
 4. 在底部输入框输入你的问题
+5. 观察 Agent 自动生成的待办清单、状态流转和修改结果
+6. 如有代码变更，可在侧边栏查看 Diff、按文件回退或整批回退
 
 ## 配置 / Configuration
 
@@ -82,12 +102,13 @@ npm run compile
 
 Coding Agent 支持保存多个 LLM 配置，方便在不同场景下快速切换。
 
-**默认配置：**
+**常见配置示例：**
 
 | 配置名称 | 提供商 | 端点 | 模型 |
 |---------|--------|------|------|
 | SGLang 本地 | sglang | http://localhost:30000 | default |
 | OpenAI GPT-4 | openai | https://api.openai.com | gpt-4 |
+| Azure OpenAI GPT-4 | azure | https://your-resource.openai.azure.com/openai/deployments/your-deployment | gpt-4 |
 | Deepseek V4 | deepseek | https://api.deepseek.com | deepseek-v4-flash |
 | 小米 MiMo V2 Flash | mimo | https://api.xiaomimimo.com | mimo-v2-flash |
 
@@ -127,6 +148,16 @@ Coding Agent 支持保存多个 LLM 配置，方便在不同场景下快速切�
   "codingAgent.llm.provider": "openai",
   "codingAgent.llm.endpoint": "https://api.openai.com",
   "codingAgent.llm.apiKey": "sk-your-api-key",
+  "codingAgent.llm.model": "gpt-4"
+}
+```
+
+**Azure OpenAI:**
+```json
+{
+  "codingAgent.llm.provider": "azure",
+  "codingAgent.llm.endpoint": "https://your-resource.openai.azure.com/openai/deployments/your-deployment",
+  "codingAgent.llm.apiKey": "your-azure-api-key",
   "codingAgent.llm.model": "gpt-4"
 }
 ```
@@ -179,7 +210,9 @@ Coding Agent 支持保存多个 LLM 配置，方便在不同场景下快速切�
 3. 在底部输入框输入问题，`Enter` 发送，`Shift+Enter` 换行
 4. 或者按 `Ctrl+Shift+I` 使用全局快捷键弹出输入框
 5. 支持项目内多会话，刷新窗口后历史会自动恢复
-6. 代码修改默认自动应用，可在消息卡片中查看单条 Diff、整文件 Diff，并支持单文件或整批回退
+6. 计划阶段会生成 Checklist 卡片，子任务执行时会自动更新状态并打勾
+7. 代码修改默认自动应用，可在消息卡片中查看单条 Diff、整文件 Diff，并支持单文件或整批回退
+8. 长对话接近上下文上限时会自动压缩旧历史，继续保留当前计划和关键证据
 
 **示例问题：**
    - "解释这段代码"
@@ -319,6 +352,37 @@ extensions/coding-agent/
 > 说明 / Note  
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
 
+### v0.4.0 — 2026-06-04
+
+架构升级：引入 Prompt Cache Optimization、结构化 To-Do Checklist、Auto-Compact 与 LLM 驱动流程决策  
+Architecture Upgrade: Introduces Prompt Cache Optimization, structured To-Do Checklist, Auto-Compact, and LLM-driven execution routing
+
+#### ✨ 新特性 / New Features
+- **结构化 To-Do Checklist**: `PLANNING` 阶段生成 JSON 计划清单，侧边栏以复选框卡片展示并随执行进度自动打勾
+- **Auto-Compact**: 长对话接近上下文窗口上限时自动压缩旧历史，保留关键进度继续推理
+- **LLM 驱动执行模式选择**: 由模型判断走 `compact` 还是 `full` 流程，并在必要时触发重规划
+- **缓存友好的 Prompt 布局**: 静态规则与稳定上下文前置，动态请求与本轮观察后置
+
+#### 🔧 优化 / Improvements
+- **Prompt 缓存友好布局**: 静态规则与项目概览前置，最新请求和动态上下文后置，降低重复开销
+- **LLM 主导流程决策**: 由模型判断任务走轻量流程还是完整规划流程，减少硬编码误判
+- **事务化重规划**: 轻量流程升级为完整流程时先生成并校验新计划，再切换运行态
+- **计划可视化**: `PLANNING` 阶段生成结构化 To-Do List，并在侧边栏以 Checklist 展示
+- **自动上下文压缩**: 对长链路历史消息执行 Auto-Compact，总结已完成进度、当前焦点和未解决问题
+- **规划提示词缓存友好化**: `PLANNING` 阶段的提示词也改为稳定规则前置、请求上下文后置
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **LLM Route + Safe Fallback**: 由 LLM 决定 `compact/full` 执行模式，代码侧保留计划校验与兜底路径
+- **事务化重规划**: 轻量流程升级时先获取并校验新计划，再原子切换运行态，避免 `subTasks` 缺失导致崩溃
+- **Plan Snapshot 消息链路**: `agent-core` 持续推送计划快照，`chat-view-provider` 负责实时渲染与恢复 Checklist
+- **Auto-Compact History Replacement**: 历史消息接近窗口上限时，自动将旧的 `THINK / ACT / OBSERVE` 记录压缩成结构化摘要，替换原始冗长上下文
+
+#### 🐛 修复 / Bug Fixes
+- 修复将历史版本 `v0.3.0` 误覆盖为 `v0.4.0` 的文档版本记录问题
+- 修复轻量流程切换完整流程时 `subTasks` 可能为空导致的崩溃风险
+- 修复工具失败后仍可能继续沿错误路径推进计划的稳定性问题
+- 修复简单反馈类输入误触发完整上下文工具链的问题
+
 ### v0.3.0 — 2026-06-03
 
 产品体验升级：Chat 侧边栏更接近 Trae 的工作流，支持多会话、富文本展示、自动应用修改与可视化回退  
@@ -364,7 +428,7 @@ Product Experience Upgrade: Chat sidebar now feels closer to Trae, with multi-se
 Architecture Upgrade: Hybrid Architecture, Code Index & Repo-Level Agent
 
 #### ✨ 新特性 / New Features
-- **三层混合架构**: 宏观 Planner + 微观 ReAct + 自动化 Verifier + 兜底 Reflector
+- **三层混合架构**: 宏观 Plan-and-Execute + 微观 ReAct + 自动 Verifier + 兜底 Reflection
 - **Planner / ReAct / Verifier / Reflector**: 复杂需求先拆解计划，再进入可验证的循环执行与反思修正
 - **Code Index**: LSP 符号索引系统，支持按名称和类型搜索类/函数/接口
 - **Repo Map / Dependency Graph / Impact Analyzer**: 支持仓库结构梳理、依赖分析与改动影响评估

@@ -1,10 +1,10 @@
 # Z Code
 
-> AI 编程助手集合 — 基于多后端 LLM 的 VS Code 扩展，三层混合架构 + Repo-Level Agent  
-> AI Coding Assistant Collection — VS Code Extension with Multi-Backend LLM, Hybrid Architecture & Repo-Level Agent
+> AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
+> AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
 
-支持 **SGLang**（本地推理）、**OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供类似 Cursor/Trae 的编程体验。  
-Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo** and more, delivering a Cursor/Trae-like coding experience.
+支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
+Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
 
 ---
 
@@ -16,7 +16,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 │       ├── src/
 │       │   ├── agent/
 │       │   │   ├── agent-core.ts    三层混合架构 + Repo-Level Agent Core
-│       │   │   │                    (Pipeline: Plan → Memory → Embedding → RepoGraph → Context → LLM)
+│       │   │   │                    (动态 Pipeline: 根据意图选择 Plan → Memory → [Embedding → RepoGraph] → Context)
 │       │   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
 │       │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
 │       │   ├── memory/
@@ -24,7 +24,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 │       │   ├── embedding/
 │       │   │   └── embeddingManager.ts TF-IDF 语义检索
 │       │   ├── planner/
-│       │   │   └── planner.ts       Pipeline Planner（6 步管道）
+│       │   │   └── planner.ts       Pipeline Planner（动态步数管道）
 │       │   ├── config/
 │       │   │   └── config-manager.ts 多配置管理 / Multi-config management
 │       │   ├── llm/
@@ -63,7 +63,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 
 ## Coding Agent — VS Code Extension
 
-三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 自动化 Verifier + 兜底 Reflection**
+三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 自动 Verifier + 兜底 Reflection**
 
 > 说明 / Note  
 > 根目录 `README.md` 用于仓库总览。扩展本体的安装、配置、使用说明、更新日志与发布信息，请以 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md) 为准。
@@ -73,27 +73,39 @@ Supports **SGLang** (local inference), **OpenAI**, **Deepseek**, **Xiaomi MiMo**
 | 特性 / Feature | 说明 / Description |
 |---|---|
 | 🧠 **Repo-Level Agent** | 多轮记忆 + Embedding 检索 + RepoGraph + Planner 管道 |
+| 🧭 **执行模式路由** | 由 LLM 判断走轻量流程还是完整规划流程，代码侧做安全兜底 |
+| 📋 **结构化计划清单** | `PLANNING` 阶段输出 JSON To-Do List，并在侧边栏渲染为 Checklist；完成项打勾、进行中项高亮 |
+| 🗜️ **Auto-Compact** | 长对话接近上下文上限时在内部自动压缩旧历史，保留当前计划、关键证据和未完成事项 |
+| 🧱 **缓存友好的 Prompt 布局优化** | 静态上下文前置、动态上下文后置，提升前缀复用率并降低重复 Token 成本 |
+| 🧠 **上下文窗口 32K** | 默认支持 32K 上下文，并为模型生成回复预留输出空间 |
 | 💬 **多轮记忆系统** | 按 repo/session/intent 维度存储对话，LLM 可访问历史 |
 | 🔍 **语义 Embedding 检索** | TF-IDF 向量索引，Top-K 语义搜索 |
 | 🗺️ **RepoGraph** | 模块分层 + 数据流图 + 跨模块依赖 |
-| 📋 **Planner 管道** | 6 步自动分解：intent → memory → embedding → repograph → context → answer |
+| 📋 **Planner 管道** | 动态步数管道：根据意图自动选择 2~5 步（intent → memory → [embedding → repograph] → context） |
 | 📦 **增量上下文** | 只加载相关文件，禁止全量扫描 |
 | 🤖 **Chat 侧边栏 / Sidebar Chat** | 多会话持久化、流式响应、Markdown 渲染、自动应用修改 + Diff / 回退 |
 | 🎼 **Composer** | 多文件批量编辑 / Multi-file batch editing |
 | ⚡ **Tab 补全 / Tab Completion** | 基于 FIM 的智能代码补全 / FIM-based code completion |
 | ✏️ **行内编辑 / Inline Editing** | 选中代码直接修改 / Edit selected code inline |
 | 🔧 **多配置管理 / Multi-Config** | 保存多个 LLM 配置，一键切换 / Save & switch LLM configs |
-| 🌐 **多后端支持 / Multi-Backend** | SGLang / OpenAI / Deepseek / Xiaomi MiMo |
+| 🌐 **多后端支持 / Multi-Backend** | SGLang / OpenAI / Azure OpenAI / Deepseek / Xiaomi MiMo |
 | 📚 **Code Index** | LSP 符号索引，支持按名称和类型搜索类/函数/接口 |
-| ✅ **Verifier** | 子任务完成后自动运行 tsc --noEmit / eslint / npm test |
-| 🔍 **LSP 工具链** | 跳转定义、查找引用、关联文件发现 |
+| ✅ **Verifier** | 在项目具备相应配置与命令时自动执行 `tsc --noEmit`、`eslint`、`npm test` 校验 |
+| 🛡️ **幻觉约束** | OBSERVE 阶段检测工具返回空数据/错误，自动注入警告阻止模型编造内容 |
+| 🚫 **危险命令拦截** | `run_terminal` 内置危险命令检测（`rm -rf`、`git push --force` 等），弹窗确认后执行 |
+| 🔄 **Diff 引擎** | 编辑操作幂等去重 + 模糊匹配兜底，支持查看单条/整文件 Diff 与一键回退 |
+| 🧭 **直接项目回答** | `project_understanding` 意图下直接生成项目介绍，跳过不必要的 ReAct 循环 |
+| ⏹️ **中断会话** | Chat 侧边栏支持停止按钮，可随时中断当前运行中的 Agent |
+| 💭 **思考过程可视化** | Compact 模式下显示 Trae 风格的可折叠思考块（THINK / OBSERVE），告别黑盒等待 |
+| 🔍 **LSP 工具链** | 跳转定义、查找引用等核心 LSP 能力，并配合检索与仓库分析工具使用 |
 
 ### 支持的后端 / Supported Backends
 
 | Provider | 说明 / Description | API Key |
 |---|---|---|
 | **SGLang** | 本地高性能推理 / Local high-performance inference | ❌ |
-| **OpenAI** | GPT-4 / GPT-3.5 | ✅ |
+| **OpenAI** | GPT 系列模型 | ✅ |
+| **Azure OpenAI** | Azure 托管的 OpenAI 服务 | ✅ |
 | **Deepseek** | 国产大模型 | ✅ |
 | **小米 MiMo** | 小米大模型 / Xiaomi LLM | ✅ |
 
@@ -121,6 +133,8 @@ npm run compile
 1. `Ctrl+Shift+P` → `Coding Agent: 添加配置`，按照向导配置 LLM
 2. 点击左侧活动栏的 **Coding Agent 图标** 打开侧边聊天栏
 3. 在底部输入框输入你的问题
+4. 观察 Agent 自动生成的计划清单、运行状态提示和代码修改结果
+5. 如有变更，可在侧边栏中查看 Diff、回退单文件或整批修改
 
 ### 扩展详细文档 / Extension Docs
 
@@ -176,6 +190,23 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.4.0 — 2026-06-04
+
+架构升级 / Architecture Upgrade
+
+#### ✨ 版本摘要 / Highlights
+- Prompt 改为缓存友好布局，静态信息前置、动态信息后置
+- `PLANNING` 阶段升级为结构化 To-Do List，并在侧边栏展示 Checklist
+- 长对话支持 Auto-Compact，自动压缩旧历史并保留关键进度
+- 由 LLM 主导轻量/完整流程决策，轻量模式下支持自动升级至完整规划
+- 默认上下文窗口扩展至 32K，并为生成回复预留输出空间
+- Chat 侧边栏新增停止按钮，支持随时中断运行中的会话
+- Compact 模式下支持 Trae 风格的可折叠思考过程显示
+- 新增幻觉约束、危险命令拦截、Diff 幂等性与模糊匹配等安全/稳定性特性
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.3.0 — 2026-06-03
 

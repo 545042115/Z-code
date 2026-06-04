@@ -9,6 +9,7 @@ import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
 import { RepoGraph } from '../context/repoGraph';
 import { DiffEngine } from '../utils/diff-engine';
 import { Verifier, VerifierOutput } from './verifier';
+import { ConfigManager } from '../config/config-manager';
 
 /**
  * 三层混合架构 Agent Core
@@ -29,6 +30,7 @@ import { Verifier, VerifierOutput } from './verifier';
  */
 
 export type AgentState = 'PLANNING' | 'THINK' | 'ACT' | 'OBSERVE' | 'VERIFIER' | 'REFLECT' | 'WAIT_USER' | 'DONE';
+export type ExecutionMode = 'compact' | 'full';
 
 export const VALID_STATES: AgentState[] = ['PLANNING', 'THINK', 'ACT', 'OBSERVE', 'VERIFIER', 'REFLECT', 'WAIT_USER', 'DONE'];
 
@@ -52,6 +54,7 @@ export interface AgentContext {
 export interface StateResponse {
   state: AgentState;
   content?: string;
+  context?: string;
   plan?: { title: string; subTasks: SubTask[] };
   subTaskId?: string;
   subTaskPlan?: string;
@@ -67,6 +70,27 @@ export interface StateResponse {
   };
 }
 
+interface ExecutionRouteDecision {
+  mode: ExecutionMode;
+  reason: string;
+  confidence: 'low' | 'medium' | 'high';
+  needsContext: 'minimal' | 'focused' | 'broad';
+}
+
+interface ReplanDecision {
+  action: 'continue_compact' | 'switch_to_full';
+  reason: string;
+  plan?: { title: string; subTasks: SubTask[] };
+}
+
+interface AutoCompactSummary {
+  summary: string;
+  completedProgress: string[];
+  currentFocus: string[];
+  importantEvidence: string[];
+  openIssues: string[];
+}
+
 export interface ToolCall {
   name: string;
   params: Record<string, any>;
@@ -79,8 +103,24 @@ export interface EditOperation {
   idempotentKey: string;
 }
 
+export interface PlanChecklistItem {
+  id: string;
+  description: string;
+  goal: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+export interface PlanSnapshot {
+  planId: string;
+  title: string;
+  mode: ExecutionMode;
+  summary: string;
+  items: PlanChecklistItem[];
+}
+
 export interface ProcessRequestOptions {
   deferEditApplication?: boolean;
+  onPlanUpdate?: (plan: PlanSnapshot) => void;
 }
 
 const STATE_SCHEMAS: Record<AgentState, object> = {
@@ -92,16 +132,16 @@ const STATE_SCHEMAS: Record<AgentState, object> = {
       plan: {
         type: 'object',
         properties: {
-          title: { type: 'string', description: '计划标题' },
+          title: { type: 'string', description: 'To-Do List 标题，简洁概括本次任务' },
           subTasks: {
             type: 'array',
-            description: '子任务列表，每个子任务应是独立可执行的工作单元',
+            description: '结构化 To-Do List。简单任务也必须输出数组，但只保留一步；复杂任务输出多步。',
             items: {
               type: 'object',
               properties: {
                 id: { type: 'string', description: '子任务编号，如 "task-1"' },
-                description: { type: 'string', description: '子任务描述' },
-                goal: { type: 'string', description: '完成标准，如何判断该子任务完成' },
+                description: { type: 'string', description: '待办项描述，适合展示为 Checklist 文案' },
+                goal: { type: 'string', description: '完成标准，如何判断该待办项完成' },
               },
               required: ['id', 'description', 'goal'],
             },
@@ -241,6 +281,7 @@ export class AgentCore {
   private diffEngine: DiffEngine;
   private verifier: Verifier;
   private currentState: AgentState = 'PLANNING';
+  private currentExecutionMode: ExecutionMode = 'full';
   private messageHistory: Message[] = [];
   private isRunning: boolean = false;
   private lastVerificationResult: VerifierOutput | null = null;
@@ -255,8 +296,19 @@ export class AgentCore {
   private readonly MAX_REACT_PER_SUBTASK = 15;
   private readonly MAX_TOTAL_ITERATIONS = 50;
   private readonly MAX_REFLECT_REVISIONS = 3;
+  private readonly AUTO_COMPACT_TOKEN_RATIO = 0.8;
+  private readonly AUTO_COMPACT_MIN_HISTORY_MESSAGES = 18;
+  private readonly AUTO_COMPACT_KEEP_TAIL_MESSAGES = 10;
+  private readonly AUTO_COMPACT_MIN_INTERVAL = 3;
+  private readonly AUTO_COMPACT_MAX_SUMMARY_CHARS = 1800;
   private totalIterations = 0;
   private reflectRevisionCount = 0;
+  private activeIntent: ExecutionPlan['intent'] = 'other';
+  private activeUserMessage: string = '';
+  private planUpdateCallback?: (plan: PlanSnapshot) => void;
+  private activePlanId: string = '';
+  private autoCompactCount = 0;
+  private lastAutoCompactIteration = -999;
 
   private readonly SYSTEM_PROMPT: string;
 
@@ -293,6 +345,8 @@ export class AgentCore {
     this.reset();
     this.isRunning = true;
     this.deferEditApplication = Boolean(options?.deferEditApplication);
+    this.planUpdateCallback = options?.onPlanUpdate;
+    this.activePlanId = `plan-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     try {
       const sessionId = sessionIdOverride || this.getSessionId();
@@ -300,29 +354,37 @@ export class AgentCore {
       const memoryManager = this.contextManager.memoryManager;
       const editorCtx = await this.contextManager.gatherContext();
 
-      // Phase 1: Planner 管道构建上下文（后台静默执行，不向用户输出步骤详情）
       const plan = planner.create(userMessage, sessionId);
+      this.activeIntent = plan.intent;
+      this.activeUserMessage = userMessage;
       const context = plan.context;
       context.currentFile = editorCtx.currentFile;
+      const route = await this.decideExecutionRoute(userMessage, plan.intent, editorCtx, sessionId);
+      this.currentExecutionMode = route.mode;
+      this.compactMode = route.mode === 'compact';
 
-      onStream('正在准备上下文...\n');
-      for (const step of plan.steps) {
-        const result = await planner.executeStep(step, userMessage, sessionId, context);
-        if (result.status !== 'completed') {
-          console.warn(`Planner step failed: ${step.description}`);
+      onStream(`模型判断：${this.describeExecutionMode(route.mode)}。${route.reason}\n\n`);
+
+      let contextMessage = '';
+      if (route.mode === 'full') {
+        onStream('正在准备上下文...\n');
+        for (const step of plan.steps) {
+          const result = await planner.executeStep(step, userMessage, sessionId, context);
+          if (result.status !== 'completed') {
+            console.warn(`Planner step failed: ${step.description}`);
+          }
         }
+        contextMessage = await this.buildPipelinePrompt(userMessage, plan, context, editorCtx);
+      } else {
+        contextMessage = this.buildCompactPrompt(userMessage, plan.intent, editorCtx);
       }
-
-      // Phase 2: 构建初始消息并进入 ReAct 循环
-      const contextMessage = await this.buildPipelinePrompt(userMessage, plan, context, editorCtx);
 
       this.messageHistory = [
         { role: 'system', content: this.SYSTEM_PROMPT },
         { role: 'user', content: contextMessage },
       ];
-      this.compactMode = this.shouldUseCompactMode(plan.intent, userMessage, editorCtx);
 
-      if (this.shouldUseDirectProjectAnswer(plan.intent)) {
+      if (route.mode === 'full' && this.shouldUseDirectProjectAnswer(plan.intent)) {
         onStateChange('DONE');
         const answer = await this.generateDirectProjectAnswer(contextMessage, onStream);
         if (answer && !answer.endsWith('\n')) {
@@ -335,7 +397,7 @@ export class AgentCore {
         return;
       }
 
-      if (this.compactMode) {
+      if (route.mode === 'compact') {
         this.initializeCompactTask(userMessage, plan.intent);
         this.currentState = 'THINK';
         onStream(`${this.getCompactProgressMessage(plan.intent)}\n`);
@@ -368,6 +430,7 @@ export class AgentCore {
         }
 
         this.totalIterations++;
+        await this.maybeAutoCompactHistory(onStream);
       }
 
       if (this.totalIterations >= this.MAX_TOTAL_ITERATIONS) {
@@ -445,6 +508,7 @@ export class AgentCore {
         }
 
         this.totalIterations++;
+        await this.maybeAutoCompactHistory(onStream);
       }
 
       if (this.totalIterations >= this.MAX_TOTAL_ITERATIONS) {
@@ -481,9 +545,16 @@ export class AgentCore {
     this.lastVerificationResult = null;
     this.pendingSubTaskForReflect = null;
     this.compactMode = false;
+    this.currentExecutionMode = 'full';
     this.deferEditApplication = false;
     this.hasPendingEditPreview = false;
     this.isRunning = false;
+    this.activeIntent = 'other';
+    this.activeUserMessage = '';
+    this.planUpdateCallback = undefined;
+    this.activePlanId = '';
+    this.autoCompactCount = 0;
+    this.lastAutoCompactIteration = -999;
   }
 
   private async executeState(
@@ -526,14 +597,20 @@ export class AgentCore {
 
     switch (state) {
       case 'PLANNING': {
-        const plan = response.plan!;
-        this.subTasks = plan.subTasks.map(st => ({ ...st, status: 'pending' as const }));
+        const plan = this.normalizePlanCandidate(response.plan) || this.buildFallbackPlan(this.activeUserMessage, this.activeIntent);
+        this.commitPlan(plan, 'full');
+        const safePlanContent = response.content && response.content !== 'undefined'
+          ? response.content
+          : '模型已生成执行计划。';
         const subTaskList = this.subTasks.map((st, i) =>
           `  ${i + 1}. ${st.description}`
         ).join('\n');
 
         if (!this.compactMode) {
-          onStream(`\n## 计划：${plan.title}\n\n${response.content}\n\n\`\`\`\n${subTaskList}\n\`\`\`\n\n`);
+          if (!response.plan) {
+            onStream(`⚠️ 模型没有返回合法计划，已自动使用兜底计划。\n\n`);
+          }
+          onStream(`\n## 计划：${plan.title}\n\n${safePlanContent}\n\n\`\`\`\n${subTaskList}\n\`\`\`\n\n`);
         }
 
         this.messageHistory.push(
@@ -546,20 +623,34 @@ export class AgentCore {
       case 'THINK': {
         const currentTask = this.subTasks.find(st => st.id === response.subTaskId);
         const taskLabel = currentTask ? currentTask.description : response.subTaskId;
+        let thinkMessageRecorded = false;
 
         this.currentSubTaskReActCount++;
         if (this.compactMode && this.currentSubTaskReActCount > 4) {
-          this.compactMode = false;
-          this.subTasks = [];
-          this.currentSubTaskIndex = 0;
+          this.messageHistory.push({ role: 'assistant', content: responseText });
+          thinkMessageRecorded = true;
+          const replanDecision = await this.decideCompactReplan(response, taskLabel);
+          if (replanDecision.action === 'switch_to_full') {
+            const nextPlan = this.normalizePlanCandidate(replanDecision.plan) || this.buildFallbackPlan(this.activeUserMessage, this.activeIntent);
+            this.commitPlan(nextPlan, 'full');
+            onStream(`任务超出简单模式范围，模型决定切换到完整规划：${replanDecision.reason}\n\n`);
+            const subTaskList = this.subTasks.map((st, i) => `  ${i + 1}. ${st.description}`).join('\n');
+            onStream(`\`\`\`\n${subTaskList}\n\`\`\`\n\n`);
+            this.messageHistory.push({
+              role: 'user',
+              content: `[重规划已生效] 模型决定切换到完整流程。原因：${replanDecision.reason}`
+            });
+            return { state: 'THINK', content: response.content, subTaskId: this.subTasks[0]?.id, nextState: 'THINK' };
+          }
           this.currentSubTaskReActCount = 0;
-          onStream(`任务超出简单模式范围，切换到完整流程...\n`);
-          return { state: 'THINK', content: response.content, subTaskId: response.subTaskId, nextState: 'PLANNING' };
+          onStream(`模型判断当前仍可继续轻量执行：${replanDecision.reason}\n\n`);
         }
 
         if (this.currentSubTaskReActCount > this.MAX_REACT_PER_SUBTASK) {
           if (!this.compactMode) {
             onStream(`\n**思考**（子任务: ${taskLabel}）\n\n${response.content}\n\n`);
+          } else {
+            onStream(`\n\n**[思考]** \n${response.content}\n\n**[/思考]**\n\n`);
           }
           return { state: 'THINK', content: response.content, subTaskId: response.subTaskId, nextState: 'REFLECT' };
         }
@@ -567,8 +658,12 @@ export class AgentCore {
         const safeContent = response.content && response.content !== 'undefined' ? response.content : '(分析中...)';
         if (!this.compactMode) {
           onStream(`\n**思考**（子任务: ${taskLabel}）\n\n${safeContent}\n\n`);
+        } else {
+          onStream(`\n\n**[思考]** \n${safeContent}\n\n**[/思考]**\n\n`);
         }
-        this.messageHistory.push({ role: 'assistant', content: responseText });
+        if (!thinkMessageRecorded) {
+          this.messageHistory.push({ role: 'assistant', content: responseText });
+        }
         return { ...response, nextState: 'ACT' };
       }
 
@@ -650,6 +745,8 @@ export class AgentCore {
         const safeObserveContent = response.content && response.content !== 'undefined' ? response.content : '(无观察结果)';
         if (!this.compactMode) {
           onStream(`**观察**（${taskLabel}）\n\n${safeObserveContent}\n\n`);
+        } else {
+          onStream(`\n\n**[观察]** \n${safeObserveContent}\n\n**[/观察]**\n\n`);
         }
 
         // 幻觉约束：检测工具返回的空数据或错误模式，注入警告
@@ -718,6 +815,7 @@ export class AgentCore {
             if (task) {
               task.status = 'in_progress';
               this.currentSubTaskIndex = this.subTasks.findIndex(st => st.id === response.subTaskId);
+              this.emitPlanUpdate(response.content || reflection.feedback || '子任务需要返工');
             }
           }
         } else {
@@ -786,7 +884,7 @@ export class AgentCore {
     const planContext = this.buildPlanContext();
 
     if (state === 'PLANNING') {
-      return this.messageHistory;
+      return this.buildPlanningMessages();
     }
 
     const messages: Message[] = [
@@ -853,11 +951,513 @@ export class AgentCore {
     return messages;
   }
 
+  private buildPlanningMessages(): Message[] {
+    const planningPrompt = [
+      this.SYSTEM_PROMPT,
+      '## Planning Mode',
+      'Generate a structured JSON To-Do List for the current request.',
+      'Use a cache-friendly layout: stable planning rules first, request-specific context later.',
+      'Rules:',
+      '- Always return a `plan` object with `title` and `subTasks`.',
+      '- If the request is simple, create exactly 1 subTask.',
+      '- If the request is complex, create multiple subTasks in execution order.',
+      '- Each subTask must be user-visible, concise, and suitable for a checklist.',
+      '- Do not skip planning even if you think the answer is obvious; represent the direct answer as a single-item checklist.',
+      '- Preserve compatibility with the existing ReAct execution flow: every item should be actionable by THINK -> ACT -> OBSERVE.',
+    ].join('\n\n');
+
+    return [
+      {
+        role: 'system',
+        content: planningPrompt,
+      },
+      ...this.messageHistory.slice(1),
+    ];
+  }
+
   private shouldUseDirectProjectAnswer(intent: string): boolean {
     return intent === 'project_understanding';
   }
 
+  private describeExecutionMode(mode: ExecutionMode): string {
+    return mode === 'compact' ? '适合轻量流程' : '适合完整规划流程';
+  }
+
+  private buildCompactPrompt(request: string, intent: string, editorCtx: AgentContext): string {
+    return this.buildFastPrompt(request, intent, editorCtx);
+  }
+
+  private buildFastPrompt(request: string, intent: string, editorCtx: AgentContext): string {
+    const staticParts: string[] = [];
+    const dynamicParts: string[] = [];
+    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    const workspaceName = workspaceRoot
+      ? workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop()
+      : 'workspace';
+
+    staticParts.push('You are a coding assistant integrated into VS Code.');
+    staticParts.push('## Cache-Friendly Prompt Layout');
+    staticParts.push('Static guidance and workspace facts are intentionally placed first. Task-specific context appears later.');
+    staticParts.push(`## Intent\n${intent}`);
+    staticParts.push(`## Workspace\n${workspaceName}`);
+    if (workspaceRoot) {
+      staticParts.push(`## Workspace Root\n${workspaceRoot}`);
+    }
+    staticParts.push('## Operating Rules');
+    staticParts.push('Prefer the active file or selected code. Only search broader files when local evidence is insufficient.');
+    staticParts.push('Keep tools and edits grounded in actual source evidence. Do not invent hidden files or paths.');
+
+    if (editorCtx.currentFile) {
+      dynamicParts.push(`## Active File\n${editorCtx.currentFile}`);
+    }
+    if (editorCtx.selectedCode) {
+      dynamicParts.push(`## Selected Code\n\`\`\`\n${editorCtx.selectedCode}\n\`\`\``);
+    }
+    if (editorCtx.openFiles.length > 0) {
+      dynamicParts.push(`## Open Files\n${editorCtx.openFiles.slice(0, 5).map(file => `- ${file}`).join('\n')}`);
+    }
+    if (editorCtx.diagnostics.length > 0) {
+      const diagnostics = editorCtx.diagnostics
+        .slice(0, 5)
+        .map(d => `- ${d.message} (line ${d.range.start.line + 1})`)
+        .join('\n');
+      dynamicParts.push(`## Diagnostics\n${diagnostics}`);
+    }
+
+    dynamicParts.push(`## Latest User Request\n${request}`);
+    return [...staticParts, ...dynamicParts].join('\n\n');
+  }
+
+  private async decideExecutionRoute(
+    userMessage: string,
+    intent: ExecutionPlan['intent'],
+    editorCtx: AgentContext,
+    sessionId: string
+  ): Promise<ExecutionRouteDecision> {
+    const fallbackMode: ExecutionMode = this.shouldUseCompactMode(intent, userMessage, editorCtx) ? 'compact' : 'full';
+    const memory = this.contextManager.memoryManager.getContextForPromptWithBudget(sessionId, 1200);
+    const routeSchema = {
+      type: 'object',
+      properties: {
+        mode: { enum: ['compact', 'full'] },
+        reason: { type: 'string' },
+        confidence: { enum: ['low', 'medium', 'high'] },
+        needsContext: { enum: ['minimal', 'focused', 'broad'] },
+      },
+      required: ['mode', 'reason', 'confidence', 'needsContext'],
+    };
+
+    const messages: Message[] = [
+      {
+        role: 'system',
+        content: [
+          '你是执行路由器，负责决定当前请求适合轻量流程还是完整规划流程。',
+          'compact 适用于：单文件、小范围、目标明确、可直接从当前文件或少量工具开始。',
+          'full 适用于：跨文件、目标不明确、需要先规划、涉及架构/测试/重构/多阶段修改。',
+          '如果需要广泛上下文或你不确定，请选择 full。',
+          '只输出符合 schema 的 JSON。'
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: [
+          `Intent: ${intent}`,
+          editorCtx.currentFile ? `Active file: ${editorCtx.currentFile}` : 'Active file: (none)',
+          editorCtx.selectedCode ? `Selected code:\n${editorCtx.selectedCode.slice(0, 800)}` : 'Selected code: (none)',
+          editorCtx.openFiles.length > 0 ? `Open files:\n${editorCtx.openFiles.slice(0, 5).join('\n')}` : 'Open files: (none)',
+          memory ? memory : 'Conversation history: (none)',
+          `User request: ${userMessage}`,
+          `Heuristic fallback mode: ${fallbackMode}`,
+        ].join('\n\n'),
+      },
+    ];
+
+    try {
+      const { response } = await this.generateJsonObject<ExecutionRouteDecision>({
+        messages,
+        jsonSchema: routeSchema,
+        stream: false,
+      }, 'execution-route');
+      return this.sanitizeExecutionRoute(response, intent, fallbackMode);
+    } catch {
+      return this.sanitizeExecutionRoute(undefined, intent, fallbackMode);
+    }
+  }
+
+  private sanitizeExecutionRoute(
+    route: Partial<ExecutionRouteDecision> | undefined,
+    intent: ExecutionPlan['intent'],
+    fallbackMode: ExecutionMode
+  ): ExecutionRouteDecision {
+    let mode: ExecutionMode = route?.mode === 'compact' ? 'compact' : route?.mode === 'full' ? 'full' : fallbackMode;
+    let needsContext: ExecutionRouteDecision['needsContext'] =
+      route?.needsContext === 'minimal' || route?.needsContext === 'focused' || route?.needsContext === 'broad'
+        ? route.needsContext
+        : mode === 'compact' ? 'minimal' : 'broad';
+    const confidence = route?.confidence === 'low' || route?.confidence === 'medium' || route?.confidence === 'high'
+      ? route.confidence
+      : 'low';
+
+    if ((intent === 'project_understanding' || intent === 'refactor' || intent === 'removal' || intent === 'testing') && mode === 'compact') {
+      mode = 'full';
+      needsContext = 'broad';
+    }
+    if (needsContext === 'broad') {
+      mode = 'full';
+    }
+
+    return {
+      mode,
+      confidence,
+      needsContext,
+      reason: route?.reason?.trim() || (mode === 'compact' ? '当前任务目标较集中，可先轻量执行。' : '当前任务需要规划或更广上下文支持。'),
+    };
+  }
+
+  private async decideCompactReplan(
+    response: StateResponse,
+    taskLabel?: string
+  ): Promise<ReplanDecision> {
+    const schema = {
+      type: 'object',
+      properties: {
+        action: { enum: ['continue_compact', 'switch_to_full'] },
+        reason: { type: 'string' },
+        plan: {
+          type: 'object',
+          properties: {
+            title: { type: 'string' },
+            subTasks: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id: { type: 'string' },
+                  description: { type: 'string' },
+                  goal: { type: 'string' },
+                },
+                required: ['id', 'description', 'goal'],
+              },
+            },
+          },
+          required: ['title', 'subTasks'],
+        },
+      },
+      required: ['action', 'reason'],
+    };
+
+    const recentMessages = this.messageHistory.slice(-8).map(m => `[${m.role}] ${m.content}`).join('\n\n');
+    try {
+      const { response: decision } = await this.generateJsonObject<ReplanDecision>({
+        messages: [
+          {
+            role: 'system',
+            content: [
+              '你负责判断当前轻量流程是否仍然合适。',
+              '如果任务已经明显变成跨文件、多阶段、需要完整规划，请返回 switch_to_full 并给出新的完整计划。',
+              '如果当前轻量流程仍可继续，请返回 continue_compact。',
+              '只输出符合 schema 的 JSON。'
+            ].join('\n'),
+          },
+          {
+            role: 'user',
+            content: [
+              `Original request: ${this.activeUserMessage}`,
+              `Intent: ${this.activeIntent}`,
+              `Current compact task: ${taskLabel || 'compact-task'}`,
+              `Latest reasoning: ${response.content || '(none)'}`,
+              `Current plan context:\n${this.buildPlanContext()}`,
+              recentMessages ? `Recent history:\n${recentMessages}` : 'Recent history: (none)',
+            ].join('\n\n'),
+          },
+        ],
+        jsonSchema: schema,
+        stream: false,
+      }, 'compact-replan');
+
+      if (decision.action === 'switch_to_full') {
+        const normalizedPlan = this.normalizePlanCandidate(decision.plan);
+        if (normalizedPlan) {
+          return { ...decision, plan: normalizedPlan };
+        }
+      }
+      return {
+        action: decision.action === 'switch_to_full' ? 'continue_compact' : decision.action,
+        reason: decision.reason || '模型未给出充分升级理由，继续轻量流程。',
+      };
+    } catch {
+      return {
+        action: 'continue_compact',
+        reason: '重规划判断失败，暂时继续轻量流程。',
+      };
+    }
+  }
+
+  private normalizePlanCandidate(plan?: { title: string; subTasks: SubTask[] } | null): { title: string; subTasks: SubTask[] } | null {
+    if (!plan || !plan.title || !Array.isArray(plan.subTasks) || plan.subTasks.length === 0) {
+      return null;
+    }
+
+    const normalizedTasks = plan.subTasks
+      .filter(st => st && typeof st.id === 'string' && typeof st.description === 'string' && typeof st.goal === 'string')
+      .map((st, index) => ({
+        id: st.id.trim() || `task-${index + 1}`,
+        description: st.description.trim() || `子任务 ${index + 1}`,
+        goal: st.goal.trim() || '完成当前步骤',
+        status: 'pending' as const,
+      }));
+
+    if (normalizedTasks.length === 0) {
+      return null;
+    }
+
+    return {
+      title: plan.title.trim() || '执行计划',
+      subTasks: normalizedTasks,
+    };
+  }
+
+  private buildFallbackPlan(userMessage: string, intent: ExecutionPlan['intent']): { title: string; subTasks: SubTask[] } {
+    return {
+      title: '兜底执行计划',
+      subTasks: [
+        {
+          id: 'task-1',
+          description: this.buildCompactTaskDescription(userMessage, intent),
+          goal: '先收集足够证据并完成当前请求',
+          status: 'pending',
+        },
+      ],
+    };
+  }
+
+  private commitPlan(plan: { title: string; subTasks: SubTask[] }, mode: ExecutionMode): void {
+    this.subTasks = plan.subTasks.map(st => ({ ...st, status: st.status || 'pending' }));
+    this.currentSubTaskIndex = 0;
+    this.currentSubTaskReActCount = 0;
+    this.compactMode = mode === 'compact';
+    this.currentExecutionMode = mode;
+    this.emitPlanUpdate(`已生成 ${this.subTasks.length} 项待办`);
+  }
+
+  private emitPlanUpdate(summary: string): void {
+    if (!this.planUpdateCallback || !this.activePlanId || this.subTasks.length === 0) {
+      return;
+    }
+
+    this.planUpdateCallback({
+      planId: this.activePlanId,
+      title: this.currentExecutionMode === 'compact' ? '轻量待办清单' : '执行待办清单',
+      mode: this.currentExecutionMode,
+      summary,
+      items: this.subTasks.map(st => ({
+        id: st.id,
+        description: st.description,
+        goal: st.goal,
+        status: st.status,
+      })),
+    });
+  }
+
+  private readonly RESERVED_OUTPUT_TOKENS = 4096;
+
+  private getActiveContextWindowTokens(): number {
+    const profile = ConfigManager.getActiveProfile();
+    const modelMaxTokens = Math.max(profile?.maxTokens || 32768, 8192);
+    return Math.max(modelMaxTokens - this.RESERVED_OUTPUT_TOKENS, 4096);
+  }
+
+  private estimateMessageTokens(message: Message): number {
+    const content = message.content || '';
+    const cjkChars = (content.match(/[\u3400-\u9fff]/g) || []).length;
+    const otherChars = Math.max(content.length - cjkChars, 0);
+    const roleCost = message.role === 'system' ? 12 : 8;
+    return roleCost + cjkChars + Math.ceil(otherChars / 4);
+  }
+
+  private estimateHistoryTokens(messages: Message[]): number {
+    return messages.reduce((total, message) => total + this.estimateMessageTokens(message), 0);
+  }
+
+  private getCompactableHistoryRange(): { start: number; end: number } | null {
+    if (this.messageHistory.length < this.AUTO_COMPACT_MIN_HISTORY_MESSAGES) {
+      return null;
+    }
+
+    const protectedPrefix = 2; // system prompt + initial context prompt
+    const tailCount = Math.min(this.AUTO_COMPACT_KEEP_TAIL_MESSAGES, Math.max(this.messageHistory.length - protectedPrefix, 0));
+    const start = protectedPrefix;
+    const end = this.messageHistory.length - tailCount;
+    if (end - start < 6) {
+      return null;
+    }
+    return { start, end };
+  }
+
+  private shouldAutoCompactHistory(): boolean {
+    const range = this.getCompactableHistoryRange();
+    if (!range) {
+      return false;
+    }
+    if (this.totalIterations - this.lastAutoCompactIteration < this.AUTO_COMPACT_MIN_INTERVAL) {
+      return false;
+    }
+
+    const windowTokens = this.getActiveContextWindowTokens();
+    const historyTokens = this.estimateHistoryTokens(this.messageHistory);
+    const overTokenBudget = historyTokens >= Math.floor(windowTokens * this.AUTO_COMPACT_TOKEN_RATIO);
+    const overMessageBudget = this.messageHistory.length >= this.AUTO_COMPACT_MIN_HISTORY_MESSAGES + 4;
+    return overTokenBudget || overMessageBudget;
+  }
+
+  private buildAutoCompactPrompt(messagesToCompact: Message[]): Message[] {
+    const transcript = messagesToCompact
+      .map((message, index) => {
+        const content = (message.content || '').trim();
+        return `### ${index + 1}. ${message.role}\n${content}`;
+      })
+      .join('\n\n');
+
+    return [
+      {
+        role: 'system',
+        content: [
+          '你负责将 Coding Agent 的历史执行记录压缩成可继续推理的摘要。',
+          '保留以下信息：已完成进度、当前焦点、关键代码证据、工具错误/未解决问题。',
+          '不要编造不存在的文件、工具结果或修改。',
+          '输出必须是符合 schema 的 JSON，内容紧凑，可用于替换原始 THINK/ACT/OBSERVE 历史。',
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: [
+          `原始用户请求：${this.activeUserMessage}`,
+          `当前执行模式：${this.currentExecutionMode}`,
+          `当前计划：\n${this.buildPlanContext()}`,
+          this.lastVerificationResult?.summary ? `最近验证结果：\n${this.lastVerificationResult.summary}` : '最近验证结果：无',
+          this.hasPendingEditPreview ? '当前存在待确认的编辑预览，摘要必须保留该信息。' : '当前没有待确认的编辑预览。',
+          '请压缩以下历史消息：',
+          transcript,
+        ].join('\n\n'),
+      },
+    ];
+  }
+
+  private formatAutoCompactSummary(summary: AutoCompactSummary): string {
+    const sections: string[] = [];
+    sections.push(`[Auto-Compact Summary #${this.autoCompactCount}]`);
+    sections.push(`摘要：${summary.summary.trim()}`);
+
+    if (summary.completedProgress.length > 0) {
+      sections.push(`已完成进度：\n- ${summary.completedProgress.join('\n- ')}`);
+    }
+    if (summary.currentFocus.length > 0) {
+      sections.push(`当前焦点：\n- ${summary.currentFocus.join('\n- ')}`);
+    }
+    if (summary.importantEvidence.length > 0) {
+      sections.push(`关键证据：\n- ${summary.importantEvidence.join('\n- ')}`);
+    }
+    if (summary.openIssues.length > 0) {
+      sections.push(`未解决问题：\n- ${summary.openIssues.join('\n- ')}`);
+    }
+    if (this.hasPendingEditPreview) {
+      sections.push('待确认修改：存在未应用的编辑预览，最终答复前必须明确告知用户。');
+    }
+
+    return sections.join('\n\n').slice(0, this.AUTO_COMPACT_MAX_SUMMARY_CHARS);
+  }
+
+  private async summarizeHistoryForCompact(messagesToCompact: Message[]): Promise<string> {
+    const schema = {
+      type: 'object',
+      properties: {
+        summary: { type: 'string' },
+        completedProgress: { type: 'array', items: { type: 'string' } },
+        currentFocus: { type: 'array', items: { type: 'string' } },
+        importantEvidence: { type: 'array', items: { type: 'string' } },
+        openIssues: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['summary', 'completedProgress', 'currentFocus', 'importantEvidence', 'openIssues'],
+    };
+
+    const { response } = await this.generateJsonObject<AutoCompactSummary>({
+      messages: this.buildAutoCompactPrompt(messagesToCompact),
+      jsonSchema: schema,
+      stream: false,
+    }, 'auto-compact');
+
+    return this.formatAutoCompactSummary({
+      summary: response.summary || '已压缩较早的执行历史。',
+      completedProgress: Array.isArray(response.completedProgress) ? response.completedProgress.slice(0, 6) : [],
+      currentFocus: Array.isArray(response.currentFocus) ? response.currentFocus.slice(0, 4) : [],
+      importantEvidence: Array.isArray(response.importantEvidence) ? response.importantEvidence.slice(0, 6) : [],
+      openIssues: Array.isArray(response.openIssues) ? response.openIssues.slice(0, 4) : [],
+    });
+  }
+
+  private buildFallbackCompactSummary(messagesToCompact: Message[]): string {
+    const lastMessages = messagesToCompact.slice(-4).map(message => `[${message.role}] ${message.content}`.slice(0, 260));
+    const lines = [
+      `[Auto-Compact Summary #${this.autoCompactCount}]`,
+      `摘要：已压缩较早的执行历史，保留最近上下文以继续当前任务。`,
+      `当前计划：${this.buildPlanContext().slice(0, 400)}`,
+    ];
+    if (lastMessages.length > 0) {
+      lines.push(`最近记录：\n- ${lastMessages.join('\n- ')}`);
+    }
+    if (this.lastVerificationResult?.summary) {
+      lines.push(`最近验证：${this.lastVerificationResult.summary.slice(0, 300)}`);
+    }
+    if (this.hasPendingEditPreview) {
+      lines.push('待确认修改：存在未应用的编辑预览。');
+    }
+    return lines.join('\n\n').slice(0, this.AUTO_COMPACT_MAX_SUMMARY_CHARS);
+  }
+
+  private async maybeAutoCompactHistory(onStream: (chunk: string) => void): Promise<void> {
+    if (!this.isRunning || this.currentState === 'DONE' || this.currentState === 'WAIT_USER') {
+      return;
+    }
+    if (!this.shouldAutoCompactHistory()) {
+      return;
+    }
+
+    const range = this.getCompactableHistoryRange();
+    if (!range) {
+      return;
+    }
+
+    const messagesToCompact = this.messageHistory.slice(range.start, range.end);
+    if (messagesToCompact.length === 0) {
+      return;
+    }
+
+    const historyTokens = this.estimateHistoryTokens(this.messageHistory);
+    onStream(`上下文接近上限，正在压缩历史...（约 ${historyTokens} tokens）\n`);
+
+    this.autoCompactCount++;
+    let summaryText = '';
+    try {
+      summaryText = await this.summarizeHistoryForCompact(messagesToCompact);
+    } catch {
+      summaryText = this.buildFallbackCompactSummary(messagesToCompact);
+    }
+
+    this.messageHistory = [
+      ...this.messageHistory.slice(0, range.start),
+      { role: 'assistant', content: summaryText },
+      ...this.messageHistory.slice(range.end),
+    ];
+    this.lastAutoCompactIteration = this.totalIterations;
+    onStream('历史压缩完成，已保留关键进度并继续执行。\n\n');
+  }
+
   private shouldUseCompactMode(intent: string, userMessage: string, editorCtx: AgentContext): boolean {
+    const trimmed = userMessage.trim();
+    if (trimmed.length <= 10 && /^(你好|您好|hello|hi|hey)\s*[!！]?$/i.test(trimmed)) {
+      return true;
+    }
+
     if (intent === 'project_understanding' || intent === 'refactor' || intent === 'removal' || intent === 'testing') {
       return false;
     }
@@ -1038,9 +1638,12 @@ export class AgentCore {
   }
 
   private markSubTaskInProgress(subTaskId: string): void {
-    const task = this.subTasks.find(st => st.id === subTaskId);
+    const index = this.subTasks.findIndex(st => st.id === subTaskId);
+    const task = index >= 0 ? this.subTasks[index] : undefined;
     if (task && task.status === 'pending') {
       task.status = 'in_progress';
+      this.currentSubTaskIndex = index;
+      this.emitPlanUpdate(`正在执行：${task.description}`);
     }
   }
 
@@ -1050,6 +1653,7 @@ export class AgentCore {
       task.status = 'completed';
       this.currentSubTaskIndex = this.subTasks.findIndex(st => st.id === subTaskId) + 1;
       this.currentSubTaskReActCount = 0;
+      this.emitPlanUpdate(`已完成：${task.description}`);
     }
   }
 
@@ -1086,6 +1690,53 @@ export class AgentCore {
         return null;
       }
     }
+  }
+
+  private tryParseJsonResponse<T>(responseText: string): T | null {
+    try {
+      return JSON.parse(responseText) as T;
+    } catch {
+      const firstJson = this.extractFirstJson(responseText);
+      if (!firstJson) return null;
+      try {
+        return JSON.parse(firstJson) as T;
+      } catch {
+        return null;
+      }
+    }
+  }
+
+  private async generateJsonObject<T>(
+    request: GenerateRequest,
+    label: string
+  ): Promise<{ responseText: string; response: T }> {
+    let messages = request.messages;
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const responseText = await this.llm.generate({
+        ...request,
+        messages,
+      });
+      const response = this.tryParseJsonResponse<T>(responseText);
+      if (response) {
+        return { responseText, response };
+      }
+
+      if (attempt === 0) {
+        messages = [
+          ...messages,
+          { role: 'assistant', content: responseText },
+          {
+            role: 'user',
+            content: `你上一条回复不是合法 JSON。请严格按照既定 schema 重新输出一个且仅一个 JSON 对象。不要包含解释、Markdown、代码块或额外文本。任务标签：${label}。`,
+          },
+        ];
+      } else {
+        throw new Error(`模型返回了无效的 JSON 格式：${label}`);
+      }
+    }
+
+    throw new Error(`模型返回了无效的 JSON 格式：${label}`);
   }
 
   private async generateStructuredStateResponse(
@@ -1354,17 +2005,8 @@ If revision needed:
     context: IncrementalContext,
     editorCtx: AgentContext
   ): Promise<string> {
-    const parts: string[] = [];
-
-    parts.push(`You are a coding assistant integrated into VS Code. You have access to the user's project.`);
-    parts.push(``);
-    parts.push(`## Intent\n${plan.intent}`);
-    parts.push(``);
-
-    if (context.memoryFragment) {
-      parts.push(`## Previous Conversation\n${context.memoryFragment}`);
-      parts.push(``);
-    }
+    const staticParts: string[] = [];
+    const dynamicParts: string[] = [];
 
     const cm = this.contextManager;
     const scanner = cm.scanner;
@@ -1380,64 +2022,34 @@ If revision needed:
     const allFiles = scanner.getPrimaryWorkspaceFiles() || [];
     const sourceFiles = scanner.getPrimaryWorkspaceSourceFiles() || [];
 
-    parts.push(`## Project Overview\n`);
-    parts.push(`- Source files: ${sourceFiles.length}`);
-    parts.push(`- Total files: ${allFiles.length}`);
-    parts.push(``);
-
-    // 关键源码放在前面，确保 LLM 注意力能覆盖到
-    const keyFileContents = await this.readKeySourceFiles(sourceFiles, allFiles);
-    if (keyFileContents.length > 0) {
-      parts.push(`## Key Source Code (READ THIS FIRST)\n`);
-      for (const { path, content } of keyFileContents) {
-        const shortName = path.replace(/\\/g, '/').split('/').slice(-2).join('/');
-        parts.push(`### ${shortName}\n`);
-        parts.push('```');
-        parts.push(content);
-        parts.push('```\n');
-      }
-    }
-
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
     const workspaceName = workspaceRoot
       ? workspaceRoot.replace(/\\/g, '/').split('/').filter(Boolean).pop()
       : 'workspace';
 
-    parts.push(`## Project Identity\n`);
-    parts.push(`Workspace: ${workspaceName}`);
-    parts.push(`Use this only as a label. The project description must come from source code evidence, not from README prose.`);
-    parts.push(``);
+    staticParts.push(`You are a coding assistant integrated into VS Code. You have access to the user's project.`);
+    staticParts.push(`## Cache-Friendly Prompt Layout`);
+    staticParts.push(`Stable workspace facts and reusable guidance are intentionally placed first. Task-specific instructions and latest context are appended near the end.`);
+    staticParts.push(`## Intent\n${plan.intent}`);
+    staticParts.push(`## Project Identity\nWorkspace: ${workspaceName}\nUse this only as a label. The project description must come from source code evidence, not from README prose.`);
 
     if (workspaceRoot) {
-      parts.push(`## Workspace Root\n${workspaceRoot}`);
-      parts.push(`Use relative paths under this root when reading or writing files.`);
-      parts.push(``);
+      staticParts.push(`## Workspace Root\n${workspaceRoot}\nUse relative paths under this root when reading or writing files.`);
     }
 
-    if (editorCtx.currentFile) {
-      parts.push(`## Active File\n${editorCtx.currentFile}`);
-      parts.push(`For bug fixing or runtime issues, inspect this file first before searching broader modules.`);
-      parts.push(``);
-    }
-
-    if (editorCtx.openFiles.length > 0) {
-      parts.push(`## Open Files\n`);
-      for (const file of editorCtx.openFiles.slice(0, 8)) {
-        parts.push(`- ${file}`);
-      }
-      parts.push(``);
-    }
+    staticParts.push(`## Project Overview\n- Source files: ${sourceFiles.length}\n- Total files: ${allFiles.length}`);
 
     if (workspaceRoot && sourceFiles.length > 0) {
       const relPaths = sourceFiles.map(f =>
         f.path.replace(workspaceRoot + '\\', '').replace(/\\/g, '/')
       );
       const topDirs = Array.from(new Set(relPaths.map(p => p.split('/')[0]))).sort();
-      parts.push(`## Project Structure\n`);
-      parts.push(`Top-level directories: ${topDirs.join(', ')}`);
+      const structureLines: string[] = [];
+      structureLines.push(`## Project Structure`);
+      structureLines.push(`Top-level directories: ${topDirs.join(', ')}`);
       const allExtensions = new Set(relPaths.map(p => p.split('.').pop()?.toLowerCase()).filter(Boolean));
-      parts.push(`File types: ${Array.from(allExtensions).join(', ')}`);
-      parts.push(``);
+      structureLines.push(`File types: ${Array.from(allExtensions).join(', ')}`);
+      staticParts.push(structureLines.join('\n'));
     }
 
     const packageFiles = allFiles.filter(f => /package\.json$/i.test(f.path) && !f.path.includes('node_modules'));
@@ -1451,70 +2063,92 @@ If revision needed:
         const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(selectedPkg.path));
         const pkg = JSON.parse(doc.getText());
         if (pkg.name || pkg.description || pkg.dependencies) {
-          parts.push(`## package.json\n`);
-          if (pkg.name) parts.push(`Name: ${pkg.name}`);
-          if (pkg.version) parts.push(`Version: ${pkg.version}`);
-          if (pkg.description) parts.push(`Description: ${pkg.description}`);
+          const pkgLines: string[] = ['## package.json'];
+          if (pkg.name) pkgLines.push(`Name: ${pkg.name}`);
+          if (pkg.version) pkgLines.push(`Version: ${pkg.version}`);
+          if (pkg.description) pkgLines.push(`Description: ${pkg.description}`);
           if (pkg.dependencies) {
             const depNames = Object.keys(pkg.dependencies);
-            parts.push(`Dependencies (${depNames.length}): ${depNames.join(', ')}`);
+            pkgLines.push(`Dependencies (${depNames.length}): ${depNames.join(', ')}`);
           }
           if (pkg.devDependencies) {
             const devDepNames = Object.keys(pkg.devDependencies);
-            parts.push(`Dev dependencies (${devDepNames.length}): ${devDepNames.join(', ')}`);
+            pkgLines.push(`Dev dependencies (${devDepNames.length}): ${devDepNames.join(', ')}`);
           }
           if (pkg.scripts) {
-            parts.push(`Scripts: ${Object.keys(pkg.scripts).join(', ')}`);
+            pkgLines.push(`Scripts: ${Object.keys(pkg.scripts).join(', ')}`);
           }
-          parts.push(``);
+          staticParts.push(pkgLines.join('\n'));
         }
       } catch {
         // skip
       }
     }
 
-    if (context.embeddingResults.length > 0) {
-      parts.push(`## Semantically Relevant Files\n`);
-      for (const r of context.embeddingResults.slice(0, 5)) {
-        parts.push(`- ${r.filePath} (relevance: ${r.score})`);
-      }
-      parts.push(``);
-    }
-
     if (context.repoGraphOverview) {
-      parts.push(`## Module Layers\n`);
-      parts.push(context.repoGraphOverview);
-      parts.push(``);
+      staticParts.push(`## Module Layers\n${context.repoGraphOverview}`);
     } else if (cm.repoGraph.isBuilt) {
-      parts.push(`## Module Layers\n`);
-      parts.push(cm.repoGraph.getDependencyOverview());
-      parts.push(``);
+      staticParts.push(`## Module Layers\n${cm.repoGraph.getDependencyOverview()}`);
     }
 
-    if (context.contextPackage) {
-      const pkg = context.contextPackage;
-      parts.push(`## Context Files for This Task\n`);
-      parts.push(`Reason: ${pkg.reason}`);
-      for (const f of pkg.selectedFiles.slice(0, 10)) {
-        parts.push(`- ${f}`);
+    // 关键源码通常跨轮次变化较小，前置可提升缓存命中
+    const keyFileContents = await this.readKeySourceFiles(sourceFiles, allFiles);
+    if (keyFileContents.length > 0) {
+      const keyCodeLines: string[] = ['## Key Source Code (READ THIS FIRST)'];
+      for (const { path, content } of keyFileContents) {
+        const shortName = path.replace(/\\/g, '/').split('/').slice(-2).join('/');
+        keyCodeLines.push(`### ${shortName}`);
+        keyCodeLines.push('```');
+        keyCodeLines.push(content);
+        keyCodeLines.push('```');
       }
-      if (pkg.selectedFiles.length > 10) {
-        parts.push(`... and ${pkg.selectedFiles.length - 10} more`);
-      }
-      parts.push(``);
+      staticParts.push(keyCodeLines.join('\n'));
     }
 
-    parts.push(`## Task\n${request}`);
-    parts.push(``);
-    parts.push(`IMPORTANT: Your answer MUST be based on the actual source code shown above and the tools you use (read_file, search_code, search_symbols). For project introduction requests, summarize the project from entry points, core modules, server/routes, and build configuration. Do NOT answer from README prose. If code evidence is insufficient, read more source files before answering.`);
+    staticParts.push(`## Stable Guidance\nYour answer MUST be based on the actual source code shown above and the tools you use (read_file, search_code, search_symbols). For project introduction requests, summarize the project from entry points, core modules, server/routes, and build configuration. Do NOT answer from README prose. If code evidence is insufficient, read more source files before answering.`);
     if (plan.intent === 'project_understanding') {
-      parts.push(`When answering a project-understanding request, use this Markdown structure if possible: "项目概述" -> "核心入口" -> "主要模块" -> "运行与验证" -> "依据". Keep bullet lists flat, avoid internal process narration, and explicitly say "未在当前代码中发现" when evidence is missing.`);
+      staticParts.push(`When answering a project-understanding request, use this Markdown structure if possible: "项目概述" -> "核心入口" -> "主要模块" -> "运行与验证" -> "依据". Keep bullet lists flat, avoid internal process narration, and explicitly say "未在当前代码中发现" when evidence is missing.`);
     }
     if (plan.intent === 'bug_fix') {
-      parts.push(`For bug-fix requests, prefer reading the active file or files explicitly referenced by the user before calling broad architecture tools. Do not guess hidden file paths.`);
+      staticParts.push(`For bug-fix requests, prefer reading the active file or files explicitly referenced by the user before calling broad architecture tools. Do not guess hidden file paths.`);
     }
 
-    return parts.join('\n');
+    if (context.memoryFragment) {
+      dynamicParts.push(`## Previous Conversation\n${context.memoryFragment}`);
+    }
+    if (editorCtx.currentFile) {
+      dynamicParts.push(`## Active File\n${editorCtx.currentFile}\nFor bug fixing or runtime issues, inspect this file first before searching broader modules.`);
+    }
+    if (editorCtx.openFiles.length > 0) {
+      dynamicParts.push(`## Open Files\n${editorCtx.openFiles.slice(0, 8).map(file => `- ${file}`).join('\n')}`);
+    }
+    if (editorCtx.selectedCode) {
+      dynamicParts.push(`## Selected Code\n\`\`\`\n${editorCtx.selectedCode}\n\`\`\``);
+    }
+    if (editorCtx.diagnostics.length > 0) {
+      const diagnostics = editorCtx.diagnostics
+        .slice(0, 5)
+        .map(d => `- ${d.message} (line ${d.range.start.line + 1})`)
+        .join('\n');
+      dynamicParts.push(`## Diagnostics\n${diagnostics}`);
+    }
+    if (context.embeddingResults.length > 0) {
+      dynamicParts.push(`## Semantically Relevant Files\n${context.embeddingResults.slice(0, 5).map(r => `- ${r.filePath} (relevance: ${r.score})`).join('\n')}`);
+    }
+    if (context.contextPackage) {
+      const pkg = context.contextPackage;
+      const contextLines: string[] = ['## Context Files for This Task', `Reason: ${pkg.reason}`];
+      for (const f of pkg.selectedFiles.slice(0, 10)) {
+        contextLines.push(`- ${f}`);
+      }
+      if (pkg.selectedFiles.length > 10) {
+        contextLines.push(`... and ${pkg.selectedFiles.length - 10} more`);
+      }
+      dynamicParts.push(contextLines.join('\n'));
+    }
+    dynamicParts.push(`## Latest User Request\n${request}`);
+
+    return [...staticParts, ...dynamicParts].join('\n\n');
   }
 
   private buildTechStackSummary(context: IncrementalContext): string {

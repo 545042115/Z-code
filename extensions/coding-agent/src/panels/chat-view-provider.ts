@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { AgentCore, AgentState, EditOperation } from '../agent/agent-core';
+import { AgentCore, AgentState, EditOperation, PlanSnapshot } from '../agent/agent-core';
 import { ConfigManager, LLMConfigProfile } from '../config/config-manager';
 
 interface ReviewableEditOperation extends EditOperation {
@@ -12,11 +12,15 @@ interface ReviewableEditOperation extends EditOperation {
 }
 
 interface ChatMessage {
-  role: 'user' | 'assistant' | 'error' | 'state' | 'editOps';
+  role: 'user' | 'assistant' | 'error' | 'state' | 'editOps' | 'plan';
   content: string;
   ops?: string[];
   editBatchId?: string;
   editOps?: ReviewableEditOperation[];
+  planId?: string;
+  planTitle?: string;
+  planMode?: 'compact' | 'full';
+  planItems?: PlanSnapshot['items'];
 }
 
 interface ChatSession {
@@ -54,7 +58,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     this.loadState();
     this.extensionContext.subscriptions.push(
       vscode.workspace.registerTextDocumentContentProvider(ChatViewProvider.DIFF_SCHEME, {
-        provideTextDocumentContent: (uri) => this.diffContents.get(uri.toString()) ?? '',
+        provideTextDocumentContent: (uri) => {
+          const params = new URLSearchParams(uri.query);
+          return this.diffContents.get(params.get('id') || '') ?? '';
+        },
       })
     );
   }
@@ -78,6 +85,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         switch (message.type) {
           case 'sendMessage':
             await this.handleSendMessage(message.text);
+            break;
+          case 'stopAgent':
+            this.handleStopAgent();
             break;
           case 'revertEditBatch':
             await this.handleRevertEditBatch(message.batchId);
@@ -329,6 +339,48 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       batchId: message.editBatchId,
       content: message.content,
       ops: message.editOps,
+    });
+  }
+
+  private upsertPlanMessage(plan: PlanSnapshot): ChatMessage {
+    const updated = this.updateActiveSessionMessage(
+      m => m.role === 'plan' && m.planId === plan.planId,
+      m => ({
+        ...m,
+        content: plan.summary,
+        planTitle: plan.title,
+        planMode: plan.mode,
+        planItems: plan.items,
+      })
+    );
+
+    if (updated) {
+      return updated;
+    }
+
+    const nextMessage: ChatMessage = {
+      role: 'plan',
+      content: plan.summary,
+      planId: plan.planId,
+      planTitle: plan.title,
+      planMode: plan.mode,
+      planItems: plan.items,
+    };
+    this.appendMessage(nextMessage);
+    return nextMessage;
+  }
+
+  private postPlanUpdate(message: ChatMessage): void {
+    if (!message.planId || !message.planItems) {
+      return;
+    }
+    this.postMessage({
+      type: 'planUpdate',
+      planId: message.planId,
+      title: message.planTitle,
+      summary: message.content,
+      mode: message.planMode,
+      items: message.planItems,
     });
   }
 
@@ -640,12 +692,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private createReadonlyDiffUri(filePath: string, side: 'before' | 'after', content: string): vscode.Uri {
     const safePath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const uri = vscode.Uri.from({
       scheme: ChatViewProvider.DIFF_SCHEME,
       path: `/${side}/${safePath}`,
-      query: `id=${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      query: `id=${id}`,
     });
-    this.diffContents.set(uri.toString(), content);
+    this.diffContents.set(id, content);
     return uri;
   }
 
@@ -784,6 +837,10 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  private handleStopAgent(): void {
+    this.agent.stop();
+  }
+
   private async handleSendMessage(text: string): Promise<void> {
     if (this.isRunning) {
       this.postMessage({ type: 'error', content: '正在运行中，请等待完成' });
@@ -830,7 +887,13 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           pendingAutoApply = this.handleApplyEditBatch(editMessage.editBatchId);
         },
         sessionId,
-        { deferEditApplication: true }
+        {
+          deferEditApplication: true,
+          onPlanUpdate: (plan) => {
+            const planMessage = this.upsertPlanMessage(plan);
+            this.postPlanUpdate(planMessage);
+          },
+        }
       );
 
       if (pendingAutoApply) {
@@ -1000,6 +1063,60 @@ body {
   color: var(--vscode-inputValidation-errorForeground);
   font-size: 11px;
   width: 100%;
+}
+.msg.plan {
+  align-self: stretch;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-panel-border);
+  max-width: 100%;
+}
+.plan-card-title {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.plan-card-sub {
+  font-size: 11px;
+  opacity: .85;
+  margin-bottom: 8px;
+}
+.plan-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plan-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.plan-item .box {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1px solid var(--vscode-checkbox-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.plan-item.completed .box {
+  background: var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+  color: #fff;
+}
+.plan-item.in_progress .box {
+  border-color: var(--vscode-progressBar-background);
+}
+.plan-item-text {
+  flex: 1;
+}
+.plan-item-goal {
+  font-size: 11px;
+  opacity: .75;
 }
 .msg.state {
   align-self: center;
@@ -1372,6 +1489,47 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   line-height: 1.8;
 }
 .empty-state .title { font-size: 14px; font-weight: 600; color: var(--vscode-foreground); }
+.think-block {
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  padding: 10px;
+  margin: 8px 0;
+}
+.think-block-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+  margin-bottom: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  user-select: none;
+}
+.think-block-header::before {
+  content: '▼';
+  font-size: 10px;
+}
+.think-block.collapsed .think-block-header::before {
+  content: '▶';
+}
+.think-block-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--vscode-foreground);
+}
+.think-block.collapsed .think-block-content {
+  display: none;
+}
+.stop-btn {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 18%, var(--vscode-editor-background));
+  color: var(--vscode-errorForeground);
+  border: 1px solid color-mix(in srgb, var(--vscode-errorForeground) 30%, transparent);
+}
+.stop-btn:hover {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 28%, var(--vscode-editor-background));
+}
 </style>
 </head>
 <body>
@@ -1404,6 +1562,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
 <div class="input-area">
   <textarea id="input" placeholder="输入消息..." rows="1"></textarea>
   <button class="send-btn" id="sendBtn">发送</button>
+  <button class="send-btn stop-btn" id="stopBtn" style="display:none">停止</button>
 </div>
 
 <script>
@@ -1412,6 +1571,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   const messages = document.getElementById('messages');
   const input = document.getElementById('input');
   const sendBtn = document.getElementById('sendBtn');
+  const stopBtn = document.getElementById('stopBtn');
   const modelBadge = document.getElementById('modelBadge');
   const modelName = document.getElementById('modelName');
   const sessionSelect = document.getElementById('sessionSelect');
@@ -1468,7 +1628,9 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
     return html;
   }
 
-  function renderBlocks(markdown) {
+  function renderBlocks(markdown, thinkPlaceholders, observePlaceholders) {
+    thinkPlaceholders = thinkPlaceholders || [];
+    observePlaceholders = observePlaceholders || [];
     const lines = String(markdown || '').replace(/\r\n/g, '\n').split('\n');
     const html = [];
     let i = 0;
@@ -1492,6 +1654,22 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
       const line = lines[i];
 
       if (!line.trim()) {
+        i++;
+        continue;
+      }
+
+      var thinkMatch = line.trim().match(/^THINK_PLACEHOLDER_(\d+)$/);
+      if (thinkMatch) {
+        var thinkContent = thinkPlaceholders[parseInt(thinkMatch[1], 10)] || '';
+        html.push('<div class="think-block"><div class="think-block-header" onclick="this.parentElement.classList.toggle(\'collapsed\')">思考过程</div><div class="think-block-content">' + renderBlocks(thinkContent) + '</div></div>');
+        i++;
+        continue;
+      }
+
+      var observeMatch = line.trim().match(/^OBSERVE_PLACEHOLDER_(\d+)$/);
+      if (observeMatch) {
+        var observeContent = observePlaceholders[parseInt(observeMatch[1], 10)] || '';
+        html.push('<div class="think-block"><div class="think-block-header" onclick="this.parentElement.classList.toggle(\'collapsed\')">观察结果</div><div class="think-block-content">' + renderBlocks(observeContent) + '</div></div>');
         i++;
         continue;
       }
@@ -1553,15 +1731,30 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   }
 
   function renderMarkdown(markdown) {
-    const text = String(markdown || '');
+    var text = String(markdown || '');
+    var thinkPlaceholders = [];
+    var observePlaceholders = [];
+
+    text = text.replace(/\n?\n?\*\*\[思考\]\*\*\s*\n([\s\S]*?)\n\s*\*\*\/\[思考\]\*\*\n?\n?/g, function(match, content) {
+      var idx = thinkPlaceholders.length;
+      thinkPlaceholders.push(content);
+      return '\n\nTHINK_PLACEHOLDER_' + idx + '\n\n';
+    });
+
+    text = text.replace(/\n?\n?\*\*\[观察\]\*\*\s*\n([\s\S]*?)\n\s*\*\*\/\[观察\]\*\*\n?\n?/g, function(match, content) {
+      var idx = observePlaceholders.length;
+      observePlaceholders.push(content);
+      return '\n\nOBSERVE_PLACEHOLDER_' + idx + '\n\n';
+    });
+
     const blocks = [];
     const fence = /\x60\x60\x60([a-zA-Z0-9_-]+)?\n([\s\S]*?)\x60\x60\x60/g;
-    let lastIndex = 0;
-    let match;
+    var lastIndex = 0;
+    var match;
 
     while ((match = fence.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        blocks.push(renderBlocks(text.slice(lastIndex, match.index)));
+        blocks.push(renderBlocks(text.slice(lastIndex, match.index), thinkPlaceholders, observePlaceholders));
       }
       var language = match[1] ? '<div class="code-lang">' + escapeHtml(match[1]) + '</div>' : '';
       blocks.push('<pre>' + language + '<code>' + escapeHtml(match[2]) + '</code></pre>');
@@ -1569,15 +1762,44 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
     }
 
     if (lastIndex < text.length) {
-      blocks.push(renderBlocks(text.slice(lastIndex)));
+      blocks.push(renderBlocks(text.slice(lastIndex), thinkPlaceholders, observePlaceholders));
     }
 
     return blocks.join('') || '<p></p>';
   }
 
+  function renderPlanHtml(planId, title, summary, mode, items) {
+    var safeTitle = escapeHtml(title || '执行待办清单');
+    var safeSummary = renderInline(summary || '');
+    var safeMode = mode === 'compact' ? '轻量流程' : '完整流程';
+    var rows = (items || []).map(function(item) {
+      var status = item && item.status ? item.status : 'pending';
+      var mark = status === 'completed' ? '✓' : '';
+      var desc = escapeHtml(item && item.description ? item.description : '');
+      var goal = escapeHtml(item && item.goal ? item.goal : '');
+      return ''
+        + '<div class="plan-item ' + status + '">'
+        + '  <span class="box">' + mark + '</span>'
+        + '  <div class="plan-item-text">'
+        + '    <div>' + desc + '</div>'
+        + (goal ? '<div class="plan-item-goal">' + goal + '</div>' : '')
+        + '  </div>'
+        + '</div>';
+    }).join('');
+
+    return ''
+      + '<div class="plan-card" data-plan-id="' + escapeHtml(planId || '') + '">'
+      + '  <div class="plan-card-title">' + safeTitle + '</div>'
+      + '  <div class="plan-card-sub">模式：' + safeMode + (safeSummary ? ' · ' + safeSummary : '') + '</div>'
+      + '  <div class="plan-checklist">' + rows + '</div>'
+      + '</div>';
+  }
+
   function setMessageContent(el, role, content) {
     if (role === 'assistant') {
       el.innerHTML = renderMarkdown(content);
+    } else if (role === 'plan') {
+      el.innerHTML = content || '';
     } else {
       el.textContent = content || '';
     }
@@ -1749,6 +1971,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   }
 
   sendBtn.addEventListener('click', sendMessage);
+  stopBtn.addEventListener('click', function() { postMessage({ type: 'stopAgent' }); });
   modelBadge.addEventListener('click', function() { postMessage({ type: 'toggleProfile' }); });
   newSessionBtn.addEventListener('click', function() { postMessage({ type: 'createSession' }); });
   deleteSessionBtn.addEventListener('click', function() {
@@ -1856,6 +2079,29 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
     return el;
   }
 
+  function addPlanMessage(planId, title, summary, mode, items) {
+    hideEmptyState();
+    hasMessages = true;
+    currentMsgEl = null;
+    var el = document.createElement('div');
+    el.className = 'msg plan';
+    el.dataset.planId = planId || '';
+    el.innerHTML = renderPlanHtml(planId, title, summary, mode, items);
+    messages.appendChild(el);
+    messages.scrollTop = messages.scrollHeight;
+    return el;
+  }
+
+  function upsertPlanMessage(planId, title, summary, mode, items) {
+    var el = messages.querySelector('.msg.plan[data-plan-id="' + planId + '"]');
+    if (!el) {
+      return addPlanMessage(planId, title, summary, mode, items);
+    }
+    el.innerHTML = renderPlanHtml(planId, title, summary, mode, items);
+    messages.scrollTop = messages.scrollHeight;
+    return el;
+  }
+
   function upsertEditBatchMessage(batchId, content, ops) {
     setEditBatchData(batchId, content, ops);
     clearBatchConfirmState(batchId);
@@ -1896,10 +2142,16 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
         loadingText.textContent = msg.label || msg.state || '处理中...';
         break;
 
+      case 'planUpdate':
+        upsertPlanMessage(msg.planId, msg.title, msg.summary, msg.mode, msg.items);
+        break;
+
       case 'setLoading':
         loading.style.display = msg.loading ? 'flex' : 'none';
         isRunning = msg.loading;
         sendBtn.disabled = msg.loading;
+        sendBtn.style.display = msg.loading ? 'none' : '';
+        stopBtn.style.display = msg.loading ? '' : 'none';
         sessionSelect.disabled = msg.loading;
         newSessionBtn.disabled = msg.loading;
         deleteSessionBtn.disabled = msg.loading;
@@ -1960,6 +2212,20 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
         for (var i = 0; i < msg.messages.length; i++) {
           var m = msg.messages[i];
           if (m.role === 'state') continue;
+          if (m.role === 'plan') {
+            var planEl = document.createElement('div');
+            planEl.className = 'msg plan';
+            planEl.dataset.planId = m.planId || '';
+            planEl.innerHTML = renderPlanHtml(
+              m.planId || '',
+              m.planTitle || '执行待办清单',
+              m.content || '',
+              m.planMode || 'full',
+              m.planItems || []
+            );
+            frag.appendChild(planEl);
+            continue;
+          }
           if (m.role === 'editOps') {
             setEditBatchData(m.editBatchId || '', m.content || '', m.editOps || []);
             var reviewEl = document.createElement('div');
