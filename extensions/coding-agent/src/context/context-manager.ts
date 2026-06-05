@@ -9,7 +9,11 @@ import { ImpactAnalyzer, ImpactResult, BatchImpactResult } from './impactAnalyze
 import { ContextBuilder, ContextPackage } from './contextBuilder';
 import { MemoryManager } from '../memory/memoryManager';
 import { EmbeddingManager } from '../embedding/embeddingManager';
+import { HybridRetrieval } from './hybrid-retrieval';
 import { Planner } from '../planner/planner';
+import { GitAnalyzer } from '../git/git-analyzer';
+import { RuntimeVerifier } from '../verifier/runtime-verifier';
+import { AgentLoop } from '../agent/agent-loop';
 
 export interface AgentContext {
   currentFile?: string;
@@ -35,7 +39,11 @@ export class ContextManager {
   readonly contextBuilder: ContextBuilder;
   readonly memoryManager: MemoryManager;
   readonly embeddingManager: EmbeddingManager;
+  readonly hybridRetrieval: HybridRetrieval;
   readonly planner: Planner;
+  readonly gitAnalyzer: GitAnalyzer;
+  readonly runtimeVerifier: RuntimeVerifier;
+  agentLoop?: AgentLoop;
 
   private initialized = false;
   private embeddingManagerDirty = false;
@@ -48,10 +56,24 @@ export class ContextManager {
     this.repoMap = new RepoMap(this.scanner, this.symbolIndex, this.dependencyGraph);
     this.repoGraph = new RepoGraph(this.scanner, this.symbolIndex, this.dependencyGraph);
     this.impactAnalyzer = new ImpactAnalyzer(this.symbolIndex, this.dependencyGraph, this.repoMap);
-    this.contextBuilder = new ContextBuilder(this.scanner, this.symbolIndex, this.dependencyGraph, this.repoMap);
     this.memoryManager = new MemoryManager();
     this.embeddingManager = new EmbeddingManager(this.scanner);
-    this.planner = new Planner(this.memoryManager, this.embeddingManager, this.repoGraph, this.contextBuilder);
+    this.hybridRetrieval = new HybridRetrieval(
+      this.embeddingManager,
+      this.repoGraph,
+      this.dependencyGraph,
+      this.symbolIndex
+    );
+    this.contextBuilder = new ContextBuilder(
+      this.scanner,
+      this.symbolIndex,
+      this.dependencyGraph,
+      this.repoMap,
+      this.hybridRetrieval
+    );
+    this.gitAnalyzer = new GitAnalyzer();
+    this.runtimeVerifier = new RuntimeVerifier();
+    this.planner = new Planner(this.memoryManager, this.hybridRetrieval, this.repoGraph, this.contextBuilder, this.gitAnalyzer);
   }
 
   async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -92,6 +114,18 @@ export class ContextManager {
       `Coding Agent: 依赖图构建完成 — ${this.dependencyGraph.getAllNodes().length} 个节点`
     );
 
+    vscode.window.setStatusBarMessage('$(repo) Coding Agent: 初始化 Git 分析器...', 3000);
+    await this.gitAnalyzer.initialize();
+    if (this.gitAnalyzer.isInitialized) {
+      vscode.window.showInformationMessage('Coding Agent: Git 分析器已就绪');
+    }
+
+    vscode.window.setStatusBarMessage('$(check) Coding Agent: 初始化运行时验证器...', 3000);
+    await this.runtimeVerifier.initialize();
+    if (this.runtimeVerifier.isInitialized && this.runtimeVerifier.projectConfig?.type !== 'unknown') {
+      vscode.window.showInformationMessage(`Coding Agent: 运行时验证器已就绪 (${this.runtimeVerifier.projectConfig?.type})`);
+    }
+
     this.embeddingManager.build().catch(err => {
       console.error('EmbeddingManager build error (non-fatal):', err);
     });
@@ -112,6 +146,7 @@ export class ContextManager {
         }
         // Mark embedding as needing rebuild
         this.embeddingManagerDirty = true;
+        this.hybridRetrieval.invalidate();
       }
     });
 
@@ -122,6 +157,7 @@ export class ContextManager {
     if (this.embeddingManagerDirty && this.initialized) {
       this.embeddingManagerDirty = false;
       this.embeddingManager.build().catch(() => {});
+      this.hybridRetrieval.invalidate();
     }
 
     const editor = vscode.window.activeTextEditor;

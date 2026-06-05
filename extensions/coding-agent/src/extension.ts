@@ -9,6 +9,11 @@ import { ContextManager } from './context/context-manager';
 import { WorkspaceScanner } from './context/workspaceScanner';
 import { SymbolIndex } from './context/symbolIndex';
 import { Retrieval } from './context/retrieval';
+import { RetrievalDebugger } from './debug/retrieval-debugger';
+import { GitContextDebugger } from './debug/git-context-debugger';
+import { VerificationDebugger } from './debug/verification-debugger';
+import { AgentLoopDebugger } from './debug/agent-loop-debugger';
+import { ToolUsageAnalyzer } from './debug/tool-usage-analyzer';
 
 /**
  * Coding Agent 扩展入口
@@ -18,6 +23,11 @@ let agent: AgentCore;
 let inlineEditProvider: InlineEditProvider;
 let chatPanel: ChatPanel;
 let contextManager: ContextManager;
+let retrievalDebugger: RetrievalDebugger;
+let gitContextDebugger: GitContextDebugger;
+let verificationDebugger: VerificationDebugger;
+let agentLoopDebugger: AgentLoopDebugger;
+let toolUsageAnalyzer: ToolUsageAnalyzer;
 let chatViewProviderDisposable: vscode.Disposable | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
@@ -35,6 +45,17 @@ export async function activate(context: vscode.ExtensionContext) {
     // 初始化 Agent Core（传入共享 ContextManager）
     agent = new AgentCore(context, contextManager);
     inlineEditProvider = new InlineEditProvider();
+    retrievalDebugger = new RetrievalDebugger(contextManager);
+    gitContextDebugger = new GitContextDebugger(contextManager);
+    verificationDebugger = new VerificationDebugger(contextManager);
+    const loop = agent.getAgentLoop();
+    if (loop) {
+      agentLoopDebugger = new AgentLoopDebugger(loop);
+    }
+    const analyzer = agent.getToolUsageAnalyzer();
+    if (analyzer) {
+      toolUsageAnalyzer = analyzer;
+    }
 
     // 初始化原生 ChatPanel（OutputChannel + StatusBar）
     chatPanel = ChatPanel.init(agent);
@@ -209,11 +230,11 @@ function registerCommands(context: vscode.ExtensionContext) {
         description: `${p.provider} - ${p.model}`,
         profile: p,
       }));
-      
+
       const selected = await vscode.window.showQuickPick(items, {
         placeHolder: '选择要删除的配置',
       });
-      
+
       if (selected) {
         const confirm = await vscode.window.showWarningMessage(
           `确定要删除配置 "${selected.profile.name}" 吗？`,
@@ -227,6 +248,86 @@ function registerCommands(context: vscode.ExtensionContext) {
           }
         }
       }
+    }),
+
+    // Debug Retrieval: single query
+    vscode.commands.registerCommand('codingAgent.debugRetrieval', async () => {
+      if (!retrievalDebugger) {
+        vscode.window.showWarningMessage('Retrieval debugger not initialized yet.');
+        return;
+      }
+      await retrievalDebugger.runDebugQuery();
+    }),
+
+    // Evaluate Retrieval Quality: batch evaluation
+    vscode.commands.registerCommand('codingAgent.evaluateRetrieval', async () => {
+      if (!retrievalDebugger) {
+        vscode.window.showWarningMessage('Retrieval debugger not initialized yet.');
+        return;
+      }
+      await retrievalDebugger.runBatchEvaluation();
+    }),
+
+    // Debug Git Context: single query
+    vscode.commands.registerCommand('codingAgent.debugGitContext', async () => {
+      if (!gitContextDebugger) {
+        vscode.window.showWarningMessage('Git context debugger not initialized yet.');
+        return;
+      }
+      await gitContextDebugger.runDebug();
+    }),
+
+    // Debug Verification: run build/test/lint and show results
+    vscode.commands.registerCommand('codingAgent.debugVerification', async () => {
+      if (!verificationDebugger) {
+        vscode.window.showWarningMessage('Verification debugger not initialized yet.');
+        return;
+      }
+      await verificationDebugger.runDebug();
+    }),
+
+    // Debug Agent Loop: run plan → execute → verify → repair cycle
+    vscode.commands.registerCommand('codingAgent.debugAgentLoop', async () => {
+      if (!agentLoopDebugger) {
+        vscode.window.showWarningMessage('Agent loop debugger not initialized yet.');
+        return;
+      }
+      await agentLoopDebugger.runDebug();
+    }),
+
+    // Analyze Tool Usage: show tool usage report
+    vscode.commands.registerCommand('codingAgent.analyzeToolUsage', async () => {
+      if (!toolUsageAnalyzer) {
+        vscode.window.showWarningMessage('Tool usage analyzer not initialized yet.');
+        return;
+      }
+
+      const options = ['Last Execution Report', 'Aggregate Report (last 100)', 'Clear Records'];
+      const selected = await vscode.window.showQuickPick(options, {
+        placeHolder: 'Select tool usage analysis type',
+      });
+
+      if (!selected) return;
+
+      if (selected === 'Clear Records') {
+        toolUsageAnalyzer.clearRecords();
+        vscode.window.showInformationMessage('Tool usage records cleared.');
+        return;
+      }
+
+      const report = selected === 'Last Execution Report'
+        ? toolUsageAnalyzer.generateLastReport()
+        : toolUsageAnalyzer.generateAggregateReport();
+
+      // Show report in a new untitled document
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'markdown',
+        content: report,
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: false,
+        viewColumn: vscode.ViewColumn.Two,
+      });
     })
   );
 }

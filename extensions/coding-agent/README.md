@@ -25,6 +25,11 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 - 🌐 **多后端支持** - SGLang / OpenAI / Azure OpenAI / Deepseek / 小米 MiMo
 - ✅ **Verifier** - 子任务完成后自动运行 `tsc --noEmit` / `eslint` / `npm test`
 - 🔍 **LSP 工具链** - 跳转定义、查找引用、符号检索、关联文件发现
+- 🔄 **LLM Query Rewrite** - 中文查询自动改写为英文 Search Terms，提升跨语言检索召回率
+- 🛠️ **局部编辑工具** - `replace_text` / `insert_before` / `insert_after` / `append_text`，避免简单改动重写整个文件
+- 📊 **工具使用率分析** - 自动统计 Agent 调用工具的频率和覆盖率，发现死工具
+- 🔍 **Intent-Aware 混合检索** - 根据 `modification` / `bug_fix` / `project_understanding` 自动调整检索权重
+- 📈 **Git 分析器** - 自动检索 `git log`、`git blame`、`git diff`，为回归定位提供上下文
 
 ## 支持的后端 / Supported Backends
 
@@ -42,10 +47,18 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 
 `Planner → ReAct → Verifier → Reflector`
 
-- **Planner**：识别意图、决定执行模式、生成结构化 To-Do List
-- **ReAct**：在子任务内循环执行 `THINK → ACT → OBSERVE`
-- **Verifier**：对修改结果执行自动校验
+- **Planner**：识别意图、生成 Search Terms（LLM Query Rewrite）、决定执行模式、生成结构化 To-Do List
+- **ReAct**：在子任务内循环执行 `THINK → ACT → OBSERVE`（Agent Loop 最大 15 次迭代）
+- **Verifier**：对修改结果执行自动校验（tsc / eslint / npm test）
 - **Reflector**：根据结果决定通过、返工或继续
+
+### 检索 Pipeline
+
+`User Query → LLM Query Rewrite → Hybrid Retrieval → Intent-Aware Rerank`
+
+- **LLM Query Rewrite**：中文查询自动改写为英文 Search Terms
+- **Hybrid Retrieval**：BM25 + Embedding + Graph Relevance + CodeRel + FileType 五路融合
+- **Intent-Aware Rerank**：根据 `modification` / `bug_fix` / `project_understanding` 动态调整权重
 
 ### 当前版本新增机制
 
@@ -53,6 +66,8 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 - **Cursor 风格计划清单**：计划阶段强制生成 JSON To-Do List，并在侧边栏展示为 Checklist
 - **Claude Code 风格 Auto-Compact**：历史消息接近上限时自动摘要压缩，保留关键进度继续推理
 - **LLM-Driven Routing**：由模型判断走 `compact` 还是 `full`，避免固定规则误判任务复杂度
+- **局部编辑优先**：`replace_text` / `insert_before` / `insert_after` / `append_text` 优先于 `write_file`
+- **工具使用率分析**：自动统计 Agent 调用工具的频率和覆盖率，发现死工具
 
 ## 安装 / Installation
 
@@ -351,6 +366,41 @@ extensions/coding-agent/
 
 > 说明 / Note  
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
+### v0.5.0 — 2026-06-05
+
+子系统全面落地：LLM Query Rewrite、局部编辑工具、Intent-Aware 混合检索、ReAct Tool Loop、Runtime Verifier、Git Analyzer、工具使用率分析  
+Subsystem Rollout: LLM Query Rewrite, Local Edit Tools, Intent-Aware Hybrid Retrieval, ReAct Tool Loop, Runtime Verifier, Git Analyzer, Tool Usage Analytics
+
+#### ✨ 新特性 / New Features
+- **LLM Query Rewrite**: 中文查询自动改写为英文 Search Terms，解决中英文 token 空间不匹配导致的检索失效问题
+- **局部编辑工具集**: 新增 `replace_text`、`insert_before`、`insert_after`、`append_text`，优先用于已有文件的局部修改，避免简单改动重写整个文件
+- **Intent-Aware 动态混合检索**: Reranker 根据 `modification` / `bug_fix` / `project_understanding` / `explanation` 自动切换 BM25/Embedding/Graph/CodeRel/FileType 权重
+- **动态文件类型评分**: `.ts/.tsx=1.0`、`.js/.jsx=0.9`、`.json=0.5`、`.md=0.1`，文档文件不再霸榜代码检索结果
+- **Graph Expansion 上限**: `MAX_GRAPH_EXPANSION=5`，防止候选池被无关模块无限膨胀
+- **工具使用率分析器**: `Coding Agent: Analyze Tool Usage` 命令，统计最近 100 次运行的工具调用覆盖率，发现从未被调用的死工具
+- **Runtime Verifier 子系统**: 自动运行 `tsc --noEmit` / `eslint` / `npm test`，捕获编译错误和测试失败并注入修复上下文
+- **Git Analyzer 子系统**: 自动检索 `git log`、`git blame`、`git diff`，为回归定位和历史审查提供上下文
+- **Agent Execution Loop**: 真正的 ReAct Tool Loop，支持 `tool_call` 结果回灌 LLM，最大迭代 15 次，无 `final_answer` 时标记 FAILED
+- **检索质量调试器**: `Coding Agent: Debug Retrieval` 命令，分阶段输出 BM25 / Embedding / Hybrid / Rerank 结果，定位检索失效根因
+- **Agent Loop 调试器**: `Coding Agent: Debug Agent Loop` 命令，追踪 PLAN → EXECUTE → VERIFY → REPAIR 状态流转
+
+#### 🔧 优化 / Improvements
+- **检索质量修复**: 中文查询通过 LLM Query Rewrite 转为英文后，Embedding 和 BM25 召回率从 0 恢复为正常水平
+- **文件编辑策略**: SYSTEM_PROMPT 强制要求优先使用局部编辑工具，只有创建新文件时才允许 `write_file`
+- **Prompt 参数规范化**: AgentLoop 自动将 LLM 输出的参数别名（如 `path`）映射到工具注册的参数名（如 `filePath`）
+- **工具注册增强**: `toolCall.name.enum` 扩展为 15 个工具，覆盖局部编辑、LSP 符号、影响分析等
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **Query Rewrite 链路**: `AgentCore.generateSearchTerms()` → `ExecutionPlan.searchTerms` → `Planner.executeStep()` → `HybridRetrieval.search({ searchTerms })`
+- **Reranker 权重表**: `modification` 意图下 CodeRel 权重 0.40，BM25/Embedding 降至 0.15；`bug_fix` 意图下 Graph 权重 0.30
+- **DiffEngine 复用**: 局部编辑工具内部复用 `DiffEngine.searchReplace()` 逻辑，支持精确匹配 + 模糊匹配
+
+#### 🐛 修复 / Bug Fixes
+- 修复 `RetrievalIntent` 类型与 `RetrievalDebugResult.intent` 类型不兼容导致的编译错误
+- 修复 `tool-registry.ts` 中 `read_file` 参数名不一致（`path` vs `filePath`）导致的参数缺失错误
+- 修复 `generateSearchTerms` LLM 失败时静默返回空数组、Query Rewrite 失效却无日志的问题
+- 修复中文查询（如"优化混合检索"）因 token 空间不匹配导致 BM25 空结果、Embedding 全 0 的问题
 
 ### v0.4.0 — 2026-06-04
 

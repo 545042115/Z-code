@@ -1,14 +1,30 @@
+// Planner module - builds and executes multi-step execution plans for the coding agent.
+// Uses memory, embedding search, repo graph, and git analysis to gather context.
+
 import { MemoryManager, MemoryEntry } from '../memory/memoryManager';
-import { EmbeddingManager, EmbeddingResult } from '../embedding/embeddingManager';
 import { RepoGraph } from '../context/repoGraph';
 import { ContextBuilder, ContextPackage } from '../context/contextBuilder';
+import { HybridRetrieval, HybridSearchResult } from '../context/hybrid-retrieval';
+import { GitAnalyzer } from '../git/git-analyzer';
 
 export type IntentType = 'project_understanding' | 'bug_fix' | 'feature_add' | 'refactor' | 'testing' | 'documentation' | 'removal' | 'other';
+
+export type PlanAction =
+  | 'classify_intent'
+  | 'retrieve_memory'
+  | 'search_embedding'
+  | 'query_repograph'
+  | 'build_context'
+  | 'generate_answer'
+  | 'git_recent_commits'
+  | 'git_changed_files'
+  | 'git_file_history'
+  | 'git_diff_between';
 
 export interface PlanStep {
   id: string;
   description: string;
-  action: 'classify_intent' | 'retrieve_memory' | 'search_embedding' | 'query_repograph' | 'build_context' | 'generate_answer';
+  action: PlanAction;
   status: 'pending' | 'completed';
   result?: any;
 }
@@ -18,24 +34,30 @@ export interface ExecutionPlan {
   steps: PlanStep[];
   context: IncrementalContext;
   summary: string;
+  searchTerms?: string[];
 }
 
 export interface IncrementalContext {
   memoryFragment: string;
-  embeddingResults: EmbeddingResult[];
+  embeddingResults: HybridSearchResult[];
   repoGraphOverview: string;
   contextPackage?: ContextPackage;
   selectedFiles: string[];
   accumulated: string;
   currentFile?: string;
+  gitRecentCommits?: string;
+  gitChangedFiles?: string;
+  gitFileHistories?: string;
+  gitDiff?: string;
 }
 
 export class Planner {
   constructor(
     private readonly memoryManager: MemoryManager,
-    private readonly embeddingManager: EmbeddingManager,
+    private readonly hybridRetrieval: HybridRetrieval,
     private readonly repoGraph: RepoGraph,
-    private readonly contextBuilder: ContextBuilder
+    private readonly contextBuilder: ContextBuilder,
+    private readonly gitAnalyzer?: GitAnalyzer
   ) {}
 
   create(request: string, sessionId: string): ExecutionPlan {
@@ -57,7 +79,7 @@ export class Planner {
     };
   }
 
-  async executeStep(step: PlanStep, request: string, sessionId: string, context: IncrementalContext): Promise<PlanStep> {
+  async executeStep(step: PlanStep, request: string, sessionId: string, context: IncrementalContext, searchTerms?: string[]): Promise<PlanStep> {
     switch (step.action) {
       case 'classify_intent': {
         const intent = this.classifyIntent(request);
@@ -74,7 +96,10 @@ export class Planner {
       }
 
       case 'search_embedding': {
-        const results = this.embeddingManager.search(request, 8);
+        const searchQuery = searchTerms && searchTerms.length > 0 ? searchTerms.join(' ') : request;
+        console.log(`[Planner] search_embedding using searchTerms=${JSON.stringify(searchTerms)}`);
+        console.log(`[Planner] effective search query="${searchQuery}"`);
+        const results = await this.hybridRetrieval.search(searchQuery, { topK: 8, searchTerms });
         context.embeddingResults = results;
         context.selectedFiles.push(...results.map(r => r.filePath));
         return { ...step, status: 'completed', result: results };
@@ -100,7 +125,8 @@ export class Planner {
       }
 
       case 'build_context': {
-        const pkg = await this.contextBuilder.build(request, context.currentFile);
+        const gitContext = this.buildGitContextString(context);
+        const pkg = await this.contextBuilder.build(request, context.currentFile, gitContext);
         context.contextPackage = pkg;
 
         const embeddingPaths = new Set(context.embeddingResults.map(r => r.filePath));
@@ -117,6 +143,57 @@ export class Planner {
       case 'generate_answer': {
         context.accumulated = this.accumulateContext(context);
         return { ...step, status: 'completed', result: context };
+      }
+
+      case 'git_recent_commits': {
+        if (!this.gitAnalyzer || !this.gitAnalyzer.isInitialized) {
+          return { ...step, status: 'completed', result: 'Git not available' };
+        }
+        const commits = await this.gitAnalyzer.getRecentCommits(10);
+        const formatted = this.gitAnalyzer.formatCommitsForPrompt(commits);
+        context.gitRecentCommits = formatted;
+        return { ...step, status: 'completed', result: formatted };
+      }
+
+      case 'git_changed_files': {
+        if (!this.gitAnalyzer || !this.gitAnalyzer.isInitialized) {
+          return { ...step, status: 'completed', result: 'Git not available' };
+        }
+        const files = await this.gitAnalyzer.getChangedFiles();
+        if (files.length === 0) {
+          context.gitChangedFiles = 'No changes in working tree.';
+        } else {
+          context.gitChangedFiles = files
+            .map(f => `${f.status.toUpperCase()}: ${f.path} (+${f.additions}/-${f.deletions})`)
+            .join('\n');
+        }
+        return { ...step, status: 'completed', result: context.gitChangedFiles };
+      }
+
+      case 'git_file_history': {
+        if (!this.gitAnalyzer || !this.gitAnalyzer.isInitialized) {
+          return { ...step, status: 'completed', result: 'Git not available' };
+        }
+        const histories: string[] = [];
+        const targetFiles = context.selectedFiles.slice(0, 3);
+        for (const file of targetFiles) {
+          const history = await this.gitAnalyzer.getFileHistory(file, 5);
+          if (history.length > 0) {
+            histories.push(`### ${file}\n` + history.map(h => `  ${h.hash.slice(0, 7)} ${h.message} — ${h.author} (${h.date})`).join('\n'));
+          }
+        }
+        context.gitFileHistories = histories.join('\n\n') || 'No file histories available.';
+        return { ...step, status: 'completed', result: context.gitFileHistories };
+      }
+
+      case 'git_diff_between': {
+        if (!this.gitAnalyzer || !this.gitAnalyzer.isInitialized) {
+          return { ...step, status: 'completed', result: 'Git not available' };
+        }
+        const diff = await this.gitAnalyzer.getDiffBetween('HEAD~5', 'HEAD');
+        const formatted = this.gitAnalyzer.formatDiffForPrompt(diff, 50);
+        context.gitDiff = formatted;
+        return { ...step, status: 'completed', result: formatted };
       }
 
       default:
@@ -151,6 +228,17 @@ export class Planner {
     return 'other';
   }
 
+  private hasGitIntent(request: string): boolean {
+    const lower = request.toLowerCase();
+    const gitKeywords = [
+      'regression', 'recently broken', 'commit', 'history', 'changed',
+      'after refactor', 'introduced bug', 'blame', 'who changed',
+      'recent change', 'what changed', 'last modified', 'git log',
+      'who wrote', 'who removed', 'when was',
+    ];
+    return gitKeywords.some(kw => lower.includes(kw));
+  }
+
   private buildSteps(intent: IntentType, request: string, sessionId: string): PlanStep[] {
     const steps: PlanStep[] = [];
 
@@ -178,6 +266,16 @@ export class Planner {
     }
     // documentation / other 等简单意图只做分类+记忆，其余由 ReAct 循环中的工具调用完成
 
+    // Git context steps when history-related intent detected
+    if (this.hasGitIntent(request)) {
+      steps.push(
+        { id: 'git-1', description: 'Collect recent commits', action: 'git_recent_commits', status: 'pending' },
+        { id: 'git-2', description: 'Collect changed files', action: 'git_changed_files', status: 'pending' },
+        { id: 'git-3', description: 'Collect file histories', action: 'git_file_history', status: 'pending' },
+        { id: 'git-4', description: 'Collect recent diff', action: 'git_diff_between', status: 'pending' },
+      );
+    }
+
     return steps;
   }
 
@@ -198,7 +296,7 @@ export class Planner {
     return parts.join('\n\n');
   }
 
-  private getModulesFromEmbedding(results: EmbeddingResult[]): string[] {
+  private getModulesFromEmbedding(results: HybridSearchResult[]): string[] {
     const moduleSet = new Set<string>();
     for (const r of results) {
       const lower = r.filePath.replace(/\\/g, '/').toLowerCase();
@@ -210,6 +308,23 @@ export class Planner {
       else moduleSet.add('other');
     }
     return Array.from(moduleSet);
+  }
+
+  private buildGitContextString(context: IncrementalContext): string {
+    const parts: string[] = [];
+    if (context.gitRecentCommits) {
+      parts.push('## Recent Commits\n' + context.gitRecentCommits);
+    }
+    if (context.gitChangedFiles) {
+      parts.push('## Changed Files in Working Tree\n' + context.gitChangedFiles);
+    }
+    if (context.gitFileHistories) {
+      parts.push('## File Histories\n' + context.gitFileHistories);
+    }
+    if (context.gitDiff) {
+      parts.push('## Recent Changes (HEAD~5..HEAD)\n' + context.gitDiff);
+    }
+    return parts.join('\n\n');
   }
 
   private accumulateContext(context: IncrementalContext): string {

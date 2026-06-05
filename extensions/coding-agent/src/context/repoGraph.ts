@@ -285,6 +285,10 @@ export class RepoGraph {
     return parts.join('\n');
   }
 
+  getNode(filePath: string): GraphNode | undefined {
+    return this.nodeById.get(filePath);
+  }
+
   getNodesByType(type: GraphNode['type']): GraphNode[] {
     return this.nodes.filter(n => n.type === type);
   }

@@ -27,6 +27,10 @@ export class ToolRegistry {
   private registerDefaults(): void {
     this.register(this.makeReadFileTool());
     this.register(this.makeWriteFileTool());
+    this.register(this.makeReplaceTextTool());
+    this.register(this.makeInsertBeforeTool());
+    this.register(this.makeInsertAfterTool());
+    this.register(this.makeAppendTextTool());
     this.register(this.makeSearchCodeTool());
     this.register(this.makeRunTerminalTool());
     this.register(this.makeListDirectoryTool());
@@ -47,6 +51,16 @@ export class ToolRegistry {
       this.register(this.makeEmbeddingSearchTool());
       this.register(this.makeRepoGraphTool());
       this.register(this.makePlannerExecuteTool());
+      this.register(this.makeGitRecentCommitsTool());
+      this.register(this.makeGitFileHistoryTool());
+      this.register(this.makeGitWorkingTreeDiffTool());
+      this.register(this.makeGitDiffBetweenTool());
+      this.register(this.makeGitBlameTool());
+      this.register(this.makeGitChangedFilesTool());
+      this.register(this.makeRuntimeVerifyBuildTool());
+      this.register(this.makeRuntimeVerifyTestsTool());
+      this.register(this.makeRuntimeVerifyLintTool());
+      this.register(this.makeRuntimeVerifyPatchTool());
     }
   }
 
@@ -142,12 +156,12 @@ export class ToolRegistry {
       name: 'read_file',
       description: 'Read the content of a file. Returns the full file content.',
       parameters: [
-        { name: 'path', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
         { name: 'startLine', type: 'number', description: 'Starting line number (1-based, optional)', required: false },
         { name: 'lineCount', type: 'number', description: 'Number of lines to read (optional)', required: false },
       ],
       execute: async (params) => {
-        const resolvedPath = this.resolveWorkspacePath(params.path);
+        const resolvedPath = this.resolveWorkspacePath(params.filePath);
         const uri = vscode.Uri.file(resolvedPath);
         const doc = await vscode.workspace.openTextDocument(uri);
         const content = doc.getText();
@@ -167,19 +181,181 @@ export class ToolRegistry {
   private makeWriteFileTool(): Tool {
     return {
       name: 'write_file',
-      description: 'Write content to a file. Creates the file if it does not exist.',
+      description: 'Write content to a file. Creates the file if it does not exist. IMPORTANT: Only use this for creating new files or when you need to rewrite the entire file. For small changes to existing files, ALWAYS use replace_text, insert_before, insert_after, or append_text instead.',
       parameters: [
-        { name: 'path', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
         { name: 'content', type: 'string', description: 'Full file content to write', required: true },
       ],
       execute: async (params) => {
-        const resolvedPath = this.resolveWritableWorkspacePath(params.path);
+        const resolvedPath = this.resolveWritableWorkspacePath(params.filePath);
         const uri = vscode.Uri.file(resolvedPath);
         const encoder = new TextEncoder();
         await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
         await vscode.workspace.fs.writeFile(uri, encoder.encode(params.content));
         await vscode.workspace.fs.stat(uri);
         return `File written successfully: ${resolvedPath}`;
+      },
+    };
+  }
+
+  /**
+   * 局部编辑工具集：replace_text, insert_before, insert_after, append_text
+   * 这些工具优先于 write_file 用于修改现有文件，避免传输完整文件内容。
+   */
+
+  private async applyLocalEdit(
+    filePath: string,
+    searchText: string,
+    replaceText: string,
+    operation: 'replace' | 'insert_before' | 'insert_after'
+  ): Promise<string> {
+    const resolvedPath = this.resolveWritableWorkspacePath(filePath);
+    const uri = vscode.Uri.file(resolvedPath);
+
+    // 检查文件是否存在
+    let fileExists = false;
+    try {
+      await vscode.workspace.fs.stat(uri);
+      fileExists = true;
+    } catch {
+      fileExists = false;
+    }
+
+    if (!fileExists) {
+      // 文件不存在时，如果 searchText 为空则创建，否则报错
+      if (!searchText) {
+        const encoder = new TextEncoder();
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
+        await vscode.workspace.fs.writeFile(uri, encoder.encode(replaceText));
+        return `File created successfully: ${resolvedPath}`;
+      }
+      throw new Error(`File not found: ${resolvedPath}. Use write_file or append_text to create new files.`);
+    }
+
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const fullText = doc.getText();
+
+    // 精确匹配
+    let matchIndex = fullText.indexOf(searchText);
+
+    // 模糊匹配兜底（标准化空白字符）
+    if (matchIndex === -1 && searchText) {
+      matchIndex = this.fuzzySearchInText(fullText, searchText);
+    }
+
+    if (matchIndex === -1 && searchText) {
+      throw new Error(`Search text not found in ${filePath}. The text may have been modified or does not match exactly.`);
+    }
+
+    let finalText: string;
+    if (operation === 'replace') {
+      finalText = fullText.substring(0, matchIndex) + replaceText + fullText.substring(matchIndex + searchText.length);
+    } else if (operation === 'insert_before') {
+      finalText = fullText.substring(0, matchIndex) + replaceText + searchText + fullText.substring(matchIndex + searchText.length);
+    } else { // insert_after
+      finalText = fullText.substring(0, matchIndex) + searchText + replaceText + fullText.substring(matchIndex + searchText.length);
+    }
+
+    const encoder = new TextEncoder();
+    await vscode.workspace.fs.writeFile(uri, encoder.encode(finalText));
+
+    const opLabel = operation === 'replace' ? 'replaced' : operation === 'insert_before' ? 'inserted before' : 'inserted after';
+    const linesAffected = replaceText.split('\n').length;
+    return `Text ${opLabel} successfully in ${resolvedPath} (${linesAffected} lines)`;
+  }
+
+  private fuzzySearchInText(text: string, pattern: string): number {
+    const normalize = (s: string) => s.replace(/\s+/g, ' ').trim();
+    const normalizedText = normalize(text);
+    const normalizedPattern = normalize(pattern);
+    const index = normalizedText.indexOf(normalizedPattern);
+    if (index === -1) return -1;
+
+    // 构建归一化位置映射
+    const normToOriginal: number[] = [];
+    let i = 0;
+    while (i < text.length && /\s/.test(text[i])) i++;
+    while (i < text.length) {
+      if (/\s/.test(text[i])) {
+        normToOriginal.push(i);
+        while (i + 1 < text.length && /\s/.test(text[i + 1])) i++;
+      } else {
+        normToOriginal.push(i);
+      }
+      i++;
+    }
+    return index < normToOriginal.length ? normToOriginal[index] : -1;
+  }
+
+  private makeReplaceTextTool(): Tool {
+    return {
+      name: 'replace_text',
+      description: 'Replace a specific text snippet in an existing file with new text. Use this for ALL modifications to existing files instead of write_file. The oldText must match exactly (or very closely) a portion of the file.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'oldText', type: 'string', description: 'The exact text to find and replace. Include enough surrounding context (2-3 lines) to ensure uniqueness.', required: true },
+        { name: 'newText', type: 'string', description: 'The replacement text. Can be shorter or longer than oldText.', required: true },
+      ],
+      execute: async (params) => {
+        return this.applyLocalEdit(params.filePath, params.oldText, params.newText, 'replace');
+      },
+    };
+  }
+
+  private makeInsertBeforeTool(): Tool {
+    return {
+      name: 'insert_before',
+      description: 'Insert new text immediately before a specific anchor text in an existing file. The anchor text must exist in the file.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'anchorText', type: 'string', description: 'The anchor text to find. New text will be inserted BEFORE this text. Include enough context to ensure uniqueness.', required: true },
+        { name: 'newText', type: 'string', description: 'The text to insert before the anchor.', required: true },
+      ],
+      execute: async (params) => {
+        return this.applyLocalEdit(params.filePath, params.anchorText, params.newText, 'insert_before');
+      },
+    };
+  }
+
+  private makeInsertAfterTool(): Tool {
+    return {
+      name: 'insert_after',
+      description: 'Insert new text immediately after a specific anchor text in an existing file. The anchor text must exist in the file.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'anchorText', type: 'string', description: 'The anchor text to find. New text will be inserted AFTER this text. Include enough context to ensure uniqueness.', required: true },
+        { name: 'newText', type: 'string', description: 'The text to insert after the anchor.', required: true },
+      ],
+      execute: async (params) => {
+        return this.applyLocalEdit(params.filePath, params.anchorText, params.newText, 'insert_after');
+      },
+    };
+  }
+
+  private makeAppendTextTool(): Tool {
+    return {
+      name: 'append_text',
+      description: 'Append text to the end of a file. Creates the file if it does not exist. Use this for adding content to the end of a file without reading its entire content first.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'File path (absolute or relative to workspace root)', required: true },
+        { name: 'newText', type: 'string', description: 'Text to append at the end of the file. A newline will be added automatically if the file does not end with one.', required: true },
+      ],
+      execute: async (params) => {
+        const resolvedPath = this.resolveWritableWorkspacePath(params.filePath);
+        const uri = vscode.Uri.file(resolvedPath);
+        let existing = '';
+        try {
+          const doc = await vscode.workspace.openTextDocument(uri);
+          existing = doc.getText();
+        } catch {
+          // File does not exist, will create
+        }
+        const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n' : '';
+        const finalText = existing + separator + params.newText;
+        const encoder = new TextEncoder();
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
+        await vscode.workspace.fs.writeFile(uri, encoder.encode(finalText));
+        return `Text appended successfully to ${resolvedPath}`;
       },
     };
   }
@@ -639,21 +815,21 @@ export class ToolRegistry {
   private makeEmbeddingSearchTool(): Tool {
     return {
       name: 'embedding_search',
-      description: 'Search for semantically relevant files using TF-IDF style embedding. Returns top-K files ranked by relevance to the query. Use this to find files related to a concept without knowing exact file names.',
+      description: 'Search for semantically relevant files using hybrid retrieval (BM25 + embedding + graph relevance). Returns top-K files ranked by relevance to the query. Use this to find files related to a concept without knowing exact file names.',
       parameters: [
         { name: 'query', type: 'string', description: 'Natural language query describing what you are looking for', required: true },
         { name: 'topK', type: 'number', description: 'Number of results to return (default: 8)', required: false },
       ],
       execute: async (params) => {
-        if (!this.contextManager || !this.contextManager.embeddingManager.isBuilt) {
-          return 'Embedding index not yet built. Please wait for initialization to complete.';
+        if (!this.contextManager || !this.contextManager.hybridRetrieval) {
+          return 'Hybrid retrieval not available.';
         }
-        const results = this.contextManager.embeddingManager.search(params.query, params.topK || 8);
+        const results = await this.contextManager.hybridRetrieval.search(params.query, { topK: params.topK || 8 });
         if (results.length === 0) {
           return `No semantically relevant files found for "${params.query}".`;
         }
         return results.map((r, i) =>
-          `${i + 1}. ${r.filePath} (score: ${r.score})\n   ${r.summary.slice(0, 100)}`
+          `${i + 1}. ${r.filePath} (final: ${r.score}, bm25: ${r.bm25Score}, emb: ${r.embeddingScore}, graph: ${r.graphScore}, code: ${r.codeRelevanceScore}, type: ${r.fileTypeScore})\n   ${r.summary.slice(0, 100)}`
         ).join('\n');
       },
     };
@@ -702,6 +878,186 @@ export class ToolRegistry {
         }
 
         return planner.formatPlanForPrompt(plan);
+      },
+    };
+  }
+
+  // ── Git Tools ───────────────────────────────────────────────────────────
+
+  private makeGitRecentCommitsTool(): Tool {
+    return {
+      name: 'git_recent_commits',
+      description: 'Get recent git commit history. Use this to understand what changed recently in the repository, who made changes, and when.',
+      parameters: [
+        { name: 'limit', type: 'number', description: 'Number of commits to return (default: 10)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const commits = await this.contextManager.gitAnalyzer.getRecentCommits(params.limit || 10);
+        return this.contextManager.gitAnalyzer.formatCommitsForPrompt(commits);
+      },
+    };
+  }
+
+  private makeGitFileHistoryTool(): Tool {
+    return {
+      name: 'git_file_history',
+      description: 'Get the commit history for a specific file. Use this to understand when and why a file was modified, or who introduced specific changes.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'Absolute or relative path to the file', required: true },
+        { name: 'limit', type: 'number', description: 'Number of commits to return (default: 20)', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const history = await this.contextManager.gitAnalyzer.getFileHistory(params.filePath, params.limit || 20);
+        if (history.length === 0) return `No history found for ${params.filePath}.`;
+        return history
+          .map((h, i) => `${i + 1}. \`${h.hash.slice(0, 7)}\` ${h.message} — ${h.author} (${h.date})`)
+          .join('\n');
+      },
+    };
+  }
+
+  private makeGitWorkingTreeDiffTool(): Tool {
+    return {
+      name: 'git_working_tree_diff',
+      description: 'Get the diff of uncommitted changes in the working tree (staged + unstaged). Use this to see what the user has modified before making additional changes.',
+      parameters: [],
+      execute: async () => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const diff = await this.contextManager.gitAnalyzer.getWorkingTreeDiff();
+        return this.contextManager.gitAnalyzer.formatDiffForPrompt(diff, 150);
+      },
+    };
+  }
+
+  private makeGitDiffBetweenTool(): Tool {
+    return {
+      name: 'git_diff_between',
+      description: 'Get the diff between two git refs (commits, branches, or tags). Use this to compare specific versions of the codebase.',
+      parameters: [
+        { name: 'fromRef', type: 'string', description: 'Starting ref (commit hash, branch, or tag)', required: true },
+        { name: 'toRef', type: 'string', description: 'Ending ref (commit hash, branch, or tag)', required: true },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const diff = await this.contextManager.gitAnalyzer.getDiffBetween(params.fromRef, params.toRef);
+        return this.contextManager.gitAnalyzer.formatDiffForPrompt(diff, 150);
+      },
+    };
+  }
+
+  private makeGitBlameTool(): Tool {
+    return {
+      name: 'git_blame',
+      description: 'Get git blame information for a file. Use this to find out who wrote specific lines and when. Optionally pass a line number to get blame for a single line.',
+      parameters: [
+        { name: 'filePath', type: 'string', description: 'Absolute or relative path to the file', required: true },
+        { name: 'line', type: 'number', description: 'Specific line number (1-based). Omit to get all lines.', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const lines = await this.contextManager.gitAnalyzer.getBlame(
+          params.filePath,
+          params.line !== undefined ? params.line : undefined
+        );
+        if (lines.length === 0) return `No blame information for ${params.filePath}.`;
+        return lines
+          .map(l => `L${l.line}: \`${l.commitHash.slice(0, 7)}\` ${l.author} (${l.date}) — ${l.summary}`)
+          .join('\n');
+      },
+    };
+  }
+
+  private makeGitChangedFilesTool(): Tool {
+    return {
+      name: 'git_changed_files',
+      description: 'Get the list of files changed in the working tree (staged, unstaged, and untracked). Use this to understand the current state of modifications before making additional changes.',
+      parameters: [],
+      execute: async () => {
+        if (!this.contextManager || !this.contextManager.gitAnalyzer.isInitialized) {
+          return 'Git repository not available or not initialized.';
+        }
+        const files = await this.contextManager.gitAnalyzer.getChangedFiles();
+        if (files.length === 0) return 'No changes in working tree.';
+        return files
+          .map(f => `${f.status.toUpperCase().padEnd(10)} ${this.shortenPath(f.path)} (+${f.additions}/-${f.deletions})`)
+          .join('\n');
+      },
+    };
+  }
+
+  // ── Runtime Verification Tools ─────────────────────────────────────────
+
+  private makeRuntimeVerifyBuildTool(): Tool {
+    return {
+      name: 'runtime_verify_build',
+      description: 'Run the project build command and report errors. Use this after making code changes to verify the code still compiles or builds correctly.',
+      parameters: [],
+      execute: async () => {
+        if (!this.contextManager || !this.contextManager.runtimeVerifier.isInitialized) {
+          return 'Runtime verifier not initialized.';
+        }
+        const result = await this.contextManager.runtimeVerifier.verifyBuild();
+        return this.contextManager.runtimeVerifier.formatResultsForPrompt([result]);
+      },
+    };
+  }
+
+  private makeRuntimeVerifyTestsTool(): Tool {
+    return {
+      name: 'runtime_verify_tests',
+      description: 'Run the project test suite and report failures. Use this after making changes to ensure existing tests still pass.',
+      parameters: [],
+      execute: async () => {
+        if (!this.contextManager || !this.contextManager.runtimeVerifier.isInitialized) {
+          return 'Runtime verifier not initialized.';
+        }
+        const result = await this.contextManager.runtimeVerifier.verifyTests();
+        return this.contextManager.runtimeVerifier.formatResultsForPrompt([result]);
+      },
+    };
+  }
+
+  private makeRuntimeVerifyLintTool(): Tool {
+    return {
+      name: 'runtime_verify_lint',
+      description: 'Run the project linter and report violations. Use this to catch style issues, unused variables, or potential bugs flagged by static analysis.',
+      parameters: [],
+      execute: async () => {
+        if (!this.contextManager || !this.contextManager.runtimeVerifier.isInitialized) {
+          return 'Runtime verifier not initialized.';
+        }
+        const result = await this.contextManager.runtimeVerifier.verifyLint();
+        return this.contextManager.runtimeVerifier.formatResultsForPrompt([result]);
+      },
+    };
+  }
+
+  private makeRuntimeVerifyPatchTool(): Tool {
+    return {
+      name: 'runtime_verify_patch',
+      description: 'Run build + tests for the current patch (changed files). Use this after a set of edits to verify nothing is broken. If build or tests fail, lint is also run for extra signal.',
+      parameters: [
+        { name: 'filesChanged', type: 'string', description: 'Comma-separated list of changed file paths', required: false },
+      ],
+      execute: async (params) => {
+        if (!this.contextManager || !this.contextManager.runtimeVerifier.isInitialized) {
+          return 'Runtime verifier not initialized.';
+        }
+        const files = params.filesChanged ? params.filesChanged.split(',').map((f: string) => f.trim()) : [];
+        const results = await this.contextManager.runtimeVerifier.verifyPatch(files);
+        return this.contextManager.runtimeVerifier.formatResultsForPrompt(results);
       },
     };
   }

@@ -15,10 +15,12 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │   └── coding-agent/               VS Code 扩展（核心项目 / Core project）
 │       ├── src/
 │       │   ├── agent/
-│       │   │   ├── agent-core.ts    三层混合架构 + Repo-Level Agent Core
-│       │   │   │                    (动态 Pipeline: 根据意图选择 Plan → Memory → [Embedding → RepoGraph] → Context)
-│       │   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
-│       │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
+│   ├── agent/
+│   │   ├── agent-core.ts    三层混合架构 + Repo-Level Agent Core + LLM Query Rewrite
+│   │   │                    (动态 Pipeline: 根据意图选择 Plan → Memory → [Embedding → RepoGraph] → Context)
+│   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
+│   │   ├── agent-loop.ts    ReAct Tool Loop（tool_call 结果回灌 LLM，最大 15 次迭代）
+│   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
 │       │   ├── memory/
 │       │   │   └── memoryManager.ts 多轮记忆系统（按 repo+session+intent 维度存储）
 │       │   ├── embedding/
@@ -29,19 +31,29 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │       │   │   └── config-manager.ts 多配置管理 / Multi-config management
 │       │   ├── llm/
 │       │   │   └── llm-provider.ts   统一 LLM 接口 / Unified LLM interface
-│       │   ├── context/
-│       │   │   ├── context-manager.ts LSP 上下文管理（集成所有子模块）
-│       │   │   ├── contextBuilder.ts  增量/全量上下文构建
-│       │   │   ├── repoGraph.ts       模块层级 + 数据流图
-│       │   │   ├── repoMap.ts         仓库结构地图
-│       │   │   ├── symbolIndex.ts     符号索引
-│       │   │   ├── retrieval.ts       代码检索
-│       │   │   ├── dependencyGraph.ts 文件依赖关系图
-│       │   │   ├── impactAnalyzer.ts  变更影响分析
-│       │   │   └── workspaceScanner.ts 工作区扫描
-│       │   ├── tools/
-│       │   │   └── tool-registry.ts  工具系统（含 LSP + 上下文 + 记忆/embedding/Repograph 工具）
-│       │   ├── panels/
+│   │   ├── context/
+│   │   │   ├── context-manager.ts LSP 上下文管理（集成所有子模块）
+│   │   │   ├── contextBuilder.ts  增量/全量上下文构建
+│   │   │   ├── hybrid-retrieval.ts 混合检索（BM25 + Embedding + Graph + CodeRel + FileType）
+│   │   │   ├── repoGraph.ts       模块层级 + 数据流图
+│   │   │   ├── repoMap.ts         仓库结构地图
+│   │   │   ├── reranker.ts        Intent-Aware Reranker（动态权重调整）
+│   │   │   ├── symbolIndex.ts     符号索引
+│   │   │   ├── retrieval.ts       代码检索
+│   │   │   ├── dependencyGraph.ts 文件依赖关系图
+│   │   │   ├── impactAnalyzer.ts  变更影响分析
+│   │   │   └── workspaceScanner.ts 工作区扫描
+│   │   ├── tools/
+│   │   │   └── tool-registry.ts  工具系统（含 LSP + 上下文 + 记忆/embedding/Repograph + 局部编辑工具）
+│   │   ├── git/
+│   │   │   └── git-analyzer.ts   Git 分析器（commit log / blame / diff / file history）
+│   │   ├── verifier/
+│   │   │   └── runtime-verifier.ts 运行时验证器（tsc / eslint / npm test）
+│   │   ├── debug/
+│   │   │   ├── tool-usage-analyzer.ts 工具使用率分析器
+│   │   │   ├── agent-loop-debugger.ts Agent Loop 调试器
+│   │   │   └── retrieval-debugger.ts  检索质量调试器
+│   │   ├── panels/
 │       │   │   ├── chat-view-provider.ts 侧边栏 Chat（WebviewView）
 │       │   │   ├── chat-panel.ts     输出面板 Chat
 │       │   │   └── composer-panel.ts Composer 面板
@@ -79,7 +91,8 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🧱 **缓存友好的 Prompt 布局优化** | 静态上下文前置、动态上下文后置，提升前缀复用率并降低重复 Token 成本 |
 | 🧠 **上下文窗口 32K** | 默认支持 32K 上下文，并为模型生成回复预留输出空间 |
 | 💬 **多轮记忆系统** | 按 repo/session/intent 维度存储对话，LLM 可访问历史 |
-| 🔍 **语义 Embedding 检索** | TF-IDF 向量索引，Top-K 语义搜索 |
+| 🔄 **LLM Query Rewrite** | 中文查询自动改写为英文 Search Terms，提升跨语言检索召回率 |
+| 🔍 **Intent-Aware 混合检索** | BM25 + Embedding + Graph + CodeRel + FileType 五路融合，按意图动态调整权重 |
 | 🗺️ **RepoGraph** | 模块分层 + 数据流图 + 跨模块依赖 |
 | 📋 **Planner 管道** | 动态步数管道：根据意图自动选择 2~5 步（intent → memory → [embedding → repograph] → context） |
 | 📦 **增量上下文** | 只加载相关文件，禁止全量扫描 |
@@ -91,6 +104,9 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🌐 **多后端支持 / Multi-Backend** | SGLang / OpenAI / Azure OpenAI / Deepseek / Xiaomi MiMo |
 | 📚 **Code Index** | LSP 符号索引，支持按名称和类型搜索类/函数/接口 |
 | ✅ **Verifier** | 在项目具备相应配置与命令时自动执行 `tsc --noEmit`、`eslint`、`npm test` 校验 |
+| 🔧 **局部编辑工具** | `replace_text` / `insert_before` / `insert_after` / `append_text` 优先于 `write_file`，避免重写整个文件 |
+| 📊 **工具使用率分析** | 自动统计 Agent 调用工具的频率和覆盖率，发现死工具 |
+| 📈 **Git 分析器** | 自动检索 `git log`、`git blame`、`git diff`，为回归定位提供上下文 |
 | 🛡️ **幻觉约束** | OBSERVE 阶段检测工具返回空数据/错误，自动注入警告阻止模型编造内容 |
 | 🚫 **危险命令拦截** | `run_terminal` 内置危险命令检测（`rm -rf`、`git push --force` 等），弹窗确认后执行 |
 | 🔄 **Diff 引擎** | 编辑操作幂等去重 + 模糊匹配兜底，支持查看单条/整文件 Diff 与一键回退 |
@@ -190,6 +206,24 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.5.0 — 2026-06-05
+
+子系统全面落地 / Subsystem Rollout
+
+#### ✨ 版本摘要 / Highlights
+- **LLM Query Rewrite**：中文查询自动改写为英文 Search Terms，解决中英文 token 空间不匹配导致的检索失效问题
+- **局部编辑工具集**：新增 `replace_text`、`insert_before`、`insert_after`、`append_text`，优先用于已有文件的局部修改
+- **Intent-Aware 动态混合检索**：Reranker 根据 `modification` / `bug_fix` / `project_understanding` 自动切换五路检索权重
+- **ReAct Tool Loop**：真正的工具调用循环，支持 tool_call 结果回灌 LLM，最大 15 次迭代
+- **Runtime Verifier 子系统**：自动运行 `tsc --noEmit` / `eslint` / `npm test`，捕获编译错误并注入修复上下文
+- **Git Analyzer 子系统**：自动检索 `git log`、`git blame`、`git diff`，为回归定位和历史审查提供上下文
+- **工具使用率分析器**：统计最近 100 次运行的工具调用覆盖率，发现从未被调用的死工具
+- **检索质量调试器**：分阶段输出 BM25 / Embedding / Hybrid / Rerank 结果，定位检索失效根因
+- **Agent Loop 调试器**：追踪 PLAN → EXECUTE → VERIFY → REPAIR 状态流转
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.4.0 — 2026-06-04
 

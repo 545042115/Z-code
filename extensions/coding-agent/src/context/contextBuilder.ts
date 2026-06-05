@@ -2,6 +2,7 @@ import { WorkspaceScanner } from './workspaceScanner';
 import { SymbolIndex, SymbolEntry } from './symbolIndex';
 import { DependencyGraph } from './dependencyGraph';
 import { RepoMap } from './repoMap';
+import { HybridRetrieval } from './hybrid-retrieval';
 
 export interface ContextPackage {
   primaryFiles: string[];
@@ -10,6 +11,8 @@ export interface ContextPackage {
   selectedFiles: string[];
   repoSummary: string;
   reason: string;
+  gitContext?: string;
+  verificationResults?: string;
 }
 
 export interface ProjectContextPackage {
@@ -39,14 +42,15 @@ export class ContextBuilder {
     private readonly scanner: WorkspaceScanner,
     private readonly symbolIndex: SymbolIndex,
     private readonly dependencyGraph: DependencyGraph,
-    private readonly repoMap: RepoMap
+    private readonly repoMap: RepoMap,
+    private readonly hybridRetrieval?: HybridRetrieval
   ) {}
 
-  async build(userRequest: string, currentFile?: string): Promise<ContextPackage> {
+  async build(userRequest: string, currentFile?: string, gitContext?: string, verificationResults?: string): Promise<ContextPackage> {
     const keywords = this.extractKeywords(userRequest);
     const intent = this.classifyIntent(userRequest);
 
-    const primaryFiles = this.findPrimaryFiles(keywords, currentFile, intent);
+    const primaryFiles = await this.findPrimaryFiles(keywords, currentFile, intent);
 
     const relatedSet = new Set<string>();
     const dependencySet = new Set<string>();
@@ -96,6 +100,8 @@ export class ContextBuilder {
       selectedFiles,
       repoSummary,
       reason,
+      gitContext,
+      verificationResults,
     };
   }
 
@@ -136,6 +142,16 @@ export class ContextBuilder {
     parts.push('### Selected Files (full paths)\n');
     for (const f of pkg.selectedFiles) {
       parts.push(`  - \`${f}\``);
+    }
+
+    if (pkg.gitContext) {
+      parts.push('');
+      parts.push(pkg.gitContext);
+    }
+
+    if (pkg.verificationResults) {
+      parts.push('');
+      parts.push(pkg.verificationResults);
     }
 
     return parts.join('\n');
@@ -400,7 +416,7 @@ export class ContextBuilder {
     return 'other';
   }
 
-  private findPrimaryFiles(keywords: string[], currentFile?: string, intent?: string): string[] {
+  private async findPrimaryFiles(keywords: string[], currentFile?: string, intent?: string): Promise<string[]> {
     const fileScores = new Map<string, number>();
 
     for (const kw of keywords) {
@@ -415,6 +431,16 @@ export class ContextBuilder {
       for (const fp of pathMatches) {
         const current = fileScores.get(fp) || 0;
         fileScores.set(fp, current + 8);
+      }
+    }
+
+    // Hybrid retrieval boost: semantic + lexical + graph relevance
+    if (this.hybridRetrieval) {
+      const query = keywords.join(' ');
+      const hybridResults = await this.hybridRetrieval.search(query, { topK: this.MAX_PRIMARY * 2 });
+      for (const r of hybridResults) {
+        const current = fileScores.get(r.filePath) || 0;
+        fileScores.set(r.filePath, current + r.score * 10);
       }
     }
 

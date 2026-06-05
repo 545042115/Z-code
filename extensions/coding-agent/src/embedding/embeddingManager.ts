@@ -212,7 +212,15 @@ export class EmbeddingManager {
     return { vector: tfMap, tokens };
   }
 
-  private tokenize(text: string): string[] {
+  getDocuments(): Array<{ filePath: string; tokens: string[]; summary: string }> {
+    return this.vectors.map(v => ({
+      filePath: v.filePath,
+      tokens: v.tokens,
+      summary: v.summary,
+    }));
+  }
+
+  tokenize(text: string): string[] {
     const lower = text.toLowerCase();
     const tokens: string[] = [];
 

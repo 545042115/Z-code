@@ -10,6 +10,8 @@ import { RepoGraph } from '../context/repoGraph';
 import { DiffEngine } from '../utils/diff-engine';
 import { Verifier, VerifierOutput } from './verifier';
 import { ConfigManager } from '../config/config-manager';
+import { AgentLoop, LoopResult } from './agent-loop';
+import { ToolUsageAnalyzer } from '../debug/tool-usage-analyzer';
 
 /**
  * 三层混合架构 Agent Core
@@ -175,7 +177,7 @@ const STATE_SCHEMAS: Record<AgentState, object> = {
       toolCall: {
         type: 'object',
         properties: {
-          name: { type: 'string', enum: ['read_file', 'write_file', 'search_code', 'run_terminal', 'list_directory', 'get_diagnostics', 'build_context', 'project_context', 'memory_search', 'embedding_search', 'get_repo_graph'] },
+          name: { type: 'string', enum: ['read_file', 'write_file', 'replace_text', 'insert_before', 'insert_after', 'append_text', 'search_code', 'run_terminal', 'list_directory', 'get_diagnostics', 'build_context', 'project_context', 'memory_search', 'embedding_search', 'get_repo_graph'] },
           params: { type: 'object' },
         },
         required: ['name', 'params'],
@@ -286,6 +288,16 @@ export class AgentCore {
   private isRunning: boolean = false;
   private lastVerificationResult: VerifierOutput | null = null;
   private pendingSubTaskForReflect: string | null = null;
+  private agentLoop?: AgentLoop;
+  private toolUsageAnalyzer?: ToolUsageAnalyzer;
+
+  getAgentLoop(): AgentLoop | undefined {
+    return this.agentLoop;
+  }
+
+  getToolUsageAnalyzer(): ToolUsageAnalyzer | undefined {
+    return this.toolUsageAnalyzer;
+  }
   private compactMode: boolean = false;
   private deferEditApplication: boolean = false;
   private hasPendingEditPreview: boolean = false;
@@ -320,6 +332,15 @@ export class AgentCore {
     this.tools = new ToolRegistry(this.contextManager);
     this.diffEngine = new DiffEngine();
     this.verifier = new Verifier();
+    this.toolUsageAnalyzer = new ToolUsageAnalyzer(this.tools);
+    this.agentLoop = new AgentLoop(
+      this.llm,
+      this.contextManager.planner,
+      this.tools,
+      this.contextManager.runtimeVerifier,
+      this.contextManager,
+      this.toolUsageAnalyzer
+    );
 
     this.SYSTEM_PROMPT = this.buildSystemPrompt();
 
@@ -355,6 +376,8 @@ export class AgentCore {
       const editorCtx = await this.contextManager.gatherContext();
 
       const plan = planner.create(userMessage, sessionId);
+      plan.searchTerms = await this.generateSearchTerms(userMessage, plan.intent);
+      console.log(`[QueryRewrite] Final searchTerms: ${JSON.stringify(plan.searchTerms)}`);
       this.activeIntent = plan.intent;
       this.activeUserMessage = userMessage;
       const context = plan.context;
@@ -369,7 +392,7 @@ export class AgentCore {
       if (route.mode === 'full') {
         onStream('正在准备上下文...\n');
         for (const step of plan.steps) {
-          const result = await planner.executeStep(step, userMessage, sessionId, context);
+          const result = await planner.executeStep(step, userMessage, sessionId, context, plan.searchTerms);
           if (result.status !== 'completed') {
             console.warn(`Planner step failed: ${step.description}`);
           }
@@ -1026,6 +1049,47 @@ export class AgentCore {
 
     dynamicParts.push(`## Latest User Request\n${request}`);
     return [...staticParts, ...dynamicParts].join('\n\n');
+  }
+
+  private async generateSearchTerms(request: string, intent: string): Promise<string[]> {
+    console.log(`[QueryRewrite] Request="${request}" Intent="${intent}"`);
+    const schema = {
+      type: 'object',
+      properties: {
+        searchTerms: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'English search terms extracted from user query, suitable for code search. 3-5 terms.',
+        },
+      },
+      required: ['searchTerms'],
+    };
+
+    const messages: Message[] = [
+      {
+        role: 'system',
+        content: 'You are a query rewriter for code retrieval. Given a user request (possibly in Chinese or mixed language), generate 3-5 English search terms that would help find relevant code files. Each term should be a single English word or short phrase. Focus on: technical concepts, module names, function/class names, file name fragments, and domain keywords. Do not include generic words like "code", "file", "implement" unless they are part of a domain phrase.',
+      },
+      {
+        role: 'user',
+        content: `User request: "${request}"\nIntent: ${intent}\n\nGenerate English search terms for code retrieval.`,
+      },
+    ];
+
+    try {
+      const { response } = await this.generateJsonObject<{ searchTerms: string[] }>({
+        messages,
+        jsonSchema: schema,
+        stream: false,
+      }, 'search-terms');
+      const terms = Array.isArray(response.searchTerms) ? response.searchTerms.slice(0, 6) : [];
+      console.log(`[QueryRewrite] Generated search terms: ${JSON.stringify(terms)}`);
+      return terms;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.log(`[QueryRewrite] Failed: ${errMsg}`);
+      return [];
+    }
   }
 
   private async decideExecutionRoute(
@@ -1814,7 +1878,11 @@ PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (T
 - get_repo_graph: Get the RepoGraph: module dependency overview, data flow direction, cross-module dependencies, and module hierarchy tree.
 - planner_execute: Execute the full pipeline planner: intent → memory → embedding → repo graph → context building.
 - read_file: Read file content (required: path, optional: startLine, lineCount)
-- write_file: Write file content (required: path, content)
+- write_file: Write FULL file content (required: path, content). ONLY use for creating new files or complete rewrites.
+- replace_text: Replace a specific text snippet in an EXISTING file (required: filePath, oldText, newText). Use this for ALL small modifications to existing files.
+- insert_before: Insert text before an anchor in an existing file (required: filePath, anchorText, newText)
+- insert_after: Insert text after an anchor in an existing file (required: filePath, anchorText, newText)
+- append_text: Append text to the end of a file (required: filePath, newText)
 - search_code: Search text patterns across workspace files (required: pattern, optional: filePattern)
 - run_terminal: Execute terminal commands
 - list_directory: List directory contents
@@ -1951,9 +2019,11 @@ If revision needed:
 - In PLANNING, break complex requests into meaningful sub-tasks
 - In THINK, analyze before acting. Be specific about what you'll do.
 - In ACT, do ONE thing at a time — one tool call OR one set of edits
-- **CRITICAL: In ACT, you MUST use editOps or write_file tool to write code to files. NEVER write code only in the content field. The content field is for descriptions, NOT for actual code output.**
+- **CRITICAL: In ACT, you MUST use editOps or tool calls to write code to files. NEVER write code only in the content field. The content field is for descriptions, NOT for actual code output.**
 - **To CREATE a new file: use editOps with search="" and replace=full file content, or use write_file tool**
-- **To MODIFY an existing file: use editOps with search=code to find and replace=new code**
+- **To MODIFY an existing file: ALWAYS prefer replace_text, insert_before, insert_after, or append_text over write_file. Only use write_file if you need to rewrite the ENTIRE file.**
+- **When using replace_text: oldText must include 2-3 lines of surrounding context to ensure uniqueness. Do NOT include the entire file in oldText.**
+- **When using insert_before/insert_after: anchorText must be unique enough to locate the exact position.**
 - **When creating or editing files, ONLY use paths inside the current workspace root. Never invent paths like "/workspace/..." or "/vibe-coding/...". After writing a file, only report the actual path returned by the tool.**
 - **CRITICAL: You must base ALL answers on the actual source code in the project. The README is ONLY for getting the project name. You MUST use read_file, search_code, or search_symbols tools to read source files before answering ANY question about the codebase. Do NOT use README content as the basis for your answer.**
 - In OBSERVE, set subTaskStatus to "complete" only when the sub-task goal is met
@@ -2145,6 +2215,9 @@ If revision needed:
         contextLines.push(`... and ${pkg.selectedFiles.length - 10} more`);
       }
       dynamicParts.push(contextLines.join('\n'));
+      if (pkg.gitContext) {
+        dynamicParts.push(pkg.gitContext);
+      }
     }
     dynamicParts.push(`## Latest User Request\n${request}`);
 

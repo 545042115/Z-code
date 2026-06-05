@@ -4,6 +4,10 @@
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
     "version": "0.4.0",
     "publisher": "545042115",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/545042115/coding-agent"
+    },
     "engines": {
         "vscode": "^1.85.0"
     },
@@ -83,6 +87,42 @@
                 "title": "删除配置",
                 "category": "Coding Agent",
                 "icon": "$(trash)"
+            },
+            {
+                "command": "codingAgent.debugRetrieval",
+                "title": "Debug Retrieval",
+                "category": "Coding Agent",
+                "icon": "$(debug-alt)"
+            },
+            {
+                "command": "codingAgent.evaluateRetrieval",
+                "title": "Evaluate Retrieval Quality",
+                "category": "Coding Agent",
+                "icon": "$(dashboard)"
+            },
+            {
+                "command": "codingAgent.debugGitContext",
+                "title": "Debug Git Context",
+                "category": "Coding Agent",
+                "icon": "$(git-branch)"
+            },
+            {
+                "command": "codingAgent.debugVerification",
+                "title": "Debug Verification",
+                "category": "Coding Agent",
+                "icon": "$(check)"
+            },
+            {
+                "command": "codingAgent.debugAgentLoop",
+                "title": "Debug Agent Loop",
+                "category": "Coding Agent",
+                "icon": "$(debug-restart)"
+            },
+            {
+                "command": "codingAgent.analyzeToolUsage",
+                "title": "Analyze Tool Usage",
+                "category": "Coding Agent",
+                "icon": "$(graph)"
             }
         ],
         "keybindings": [
