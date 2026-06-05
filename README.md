@@ -110,6 +110,8 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🛡️ **幻觉约束** | OBSERVE 阶段检测工具返回空数据/错误，自动注入警告阻止模型编造内容 |
 | 🚫 **危险命令拦截** | `run_terminal` 内置危险命令检测（`rm -rf`、`git push --force` 等），弹窗确认后执行 |
 | 🔄 **Diff 引擎** | 编辑操作幂等去重 + 模糊匹配兜底，支持查看单条/整文件 Diff 与一键回退 |
+| 🌐 **Web 搜索** | `web_search` / `web_fetch` 工具，通过 DuckDuckGo 搜索和抓取网页内容，扩展 Agent 信息边界 |
+| 📤 **会话导出** | 支持将 Chat 会话导出为 Markdown 或 JSON 格式，含完整对话、计划清单与编辑记录 |
 | 🧭 **直接项目回答** | `project_understanding` 意图下直接生成项目介绍，跳过不必要的 ReAct 循环 |
 | ⏹️ **中断会话** | Chat 侧边栏支持停止按钮，可随时中断当前运行中的 Agent |
 | 💭 **思考过程可视化** | Compact 模式下显示 Trae 风格的可折叠思考块（THINK / OBSERVE），告别黑盒等待 |
@@ -206,6 +208,17 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.5.1 — 2026-06-05
+
+Web 搜索与会话导出 / Web Search & Session Export
+
+#### ✨ 版本摘要 / Highlights
+- **Web 搜索工具**：新增 `web_search` 和 `web_fetch`，Agent 可通过 DuckDuckGo 搜索网页并抓取内容，用于查文档、API 参考和报错信息。Planner 自动检测搜索意图并插入 web_search 步骤
+- **会话导出**：Chat 侧边栏新增导出按钮（↓），支持将会话导出为 Markdown 或 JSON，含完整对话、计划清单与编辑记录。也可通过命令面板 `Coding Agent: 导出会话` 触发
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.5.0 — 2026-06-05
 

@@ -113,6 +113,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
           case 'deleteSession':
             this.handleDeleteSession(message.sessionId);
             break;
+          case 'exportSession':
+            await this.handleExportSession();
+            break;
           case 'ready':
             this.postProfiles();
             this.postSessions();
@@ -918,6 +921,99 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  public async handleExportSession(format?: string): Promise<void> {
+    const session = this.getActiveSession();
+    const chosenFormat = format || await vscode.window.showQuickPick(
+      ['Markdown', 'JSON'],
+      { placeHolder: '选择导出格式' }
+    );
+    if (!chosenFormat) return;
+
+    let content: string;
+    let ext: string;
+
+    if (chosenFormat === 'JSON') {
+      ext = 'json';
+      content = JSON.stringify({
+        id: session.id,
+        title: session.title,
+        createdAt: new Date(session.createdAt).toISOString(),
+        updatedAt: new Date(session.updatedAt).toISOString(),
+        messages: session.messages.map(m => ({
+          role: m.role,
+          content: m.content,
+          ...(m.editOps ? { editOps: m.editOps.map(op => ({
+            path: op.path,
+            status: op.status,
+          })) } : {}),
+          ...(m.planId ? { planId: m.planId, planTitle: m.planTitle } : {}),
+        })),
+      }, null, 2);
+    } else {
+      ext = 'md';
+      const lines: string[] = [];
+      lines.push(`# ${session.title}`);
+      lines.push(`> Exported: ${new Date().toISOString()}`);
+      lines.push('');
+
+      for (const msg of session.messages) {
+        if (msg.role === 'state') continue;
+
+        if (msg.role === 'user') {
+          lines.push(`## User`);
+          lines.push('');
+          lines.push(msg.content);
+          lines.push('');
+        } else if (msg.role === 'assistant') {
+          lines.push(`## Assistant`);
+          lines.push('');
+          lines.push(msg.content);
+          lines.push('');
+        } else if (msg.role === 'error') {
+          lines.push(`## Error`);
+          lines.push('');
+          lines.push(msg.content);
+          lines.push('');
+        } else if (msg.role === 'plan') {
+          lines.push(`## Plan: ${msg.planTitle || 'Execution Plan'}`);
+          lines.push('');
+          if (msg.planItems) {
+            for (const item of msg.planItems) {
+              const check = item.status === 'completed' ? '[x]' : '[ ]';
+              lines.push(`- ${check} ${item.description}${item.goal ? ` — ${item.goal}` : ''}`);
+            }
+            lines.push('');
+          }
+        } else if (msg.role === 'editOps') {
+          lines.push(`## Edits (${msg.editOps?.length || 0} operations)`);
+          lines.push('');
+          if (msg.editOps) {
+            for (const op of msg.editOps) {
+              lines.push(`- \`${op.path}\` — ${op.status}`);
+            }
+          }
+          lines.push('');
+        }
+      }
+
+      content = lines.join('\n');
+    }
+
+    const safeName = session.title.replace(/[^a-zA-Z0-9\u4e00-\u9fff_-]/g, '_').slice(0, 40);
+    const defaultPath = `${safeName}.${ext}`;
+    const uri = await vscode.window.showSaveDialog({
+      defaultUri: vscode.Uri.file(defaultPath),
+      filters: {
+        [chosenFormat === 'JSON' ? 'JSON' : 'Markdown']: [ext],
+      },
+    });
+
+    if (!uri) return;
+
+    await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(content));
+    vscode.window.showInformationMessage(`会话已导出: ${uri.fsPath}`);
+  }
+
   private postMessage(message: any): void {
     this.view?.webview.postMessage(message);
   }
@@ -1544,6 +1640,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
 <div class="session-bar">
   <select class="session-select" id="sessionSelect"></select>
   <button class="icon-btn" id="newSessionBtn" title="新建会话">+</button>
+  <button class="icon-btn" id="exportSessionBtn" title="导出会话">↓</button>
   <button class="icon-btn" id="deleteSessionBtn" title="删除当前会话">×</button>
 </div>
 
@@ -1577,6 +1674,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   const sessionSelect = document.getElementById('sessionSelect');
   const newSessionBtn = document.getElementById('newSessionBtn');
   const deleteSessionBtn = document.getElementById('deleteSessionBtn');
+  const exportSessionBtn = document.getElementById('exportSessionBtn');
   const loading = document.getElementById('loading');
   const loadingText = document.getElementById('loadingText');
   const emptyState = document.getElementById('emptyState');
@@ -1977,6 +2075,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
   deleteSessionBtn.addEventListener('click', function() {
     postMessage({ type: 'deleteSession', sessionId: sessionSelect.value });
   });
+  exportSessionBtn.addEventListener('click', function() { postMessage({ type: 'exportSession' }); });
   sessionSelect.addEventListener('change', function() {
     postMessage({ type: 'switchSession', sessionId: sessionSelect.value });
   });

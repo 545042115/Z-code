@@ -19,7 +19,8 @@ export type PlanAction =
   | 'git_recent_commits'
   | 'git_changed_files'
   | 'git_file_history'
-  | 'git_diff_between';
+  | 'git_diff_between'
+  | 'web_search';
 
 export interface PlanStep {
   id: string;
@@ -196,6 +197,12 @@ export class Planner {
         return { ...step, status: 'completed', result: formatted };
       }
 
+      case 'web_search': {
+        // Web search is delegated to the ReAct loop's tool system
+        // The planner step just signals that web context should be considered
+        return { ...step, status: 'completed', result: 'Web search delegated to ReAct tool loop' };
+      }
+
       default:
         return { ...step, status: 'completed', result: undefined };
     }
@@ -217,6 +224,7 @@ export class Planner {
       [/删除|remove|delete|drop/i, 'removal'],
       [/测试|test|spec|unit|integration/i, 'testing'],
       [/文档|doc|readme|comment|documentation|explain/i, 'documentation'],
+      [/搜索|search|查找资料|查一下|搜一下|网上|在线|web search|look up|google|bing|stackoverflow|github\.com|npmjs|pypi|docs\./i, 'other'],
     ];
 
     for (const [pattern, intent] of intentChecks) {
@@ -226,6 +234,17 @@ export class Planner {
     }
 
     return 'other';
+  }
+
+  private hasWebIntent(request: string): boolean {
+    const lower = request.toLowerCase();
+    const webKeywords = [
+      '搜索', 'search', '查找资料', '查一下', '搜一下',
+      '网上', '在线', 'web search', 'look up', 'google',
+      'stackoverflow', 'documentation online', 'api reference',
+      'latest version', 'what is the latest', 'how to install',
+    ];
+    return webKeywords.some(kw => lower.includes(kw));
   }
 
   private hasGitIntent(request: string): boolean {
@@ -273,6 +292,13 @@ export class Planner {
         { id: 'git-2', description: 'Collect changed files', action: 'git_changed_files', status: 'pending' },
         { id: 'git-3', description: 'Collect file histories', action: 'git_file_history', status: 'pending' },
         { id: 'git-4', description: 'Collect recent diff', action: 'git_diff_between', status: 'pending' },
+      );
+    }
+
+    // Web search step when web-related intent detected
+    if (this.hasWebIntent(request)) {
+      steps.push(
+        { id: 'web-1', description: 'Search the web for relevant information', action: 'web_search', status: 'pending' },
       );
     }
 

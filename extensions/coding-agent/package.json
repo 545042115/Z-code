@@ -2,7 +2,7 @@
     "name": "coding-agent",
     "displayName": "Coding Agent",
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
-    "version": "0.4.0",
+    "version": "0.5.1",
     "publisher": "545042115",
     "repository": {
         "type": "git",
@@ -123,6 +123,12 @@
                 "title": "Analyze Tool Usage",
                 "category": "Coding Agent",
                 "icon": "$(graph)"
+            },
+            {
+                "command": "codingAgent.exportSession",
+                "title": "导出会话",
+                "category": "Coding Agent",
+                "icon": "$(export)"
             }
         ],
         "keybindings": [

@@ -29,6 +29,8 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 - 🛠️ **局部编辑工具** - `replace_text` / `insert_before` / `insert_after` / `append_text`，避免简单改动重写整个文件
 - 📊 **工具使用率分析** - 自动统计 Agent 调用工具的频率和覆盖率，发现死工具
 - 🔍 **Intent-Aware 混合检索** - 根据 `modification` / `bug_fix` / `project_understanding` 自动调整检索权重
+- 🌐 **Web 搜索** - `web_search` / `web_fetch` 工具，通过 DuckDuckGo 搜索和抓取网页内容，扩展 Agent 信息边界
+- 📤 **会话导出** - 支持将 Chat 会话导出为 Markdown 或 JSON 格式，含完整对话、计划清单与编辑记录
 - 📈 **Git 分析器** - 自动检索 `git log`、`git blame`、`git diff`，为回归定位提供上下文
 
 ## 支持的后端 / Supported Backends
@@ -366,6 +368,14 @@ extensions/coding-agent/
 
 > 说明 / Note  
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
+### v0.5.1 — 2026-06-05
+
+Web 搜索与会话导出 / Web Search & Session Export
+
+#### ✨ 新特性 / New Features
+- **Web 搜索工具**: 新增 `web_search` 和 `web_fetch`，Agent 可通过 DuckDuckGo 搜索网页并抓取内容，用于查文档、API 参考和报错信息。Planner 自动检测搜索意图并在计划中插入 web_search 步骤
+- **会话导出**: Chat 侧边栏新增导出按钮（↓），支持将会话导出为 Markdown 或 JSON，含完整对话、计划清单与编辑记录。也可通过命令面板 `Coding Agent: 导出会话` 触发
 
 ### v0.5.0 — 2026-06-05
 

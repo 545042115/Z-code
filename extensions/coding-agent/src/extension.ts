@@ -29,6 +29,7 @@ let verificationDebugger: VerificationDebugger;
 let agentLoopDebugger: AgentLoopDebugger;
 let toolUsageAnalyzer: ToolUsageAnalyzer;
 let chatViewProviderDisposable: vscode.Disposable | undefined;
+let chatViewProvider: ChatViewProvider | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
   try {
@@ -65,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (chatViewProviderDisposable) {
         chatViewProviderDisposable.dispose();
       }
-      const chatViewProvider = new ChatViewProvider(context.extensionUri, agent, context);
+      chatViewProvider = new ChatViewProvider(context.extensionUri, agent, context);
       chatViewProviderDisposable = vscode.window.registerWebviewViewProvider(
         ChatViewProvider.VIEW_TYPE,
         chatViewProvider,
@@ -247,6 +248,15 @@ function registerCommands(context: vscode.ExtensionContext) {
             chatPanel.refreshStatusBar();
           }
         }
+      }
+    }),
+
+    // 导出会话
+    vscode.commands.registerCommand('codingAgent.exportSession', async () => {
+      if (chatViewProvider) {
+        await chatViewProvider.handleExportSession();
+      } else {
+        vscode.window.showWarningMessage('Chat view not available.');
       }
     }),
 

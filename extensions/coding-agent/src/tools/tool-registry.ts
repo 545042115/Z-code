@@ -35,6 +35,8 @@ export class ToolRegistry {
     this.register(this.makeRunTerminalTool());
     this.register(this.makeListDirectoryTool());
     this.register(this.makeGetDiagnosticsTool());
+    this.register(this.makeWebSearchTool());
+    this.register(this.makeWebFetchTool());
 
     if (this.contextManager) {
       this.register(this.makeSearchSymbolsTool());
@@ -1060,6 +1062,166 @@ export class ToolRegistry {
         return this.contextManager.runtimeVerifier.formatResultsForPrompt(results);
       },
     };
+  }
+
+  // ── Web Tools ────────────────────────────────────────────────────────────
+
+  private makeWebSearchTool(): Tool {
+    return {
+      name: 'web_search',
+      description: 'Search the web for information. Returns a list of search results with titles, URLs, and snippets. Use this to look up documentation, API references, error solutions, or any information not available in the local codebase.',
+      parameters: [
+        { name: 'query', type: 'string', description: 'Search query', required: true },
+        { name: 'maxResults', type: 'number', description: 'Maximum number of results to return (default: 8)', required: false },
+      ],
+      execute: async (params) => {
+        const maxResults = params.maxResults || 8;
+        const query = encodeURIComponent(params.query);
+        const url = `https://html.duckduckgo.com/html/?q=${query}`;
+
+        try {
+          const html = await this.fetchUrlContent(url);
+          const results = this.parseDuckDuckGoResults(html, maxResults);
+
+          if (results.length === 0) {
+            return `[Web Search] No results found for "${params.query}".`;
+          }
+
+          return results.map((r, i) =>
+            `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`
+          ).join('\n\n');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `[Web Search] Failed to search for "${params.query}": ${msg}`;
+        }
+      },
+    };
+  }
+
+  private makeWebFetchTool(): Tool {
+    return {
+      name: 'web_fetch',
+      description: 'Fetch the content of a web page and extract its text. Use this to read documentation pages, API references, or any web content. Returns the text content of the page with HTML tags stripped.',
+      parameters: [
+        { name: 'url', type: 'string', description: 'The URL to fetch', required: true },
+        { name: 'maxLength', type: 'number', description: 'Maximum length of extracted text in characters (default: 5000)', required: false },
+      ],
+      execute: async (params) => {
+        const maxLength = params.maxLength || 5000;
+
+        try {
+          const html = await this.fetchUrlContent(params.url);
+          const text = this.stripHtmlTags(html);
+
+          if (text.length > maxLength) {
+            return text.substring(0, maxLength) + '\n\n[... content truncated]';
+          }
+
+          return text || '[Web Fetch] No text content could be extracted from the page.';
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `[Web Fetch] Failed to fetch ${params.url}: ${msg}`;
+        }
+      },
+    };
+  }
+
+  private fetchUrlContent(url: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const https = require('https');
+      const http = require('http');
+      const client = url.startsWith('https') ? https : http;
+
+      const request = client.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.5',
+        },
+        timeout: 15000,
+      }, (response: any) => {
+        // Handle redirects
+        if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
+          const redirectUrl = new URL(response.headers.location, url).toString();
+          this.fetchUrlContent(redirectUrl).then(resolve).catch(reject);
+          return;
+        }
+
+        if (response.statusCode !== 200) {
+          reject(new Error(`HTTP ${response.statusCode}`));
+          return;
+        }
+
+        let data = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => { data += chunk; });
+        response.on('end', () => { resolve(data); });
+        response.on('error', reject);
+      });
+
+      request.on('error', reject);
+      request.on('timeout', () => {
+        request.destroy();
+        reject(new Error('Request timed out'));
+      });
+    });
+  }
+
+  private stripHtmlTags(html: string): string {
+    // Remove script and style blocks
+    let text = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+    text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
+    text = text.replace(/<nav[\s\S]*?<\/nav>/gi, '');
+    text = text.replace(/<footer[\s\S]*?<\/footer>/gi, '');
+
+    // Convert common block elements to newlines
+    text = text.replace(/<\/?(p|div|h[1-6]|li|br|tr|hr)[^>]*>/gi, '\n');
+    text = text.replace(/<\/?(ul|ol|table|thead|tbody|blockquote|pre|article|section|header|main)[^>]*>/gi, '\n');
+
+    // Remove all remaining HTML tags
+    text = text.replace(/<[^>]+>/g, '');
+
+    // Decode HTML entities
+    text = text.replace(/&amp;/g, '&');
+    text = text.replace(/&lt;/g, '<');
+    text = text.replace(/&gt;/g, '>');
+    text = text.replace(/&quot;/g, '"');
+    text = text.replace(/&#39;/g, "'");
+    text = text.replace(/&nbsp;/g, ' ');
+
+    // Clean up whitespace
+    text = text.replace(/[ \t]+/g, ' ');
+    text = text.replace(/\n{3,}/g, '\n\n');
+    return text.trim();
+  }
+
+  private parseDuckDuckGoResults(html: string, maxResults: number): { title: string; url: string; snippet: string }[] {
+    const results: { title: string; url: string; snippet: string }[] = [];
+    const resultRegex = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+
+    while ((match = resultRegex.exec(html)) !== null && results.length < maxResults) {
+      const url = match[1];
+      const title = this.stripHtmlTags(match[2]).trim();
+      const snippet = this.stripHtmlTags(match[3]).trim();
+      if (title && url) {
+        results.push({ title, url, snippet: snippet || '(no snippet)' });
+      }
+    }
+
+    // Fallback: try a simpler regex if the structured one didn't match
+    if (results.length === 0) {
+      const simpleRegex = /<a[^>]+class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      while ((match = simpleRegex.exec(html)) !== null && results.length < maxResults) {
+        const url = match[1];
+        const title = this.stripHtmlTags(match[2]).trim();
+        if (title && url) {
+          results.push({ title, url, snippet: '(no snippet)' });
+        }
+      }
+    }
+
+    return results;
   }
 
   private shortenPath(filePath: string): string {

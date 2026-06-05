@@ -412,6 +412,9 @@ export class ContextBuilder {
     if (/文档|doc|readme|comment|documentation|explain/i.test(lower)) {
       return 'documentation';
     }
+    if (/搜索|search|查找资料|查一下|搜一下|网上|在线|web search|look up|google|bing|stackoverflow|github\.com|npmjs|pypi|docs\./i.test(lower)) {
+      return 'other';
+    }
 
     return 'other';
   }
