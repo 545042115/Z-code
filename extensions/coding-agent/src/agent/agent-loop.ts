@@ -226,7 +226,7 @@ export class AgentLoop {
         const repairPrompt = this.buildRepairPrompt(currentTask, verificationResults, modifiedFiles, attempt);
         currentTask = repairPrompt;
 
-        history[history.length - 1].state = 'REPAIR';
+        history[history.length - 1].state = 'REPLAN';
         history[history.length - 1].repairPrompt = repairPrompt;
 
         console.log(`[AgentLoop] Repair prompt generated, retrying...`);

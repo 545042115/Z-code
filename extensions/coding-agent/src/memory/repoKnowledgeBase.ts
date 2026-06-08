@@ -196,7 +196,7 @@ export class RepoKnowledgeBase {
     const layerMap = new Map<string, string[]>();
 
     for (const file of sourceFiles) {
-      const tag = this.repoGraph.getModuleForFile(file.path) || 'other';
+      const tag = this.repoGraph.getNode(file.path)?.moduleTag || 'other';
       if (!layerMap.has(tag)) {
         layerMap.set(tag, []);
       }
@@ -568,7 +568,7 @@ export class RepoKnowledgeBase {
   }
 
   getModuleForFile(filePath: string): string {
-    return this.repoGraph.getModuleForFile(filePath) || 'other';
+    return this.repoGraph.getNode(filePath)?.moduleTag || 'other';
   }
 
   isEntryPoint(filePath: string): boolean {

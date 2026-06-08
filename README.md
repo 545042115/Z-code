@@ -97,7 +97,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 📋 **结构化计划清单** | `PLANNING` 阶段输出 JSON To-Do List，并在侧边栏渲染为 Checklist；完成项打勾、进行中项高亮 |
 | 🗜️ **Auto-Compact** | 长对话接近上下文上限时在内部自动压缩旧历史，保留当前计划、关键证据和未完成事项 |
 | 🧱 **缓存友好的 Prompt 布局优化** | 静态上下文前置、动态上下文后置，提升前缀复用率并降低重复 Token 成本 |
-| 🧠 **上下文窗口 32K** | 默认支持 32K 上下文，并为模型生成回复预留输出空间 |
+| 🧠 **上下文窗口 128K** | 默认支持 128K 上下文，并为模型生成回复预留输出空间 |
 | 💬 **多轮记忆系统** | 按 repo/session/intent 维度存储对话，LLM 可访问历史 |
 | 🔄 **LLM Query Rewrite** | 中文查询自动改写为英文 Search Terms，提升跨语言检索召回率 |
 | 🔍 **Intent-Aware 混合检索** | BM25 + Embedding + Graph + CodeRel + FileType 五路融合，按意图动态调整权重 |
@@ -275,7 +275,7 @@ Web 搜索与会话导出 / Web Search & Session Export
 - `PLANNING` 阶段升级为结构化 To-Do List，并在侧边栏展示 Checklist
 - 长对话支持 Auto-Compact，自动压缩旧历史并保留关键进度
 - 由 LLM 主导轻量/完整流程决策，轻量模式下支持自动升级至完整规划
-- 默认上下文窗口扩展至 32K，并为生成回复预留输出空间
+- 默认上下文窗口扩展至 128K，并为生成回复预留输出空间
 - Chat 侧边栏新增停止按钮，支持随时中断运行中的会话
 - Compact 模式下支持 Trae 风格的可折叠思考过程显示
 - 新增幻觉约束、危险命令拦截、Diff 幂等性与模糊匹配等安全/稳定性特性

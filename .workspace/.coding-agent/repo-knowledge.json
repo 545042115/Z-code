@@ -1,0 +1,624 @@
+{
+  "version": "1.0",
+  "generatedAt": 1780899536107,
+  "updatedAt": 1780900399633,
+  "architecture": {
+    "summary": "38 个源码文件，other(30)，ui(4)，core(3)",
+    "layers": [
+      {
+        "name": "other",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memoryManager.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolRetrieval.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\retrieval.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\reranker.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impactAnalyzer.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextExpansion.ts"
+        ],
+        "fileCount": 30,
+        "description": "其他支持文件"
+      },
+      {
+        "name": "ui",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextBuilder.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-panel.ts"
+        ],
+        "fileCount": 4,
+        "description": "用户界面组件与页面层"
+      },
+      {
+        "name": "core",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts"
+        ],
+        "fileCount": 3,
+        "description": "核心业务逻辑与通用工具层"
+      },
+      {
+        "name": "config",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts"
+        ],
+        "fileCount": 1,
+        "description": "配置文件与环境变量层"
+      }
+    ]
+  },
+  "techStack": {
+    "languages": [
+      {
+        "name": "TypeScript",
+        "percentage": 100,
+        "extensions": [
+          ".ts"
+        ],
+        "fileCount": 38
+      }
+    ],
+    "frameworks": [],
+    "buildTools": [
+      "tsc"
+    ],
+    "testFrameworks": [],
+    "packageManager": "npm"
+  },
+  "entryPoints": [],
+  "coreModules": [
+    {
+      "name": "context",
+      "fileCount": 13,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolRetrieval.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\retrieval.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\reranker.ts"
+      ],
+      "topExports": [
+        "WorkspaceFile",
+        "WorkspaceInfo",
+        "WorkspaceScanner",
+        "SymbolRetrievalResult",
+        "SymbolRetrievalOptions",
+        "SymbolRetrieval",
+        "SymbolEntry",
+        "IndexStats",
+        "SymbolIndex",
+        "RelevantResult"
+      ],
+      "description": "13 个文件，1813 个符号"
+    },
+    {
+      "name": "debug",
+      "fileCount": 5,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts"
+      ],
+      "topExports": [
+        "VerificationDebugger",
+        "ToolUsageRecord",
+        "ToolUsageReport",
+        "AggregateReport",
+        "ToolUsageAnalyzer",
+        "RetrievalDebugger",
+        "GitContextDebugger",
+        "AgentLoopDebugger"
+      ],
+      "description": "5 个文件，295 个符号"
+    },
+    {
+      "name": "panels",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-panel.ts"
+      ],
+      "topExports": [
+        "ComposerEdit",
+        "ComposerPlan",
+        "ComposerPanel",
+        "ReviewableEditOperation",
+        "ChatMessage",
+        "ChatSession",
+        "ChatStorageState",
+        "ChatViewProvider",
+        "ChatPanel"
+      ],
+      "description": "3 个文件，557 个符号"
+    },
+    {
+      "name": "agent",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts"
+      ],
+      "topExports": [
+        "TypeCheckResult",
+        "LintResult",
+        "TestResult",
+        "VerifierOutput",
+        "Verifier",
+        "LoopMetrics",
+        "ToolIteration",
+        "LoopAttempt",
+        "LoopResult",
+        "ToolCall"
+      ],
+      "description": "3 个文件，1216 个符号"
+    },
+    {
+      "name": "memory",
+      "fileCount": 2,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memoryManager.ts"
+      ],
+      "topExports": [
+        "RepoKnowledgeLayer",
+        "RepoKnowledgeArchitecture",
+        "RepoKnowledgeLanguage",
+        "RepoKnowledgeTechStack",
+        "RepoKnowledgeEntryPoint",
+        "RepoKnowledgeCoreModule",
+        "RepoKnowledgeCodingPatterns",
+        "RepoKnowledgeCriticalFile",
+        "RepoKnowledge",
+        "RepoKnowledgeBase"
+      ],
+      "description": "2 个文件，371 个符号"
+    },
+    {
+      "name": "verifier",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts"
+      ],
+      "topExports": [],
+      "description": "1 个文件，0 个符号"
+    },
+    {
+      "name": "utils",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts"
+      ],
+      "topExports": [
+        "DiffEngine",
+        "DiffPreview",
+        "DiffHunk"
+      ],
+      "description": "1 个文件，81 个符号"
+    },
+    {
+      "name": "tools",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts"
+      ],
+      "topExports": [
+        "ToolParameter",
+        "Tool",
+        "ToolRegistry"
+      ],
+      "description": "1 个文件，691 个符号"
+    },
+    {
+      "name": "reflection",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts"
+      ],
+      "topExports": [
+        "FailureAnalysis",
+        "RepairAction",
+        "RepairPlan",
+        "ReflectionMemory",
+        "ReflectionReport",
+        "ReflectionProgress",
+        "ReflectionEngine"
+      ],
+      "description": "1 个文件，145 个符号"
+    },
+    {
+      "name": "llm",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts"
+      ],
+      "topExports": [
+        "Message",
+        "GenerateRequest",
+        "FIMRequest",
+        "LLMConfig",
+        "LLMProvider",
+        "SGLangProvider",
+        "OpenAIProvider",
+        "LLMProviderFactory"
+      ],
+      "description": "1 个文件，166 个符号"
+    },
+    {
+      "name": "planner",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\planner\\planner.ts"
+      ],
+      "topExports": [
+        "PlanStep",
+        "ExecutionPlan",
+        "IncrementalContext",
+        "Planner"
+      ],
+      "description": "1 个文件，263 个符号"
+    },
+    {
+      "name": "config",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts"
+      ],
+      "topExports": [
+        "LLMConfigProfile",
+        "ConfigManager"
+      ],
+      "description": "1 个文件，187 个符号"
+    },
+    {
+      "name": "inline",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts"
+      ],
+      "topExports": [
+        "InlineCompletionProvider",
+        "InlineEditProvider"
+      ],
+      "description": "1 个文件，56 个符号"
+    },
+    {
+      "name": "git",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts"
+      ],
+      "topExports": [
+        "CommitInfo",
+        "FileHistoryEntry",
+        "BlameLine",
+        "GitDiffFile",
+        "GitDiff",
+        "ChangedFile",
+        "GitAnalyzer"
+      ],
+      "description": "1 个文件，155 个符号"
+    },
+    {
+      "name": "src",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts"
+      ],
+      "topExports": [
+        "activate",
+        "initializeCodeIndex",
+        "registerCommands",
+        "initializeConfig",
+        "deactivate"
+      ],
+      "description": "1 个文件，79 个符号"
+    },
+    {
+      "name": "embedding",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embeddingManager.ts"
+      ],
+      "topExports": [
+        "EmbeddingVector",
+        "EmbeddingResult",
+        "EmbeddingManager"
+      ],
+      "description": "1 个文件，130 个符号"
+    },
+    {
+      "name": "discovery",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts"
+      ],
+      "topExports": [
+        "RelatedSymbol",
+        "DiscoveredModule",
+        "DiscoveredFile",
+        "ImpactSurface",
+        "RiskItem",
+        "RiskAnalysis",
+        "ScopeEstimate",
+        "DiscoveryReport",
+        "DiscoveryPhase"
+      ],
+      "description": "1 个文件，284 个符号"
+    }
+  ],
+  "codingPatterns": {
+    "namingConventions": [
+      "函数/变量使用 camelCase"
+    ],
+    "fileOrganization": "按目录/功能分层组织",
+    "commonImports": [
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+        "count": 11
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+        "count": 11
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
+        "count": 9
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
+        "count": 7
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
+        "count": 7
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
+        "count": 5
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
+        "count": 5
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
+        "count": 5
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
+        "count": 4
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts",
+        "count": 4
+      }
+    ],
+    "designPatterns": []
+  },
+  "criticalFiles": [
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+      "dependentCount": 11,
+      "reason": "被 11 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+      "dependentCount": 11,
+      "reason": "被 11 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
+      "dependentCount": 9,
+      "reason": "被 9 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
+      "dependentCount": 7,
+      "reason": "被 7 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
+      "dependentCount": 7,
+      "reason": "被 7 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
+      "dependentCount": 5,
+      "reason": "被 5 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
+      "dependentCount": 5,
+      "reason": "被 5 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
+      "dependentCount": 5,
+      "reason": "被 5 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts",
+      "dependentCount": 4,
+      "reason": "被 4 个文件依赖"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
+      "dependentCount": 4,
+      "reason": "被 4 个文件依赖"
+    }
+  ],
+  "fileFingerprints": {
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts": {
+      "mtime": 1780642122652,
+      "size": 13050
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts": {
+      "mtime": 1780566829230,
+      "size": 8355
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts": {
+      "mtime": 1780883352617,
+      "size": 54923
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts": {
+      "mtime": 1780642122464,
+      "size": 5500
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts": {
+      "mtime": 1780642122457,
+      "size": 12516
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts": {
+      "mtime": 1780643484576,
+      "size": 8480
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts": {
+      "mtime": 1780642122400,
+      "size": 6334
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts": {
+      "mtime": 1780642122377,
+      "size": 5871
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts": {
+      "mtime": 1780899188686,
+      "size": 20521
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memoryManager.ts": {
+      "mtime": 1780451524919,
+      "size": 5626
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts": {
+      "mtime": 1780890245259,
+      "size": 14486
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts": {
+      "mtime": 1780566828984,
+      "size": 6614
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolRetrieval.ts": {
+      "mtime": 1780885401081,
+      "size": 4684
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts": {
+      "mtime": 1780394103574,
+      "size": 7246
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\retrieval.ts": {
+      "mtime": 1780393681778,
+      "size": 4598
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\reranker.ts": {
+      "mtime": 1780642122364,
+      "size": 3569
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts": {
+      "mtime": 1780393681756,
+      "size": 8589
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts": {
+      "mtime": 1780642122329,
+      "size": 13202
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impactAnalyzer.ts": {
+      "mtime": 1780451548740,
+      "size": 6405
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts": {
+      "mtime": 1780644397389,
+      "size": 21868
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts": {
+      "mtime": 1780566828959,
+      "size": 10206
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextExpansion.ts": {
+      "mtime": 1780885518316,
+      "size": 18850
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextBuilder.ts": {
+      "mtime": 1780885842308,
+      "size": 22695
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts": {
+      "mtime": 1780890498864,
+      "size": 11474
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts": {
+      "mtime": 1780563366392,
+      "size": 11137
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\planner\\planner.ts": {
+      "mtime": 1780899274334,
+      "size": 22328
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts": {
+      "mtime": 1780393681435,
+      "size": 13534
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts": {
+      "mtime": 1780393681918,
+      "size": 6936
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts": {
+      "mtime": 1780393682104,
+      "size": 18759
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts": {
+      "mtime": 1780566828873,
+      "size": 8284
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts": {
+      "mtime": 1780899151002,
+      "size": 21268
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts": {
+      "mtime": 1780897133927,
+      "size": 74649
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts": {
+      "mtime": 1780900398662,
+      "size": 103496
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-panel.ts": {
+      "mtime": 1780393682026,
+      "size": 5553
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts": {
+      "mtime": 1780642122517,
+      "size": 11730
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts": {
+      "mtime": 1780896693507,
+      "size": 12986
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embeddingManager.ts": {
+      "mtime": 1780642122492,
+      "size": 11954
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts": {
+      "mtime": 1780899184118,
+      "size": 18369
+    }
+  }
+}

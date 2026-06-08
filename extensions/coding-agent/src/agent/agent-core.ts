@@ -1124,7 +1124,7 @@ export class AgentCore {
     discoveryReport?: DiscoveryReport
   ): Promise<ExecutionRouteDecision> {
     // 若 Discovery Report 指示 large scope，强制 full mode
-    if (discoveryReport?.scopeEstimate.estimatedFiles > 10) {
+    if (discoveryReport?.scopeEstimate && discoveryReport.scopeEstimate.estimatedFiles > 10) {
       return {
         mode: 'full',
         confidence: 'high',
@@ -1358,12 +1358,11 @@ export class AgentCore {
     });
   }
 
-  private readonly RESERVED_OUTPUT_TOKENS = 4096;
+  private readonly CONTEXT_WINDOW_SIZE = 131072; // 128K
+  private readonly RESERVED_OUTPUT_TOKENS = 8192;
 
   private getActiveContextWindowTokens(): number {
-    const profile = ConfigManager.getActiveProfile();
-    const modelMaxTokens = Math.max(profile?.maxTokens || 32768, 8192);
-    return Math.max(modelMaxTokens - this.RESERVED_OUTPUT_TOKENS, 4096);
+    return Math.max(this.CONTEXT_WINDOW_SIZE - this.RESERVED_OUTPUT_TOKENS, 32768);
   }
 
   private estimateMessageTokens(message: Message): number {

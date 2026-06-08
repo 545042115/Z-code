@@ -65,10 +65,10 @@ export class Planner {
   ) {}
 
   create(request: string, sessionId: string, discoveryReport?: DiscoveryReport): ExecutionPlan {
-    const intent = discoveryReport?.intent || this.classifyIntent(request);
+    const intent = (discoveryReport?.intent as IntentType) || this.classifyIntent(request);
     const steps: PlanStep[] = this.buildSteps(intent, request, sessionId, discoveryReport);
 
-    return {
+    const plan: ExecutionPlan = {
       intent,
       steps,
       context: {
@@ -82,6 +82,8 @@ export class Planner {
       summary: `Plan for [${intent}]: ${request.slice(0, 80)}`,
       discoveryReport,
     };
+
+    return plan;
   }
 
   async executeStep(step: PlanStep, request: string, sessionId: string, context: IncrementalContext, searchTerms?: string[], discoveryReport?: import('../discovery/discovery').DiscoveryReport): Promise<PlanStep> {

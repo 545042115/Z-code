@@ -239,7 +239,7 @@ export class DiscoveryPhase {
     if (kbModules && kbModules.length > 0) {
       const involvedTags = new Set<string>();
       for (const file of contextPackage.selectedFiles) {
-        involvedTags.add(this.repoGraph.getModuleForFile(file) || 'other');
+        involvedTags.add(this.repoGraph.getNode(file)?.moduleTag || 'other');
       }
 
       return kbModules
@@ -258,7 +258,7 @@ export class DiscoveryPhase {
     const modules = new Map<string, DiscoveredModule>();
 
     for (const file of contextPackage.selectedFiles) {
-      const tag = this.repoGraph.getModuleForFile(file) || 'unknown';
+      const tag = this.repoGraph.getNode(file)?.moduleTag || 'unknown';
       const moduleName = tag === 'unknown' ? '未分类' : tag;
 
       if (!modules.has(moduleName)) {
@@ -274,7 +274,7 @@ export class DiscoveryPhase {
       const mod = modules.get(moduleName)!;
       mod.files.push(file);
 
-      const node = this.repoGraph.getNode(file);
+      const node = this.dependencyGraph.getNode(file);
       if (node && node.isEntryPoint) {
         mod.entryPoints.push(file);
       }
