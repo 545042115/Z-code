@@ -99,6 +99,19 @@ export class DependencyGraph {
     return this.nodes.get(filePath);
   }
 
+  removeFile(filePath: string): void {
+    if (!this.nodes.has(filePath)) return;
+    // Remove edges related to this file
+    this.edges = this.edges.filter(e => e.from !== filePath && e.to !== filePath);
+    // Remove from dependents/dependencies of other nodes
+    for (const node of this.nodes.values()) {
+      node.dependencies = node.dependencies.filter(d => d !== filePath);
+      node.dependents = node.dependents.filter(d => d !== filePath);
+    }
+    this.nodes.delete(filePath);
+    this.normalizedPathMap.delete(filePath);
+  }
+
   getAllNodes(): DependencyNode[] {
     return Array.from(this.nodes.values());
   }

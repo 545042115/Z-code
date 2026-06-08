@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { WorkspaceScanner } from './workspaceScanner';
 import { SymbolIndex, SymbolEntry } from './symbolIndex';
 import { DependencyGraph } from './dependencyGraph';
@@ -143,11 +144,14 @@ export class ContextBuilder {
     const repoSummary = this.repoMap.formatAsciiTree(2);
     const reason = this.buildReason(userRequest, intent, primaryFiles, selectedFiles);
 
+    // 防御性过滤：移除已删除的文件（索引可能未及时同步）
+    const existingSelectedFiles = selectedFiles.filter(f => fs.existsSync(f));
+
     return {
-      primaryFiles,
-      relatedFiles,
-      dependencyFiles,
-      selectedFiles,
+      primaryFiles: primaryFiles.filter(f => fs.existsSync(f)),
+      relatedFiles: relatedFiles.filter(f => fs.existsSync(f)),
+      dependencyFiles: dependencyFiles.filter(f => fs.existsSync(f)),
+      selectedFiles: existingSelectedFiles,
       expandedNodes: expansionResult?.allNodes,
       repoSummary,
       reason,
@@ -298,11 +302,14 @@ export class ContextBuilder {
     const repoSummary = this.repoMap.formatAsciiTree(2);
     const reason = `[Incremental] ${this.buildReason(userRequest, intent, primaryFiles, selectedFiles)}`;
 
+    // 防御性过滤：移除已删除的文件（索引可能未及时同步）
+    const existingSelectedFiles = selectedFiles.filter(f => fs.existsSync(f));
+
     return {
-      primaryFiles,
-      relatedFiles,
-      dependencyFiles,
-      selectedFiles,
+      primaryFiles: primaryFiles.filter(f => fs.existsSync(f)),
+      relatedFiles: relatedFiles.filter(f => fs.existsSync(f)),
+      dependencyFiles: dependencyFiles.filter(f => fs.existsSync(f)),
+      selectedFiles: existingSelectedFiles,
       expandedNodes: expansionResult?.allNodes,
       repoSummary,
       reason,

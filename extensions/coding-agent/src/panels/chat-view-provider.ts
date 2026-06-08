@@ -21,6 +21,7 @@ interface ChatMessage {
   planTitle?: string;
   planMode?: 'compact' | 'full';
   planItems?: PlanSnapshot['items'];
+  requestId?: string;
 }
 
 interface ChatSession {
@@ -49,6 +50,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   private activeSessionId: string | null = null;
   private pendingRestore: boolean = false;
   private readonly diffContents = new Map<string, string>();
+  private currentRequestId: string | null = null;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -115,6 +117,14 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
             break;
           case 'exportSession':
             await this.handleExportSession();
+            break;
+          case 'retry':
+            try {
+              await this.handleRetry(message.requestId);
+            } catch (err) {
+              const errorMsg = err instanceof Error ? err.message : String(err);
+              this.postMessage({ type: 'error', content: '重试失败: ' + errorMsg });
+            }
             break;
           case 'ready':
             this.postProfiles();
@@ -857,10 +867,11 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
     }
 
     this.isRunning = true;
+    this.currentRequestId = `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-    this.appendMessage({ role: 'user', content: text });
+    this.appendMessage({ role: 'user', content: text, requestId: this.currentRequestId });
     this.maybeRenameActiveSession(text);
-    this.postMessage({ type: 'userMessage', content: text });
+    this.postMessage({ type: 'userMessage', content: text, requestId: this.currentRequestId });
     this.postMessage({ type: 'setLoading', loading: true });
 
     let responseContent = '';
@@ -873,7 +884,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
         text,
         (chunk) => {
           responseContent += chunk;
-          this.postMessage({ type: 'streamContent', content: chunk });
+          this.postMessage({ type: 'streamContent', content: chunk, requestId: this.currentRequestId });
         },
         (state) => {
           this.postMessage({
@@ -910,15 +921,53 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: 'done' });
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.appendMessage({ role: 'error', content: errorMsg });
-      this.postMessage({ type: 'error', content: errorMsg });
+      this.appendMessage({ role: 'error', content: errorMsg, requestId: this.currentRequestId });
+      this.postMessage({ type: 'error', content: errorMsg, requestId: this.currentRequestId });
     } finally {
       if (responseContent) {
-        this.appendMessage({ role: 'assistant', content: responseContent });
+        this.appendMessage({ role: 'assistant', content: responseContent, requestId: this.currentRequestId });
+        this.postMessage({ type: 'assistantMessage', content: responseContent, requestId: this.currentRequestId });
       }
       this.isRunning = false;
+      this.currentRequestId = null;
       this.postMessage({ type: 'setLoading', loading: false });
     }
+  }
+
+  private async handleRetry(requestId: string): Promise<void> {
+    if (this.isRunning) {
+      this.postMessage({ type: 'error', content: '正在运行中，请等待完成后再重试' });
+      return;
+    }
+
+    const session = this.getActiveSession();
+    // 找到 requestId 对应的 user 消息
+    let userIndex = -1;
+    for (let i = 0; i < session.messages.length; i++) {
+      if (session.messages[i].role === 'user' && session.messages[i].requestId === requestId) {
+        userIndex = i;
+        break;
+      }
+    }
+
+    if (userIndex === -1) {
+      this.postMessage({ type: 'error', content: '未找到对应的用户消息，无法重试' });
+      return;
+    }
+
+    const userMessage = session.messages[userIndex];
+    // 删除从该 user 消息之后的所有消息（包括后续的 assistant/error/editOps/plan 等）
+    const removedCount = session.messages.length - userIndex - 1;
+    session.messages.splice(userIndex + 1);
+    session.updatedAt = Date.now();
+    this.persistState();
+    this.postSessions();
+
+    // 清空 Webview 中该 user 消息之后的所有消息，并重新渲染
+    this.postMessage({ type: 'clearAfterRequest', requestId });
+
+    // 重新发送该用户消息
+    await this.handleSendMessage(userMessage.content);
   }
 
   public async handleExportSession(format?: string): Promise<void> {
@@ -1159,6 +1208,27 @@ body {
   color: var(--vscode-inputValidation-errorForeground);
   font-size: 11px;
   width: 100%;
+}
+.msg-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.msg-action-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: none;
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+  cursor: pointer;
+  opacity: 0.8;
+}
+.msg-action-btn:hover {
+  opacity: 1;
+  background: var(--vscode-button-secondaryHoverBackground);
 }
 .msg.plan {
   align-self: stretch;
@@ -2146,14 +2216,31 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
     postMessage({ type: 'sendMessage', text: text });
   }
 
-  function addMessage(role, content, ops) {
+  function addMessage(role, content, ops, requestId) {
     hideEmptyState();
     hasMessages = true;
     currentMsgEl = null;
     const el = document.createElement('div');
     el.className = 'msg ' + role;
     el.dataset.rawContent = content || '';
+    if (requestId) el.dataset.requestId = requestId;
     setMessageContent(el, role, content || '');
+    // 为 assistant/error 消息添加重试按钮
+    if ((role === 'assistant' || role === 'error') && requestId) {
+      const actions = document.createElement('div');
+      actions.className = 'msg-actions';
+      const retryBtn = document.createElement('button');
+      retryBtn.className = 'msg-action-btn';
+      retryBtn.textContent = '↻ 重试';
+      retryBtn.title = '重新回答';
+      retryBtn.addEventListener('click', function() {
+        if (confirm('确定要重新回答吗？当前回答将被替换。')) {
+          postMessage({ type: 'retry', requestId: requestId });
+        }
+      });
+      actions.appendChild(retryBtn);
+      el.appendChild(actions);
+    }
     messages.appendChild(el);
     if (ops && ops.length) {
       var hint = document.createElement('div');
@@ -2221,12 +2308,12 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
     var msg = event.data;
     switch (msg.type) {
       case 'userMessage':
-        addMessage('user', msg.content);
+        addMessage('user', msg.content, null, msg.requestId);
         break;
 
       case 'streamContent':
         if (!currentMsgEl) {
-          currentMsgEl = addMessage('assistant', '');
+          currentMsgEl = addMessage('assistant', '', null, msg.requestId);
         }
         currentMsgEl.dataset.rawContent = (currentMsgEl.dataset.rawContent || '') + msg.content;
         setMessageContent(currentMsgEl, 'assistant', currentMsgEl.dataset.rawContent);
@@ -2234,7 +2321,25 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
         break;
 
       case 'assistantMessage':
-        addMessage('assistant', msg.content);
+        // 如果流式消息已经创建了 DOM，只需补全 requestId 和重试按钮
+        if (currentMsgEl && msg.requestId && !currentMsgEl.dataset.requestId) {
+          currentMsgEl.dataset.requestId = msg.requestId;
+          const actions = document.createElement('div');
+          actions.className = 'msg-actions';
+          const retryBtn = document.createElement('button');
+          retryBtn.className = 'msg-action-btn';
+          retryBtn.textContent = '↻ 重试';
+          retryBtn.title = '重新回答';
+          retryBtn.addEventListener('click', function() {
+            if (confirm('确定要重新回答吗？当前回答将被替换。')) {
+              postMessage({ type: 'retry', requestId: msg.requestId });
+            }
+          });
+          actions.appendChild(retryBtn);
+          currentMsgEl.appendChild(actions);
+        } else if (!currentMsgEl) {
+          addMessage('assistant', msg.content, null, msg.requestId);
+        }
         break;
 
       case 'stateChange':
@@ -2269,7 +2374,21 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
         break;
 
       case 'error':
-        addMessage('error', msg.content);
+        addMessage('error', msg.content, null, msg.requestId);
+        break;
+
+      case 'clearAfterRequest':
+        // 删除该 requestId 对应 user 消息之后的所有 DOM 元素
+        var userEl = messages.querySelector('.msg.user[data-request-id="' + msg.requestId + '"]');
+        if (userEl) {
+          var next = userEl.nextElementSibling;
+          while (next) {
+            var toRemove = next;
+            next = next.nextElementSibling;
+            toRemove.remove();
+          }
+        }
+        currentMsgEl = null;
         break;
 
       case 'updateProfiles':
@@ -2337,7 +2456,26 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
           var el = document.createElement('div');
           el.className = 'msg ' + m.role;
           el.dataset.rawContent = m.content || '';
+          if (m.requestId) el.dataset.requestId = m.requestId;
           setMessageContent(el, m.role, m.content || '');
+          // 为 assistant/error 消息添加重试按钮
+          if ((m.role === 'assistant' || m.role === 'error') && m.requestId) {
+            var actions = document.createElement('div');
+            actions.className = 'msg-actions';
+            var retryBtn = document.createElement('button');
+            retryBtn.className = 'msg-action-btn';
+            retryBtn.textContent = '↻ 重试';
+            retryBtn.title = '重新回答';
+            retryBtn.addEventListener('click', (function(rid) {
+              return function() {
+                if (confirm('确定要重新回答吗？当前回答将被替换。')) {
+                  postMessage({ type: 'retry', requestId: rid });
+                }
+              };
+            })(m.requestId));
+            actions.appendChild(retryBtn);
+            el.appendChild(actions);
+          }
           frag.appendChild(el);
           if (m.ops && m.ops.length) {
             var hint = document.createElement('div');

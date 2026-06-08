@@ -323,6 +323,9 @@ export class AgentCore {
   private autoCompactCount = 0;
   private lastAutoCompactIteration = -999;
   private lastToolCallFailed = false;
+  private lastThinkContent: string = '';
+  private lastObserveContent: string = '';
+  private consecutiveRedundantCount: number = 0;
 
   private readonly SYSTEM_PROMPT: string;
 
@@ -603,6 +606,22 @@ export class AgentCore {
     this.activePlanId = '';
     this.autoCompactCount = 0;
     this.lastAutoCompactIteration = -999;
+    this.lastThinkContent = '';
+    this.lastObserveContent = '';
+    this.consecutiveRedundantCount = 0;
+  }
+
+  /**
+   * 检测新内容是否与之前的内容高度相似，用于防止 ReAct 循环中的重复输出。
+   */
+  private isContentRedundant(newContent: string, previousContent: string): boolean {
+    if (!previousContent || !newContent) return false;
+    const n1 = newContent.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 400);
+    const n2 = previousContent.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 400);
+    if (n1.length < 20 || n2.length < 20) return false;
+    const shorter = n1.length < n2.length ? n1 : n2;
+    const longer = n1.length < n2.length ? n2 : n1;
+    return longer.includes(shorter);
   }
 
   private async executeState(
@@ -704,11 +723,34 @@ export class AgentCore {
         }
 
         const safeContent = response.content && response.content !== 'undefined' ? response.content : '(分析中...)';
-        if (!this.compactMode) {
-          onStream(`\n**思考**（子任务: ${taskLabel}）\n\n${safeContent}\n\n`);
+        const isRedundant = this.isContentRedundant(safeContent, this.lastThinkContent) ||
+                            this.isContentRedundant(safeContent, this.lastObserveContent);
+
+        if (!isRedundant) {
+          if (!this.compactMode) {
+            onStream(`\n**思考**（子任务: ${taskLabel}）\n\n${safeContent}\n\n`);
+          } else {
+            onStream(`\n\n**[思考]** \n${safeContent}\n\n**[/思考]**\n\n`);
+          }
+          this.lastThinkContent = safeContent;
+          this.consecutiveRedundantCount = 0;
         } else {
-          onStream(`\n\n**[思考]** \n${safeContent}\n\n**[/思考]**\n\n`);
+          this.consecutiveRedundantCount++;
+          if (this.consecutiveRedundantCount <= 2) {
+            if (!this.compactMode) {
+              onStream(`\n**思考**（子任务: ${taskLabel}）: 继续分析...\n\n`);
+            } else {
+              onStream(`\n\n**[思考]** 继续分析...**[/思考]**\n\n`);
+            }
+          }
+          if (this.consecutiveRedundantCount === 2) {
+            this.messageHistory.push({
+              role: 'user',
+              content: '[系统提示] 你的分析与之前非常相似，请避免重复。基于已获取的工具结果，直接得出结论或采取下一步行动，不要重复之前的分析。'
+            });
+          }
         }
+
         if (!thinkMessageRecorded) {
           this.messageHistory.push({ role: 'assistant', content: responseText });
         }
@@ -795,10 +837,26 @@ export class AgentCore {
         const taskLabel = currentTask ? currentTask.description : response.subTaskId;
 
         const safeObserveContent = response.content && response.content !== 'undefined' ? response.content : '(无观察结果)';
-        if (!this.compactMode) {
-          onStream(`**观察**（${taskLabel}）\n\n${safeObserveContent}\n\n`);
+        const isObserveRedundant = this.isContentRedundant(safeObserveContent, this.lastObserveContent) ||
+                                   this.isContentRedundant(safeObserveContent, this.lastThinkContent);
+
+        if (!isObserveRedundant) {
+          if (!this.compactMode) {
+            onStream(`**观察**（${taskLabel}）\n\n${safeObserveContent}\n\n`);
+          } else {
+            onStream(`\n\n**[观察]** \n${safeObserveContent}\n\n**[/观察]**\n\n`);
+          }
+          this.lastObserveContent = safeObserveContent;
+          this.consecutiveRedundantCount = 0;
         } else {
-          onStream(`\n\n**[观察]** \n${safeObserveContent}\n\n**[/观察]**\n\n`);
+          this.consecutiveRedundantCount++;
+          if (this.consecutiveRedundantCount <= 2) {
+            if (!this.compactMode) {
+              onStream(`**观察**（${taskLabel}）: 继续推进...\n\n`);
+            } else {
+              onStream(`\n\n**[观察]** 继续推进...**[/观察]**\n\n`);
+            }
+          }
         }
 
         // 幻觉约束：检测工具返回的空数据或错误模式，注入警告
@@ -2292,12 +2350,14 @@ If revision needed:
     }
     if (context.contextPackage) {
       const pkg = context.contextPackage;
+      // 防御性过滤：移除已删除的文件（索引可能未及时同步）
+      const existingFiles = pkg.selectedFiles.filter(f => require('fs').existsSync(f));
       const contextLines: string[] = ['## Context Files for This Task', `Reason: ${pkg.reason}`];
-      for (const f of pkg.selectedFiles.slice(0, 10)) {
+      for (const f of existingFiles.slice(0, 10)) {
         contextLines.push(`- ${f}`);
       }
-      if (pkg.selectedFiles.length > 10) {
-        contextLines.push(`... and ${pkg.selectedFiles.length - 10} more`);
+      if (existingFiles.length > 10) {
+        contextLines.push(`... and ${existingFiles.length - 10} more`);
       }
       dynamicParts.push(contextLines.join('\n'));
       if (pkg.gitContext) {

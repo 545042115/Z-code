@@ -19,11 +19,13 @@ export interface WorkspaceInfo {
 }
 
 export type FileChangeHandler = (uri: vscode.Uri) => void;
+export type FileDeleteHandler = (uri: vscode.Uri) => void;
 
 export class WorkspaceScanner {
   private files: WorkspaceFile[] = [];
   private watcher: vscode.FileSystemWatcher | undefined;
   private onChangeHandlers: FileChangeHandler[] = [];
+  private onDeleteHandlers: FileDeleteHandler[] = [];
 
   readonly SOURCE_EXTENSIONS = new Set([
     '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java', '.cpp', '.c',
@@ -85,6 +87,10 @@ export class WorkspaceScanner {
 
   onFileChange(handler: FileChangeHandler): void {
     this.onChangeHandlers.push(handler);
+  }
+
+  onFileDelete(handler: FileDeleteHandler): void {
+    this.onDeleteHandlers.push(handler);
   }
 
   async scan(): Promise<WorkspaceInfo> {
@@ -169,7 +175,7 @@ export class WorkspaceScanner {
       this.watcher.onDidChange(onEvent),
       this.watcher.onDidDelete((uri) => {
         this.files = this.files.filter(f => f.path !== uri.fsPath);
-        this.onChangeHandlers.forEach(h => h(uri));
+        this.onDeleteHandlers.forEach(h => h(uri));
       })
     );
 

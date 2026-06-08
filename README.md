@@ -118,6 +118,11 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🛡️ **幻觉约束** | OBSERVE 阶段检测工具返回空数据/错误，自动注入警告阻止模型编造内容 |
 | 🚫 **危险命令拦截** | `run_terminal` 内置危险命令检测（`rm -rf`、`git push --force` 等），弹窗确认后执行 |
 | 🔄 **Diff 引擎** | 编辑操作幂等去重 + 模糊匹配兜底，支持查看单条/整文件 Diff 与一键回退 |
+| ↻ **对话重试** | 每条 assistant/error 消息右下角显示重试按钮，点击后截断后续历史并重新发送对应 user 消息 |
+| 🛡️ **防跳过机制** | 工具调用失败后强制禁止标记子任务完成，LLM 必须修正参数并重试，杜绝幻觉导致的 Plan 突然终止 |
+| 🔧 **工具参数兼容** | `read_file` / `write_file` 同时兼容 `path` 和 `filePath` 参数名，避免 LLM 因参数名不一致导致调用失败 |
+| ✂️ **THINK/OBSERVE 简洁约束** | 系统提示强制要求 LLM 的思考与观察内容控制在 1-2 句话，禁止重复整体任务背景，减少冗余输出 |
+| 🗑️ **文件删除感知** | 文件系统监听 + 索引同步 + 防御性 `fs.existsSync` 过滤三重保障，确保已删除文件不会残留于上下文 |
 | 🌐 **Web 搜索** | `web_search` / `web_fetch` 工具，通过 DuckDuckGo 搜索和抓取网页内容，扩展 Agent 信息边界 |
 | 📤 **会话导出** | 支持将 Chat 会话导出为 Markdown 或 JSON 格式，含完整对话、计划清单与编辑记录 |
 | 🧭 **直接项目回答** | `project_understanding` 意图下直接生成项目介绍，跳过不必要的 ReAct 循环 |
@@ -226,6 +231,21 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.6.1 — 2026-06-08
+
+稳定性增强与交互优化 / Stability & Interaction Improvements
+
+#### ✨ 版本摘要 / Highlights
+- **对话重试**：Chat 侧边栏每条 assistant/error 消息右下角新增 "↻ 重试" 按钮，点击后截断该对话后续历史并重新发送对应 user 消息
+- **防跳过机制**：工具调用失败后系统强制禁止 LLM 标记子任务完成，必须修正参数并重试，彻底杜绝幻觉导致的 Plan 突然终止
+- **工具参数兼容**：`read_file` / `write_file` 同时兼容 `path` 和 `filePath` 参数名，解决 LLM 因参数名不一致导致的调用失败
+- **THINK/OBSERVE 简洁约束**：系统提示强制要求 LLM 的思考与观察内容控制在 1-2 句话，禁止重复整体任务背景，显著减少冗余输出
+- **文件删除感知**：文件系统监听 (`onDidDelete`) + 索引同步 (`symbolIndex`/`dependencyGraph`/`repoGraph` 自动清理) + 防御性 `fs.existsSync` 过滤三重保障，确保已删除文件不会残留于上下文
+- **128K 上下文参数调优**：Auto-Compact 触发阈值从 80% 提升至 85%，消息数触发条件从 22 条提升至 44 条，保留尾部消息从 10 条提升至 20 条，摘要长度从 1800 字符提升至 4000 字符，总迭代上限从 50 提升至 100，单个子任务 ReAct 上限从 15 提升至 25
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.6.0 — 2026-06-07
 

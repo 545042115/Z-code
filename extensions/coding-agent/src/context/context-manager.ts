@@ -191,6 +191,26 @@ export class ContextManager {
       }
     });
 
+    this.scanner.onFileDelete((uri) => {
+      const ext = uri.fsPath.substring(uri.fsPath.lastIndexOf('.'));
+      if (this.scanner.SOURCE_EXTENSIONS.has(ext)) {
+        // Remove from all indexes
+        this.symbolIndex.removeFile(uri.fsPath);
+        try {
+          this.dependencyGraph.removeFile(uri.fsPath);
+        } catch {
+          // non-fatal
+        }
+        try {
+          this.repoGraph.removeFile(uri.fsPath);
+        } catch {
+          // non-fatal
+        }
+        this.embeddingManagerDirty = true;
+        this.hybridRetrieval.invalidate();
+      }
+    });
+
     this.initialized = true;
   }
 

@@ -289,6 +289,13 @@ export class RepoGraph {
     return this.nodeById.get(filePath);
   }
 
+  removeFile(filePath: string): void {
+    if (!this.nodeById.has(filePath)) return;
+    this.edges = this.edges.filter(e => e.source !== filePath && e.target !== filePath);
+    this.nodes = this.nodes.filter(n => n.id !== filePath);
+    this.nodeById.delete(filePath);
+  }
+
   getNodesByType(type: GraphNode['type']): GraphNode[] {
     return this.nodes.filter(n => n.type === type);
   }
