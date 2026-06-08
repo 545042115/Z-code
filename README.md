@@ -197,6 +197,12 @@ npm run compile
 
 ---
 
+## 测试与对比 / Tests & Comparisons
+
+- **Trae vs Z Code 图像拼接代码生成对比**：[coding-test/image-stitching-comparison.md](coding-test/image-stitching-comparison.md) — 分析相同 Prompt 下不同 Agent 的代码生成质量、正确性与可运行性差异
+
+---
+
 ## 开发 / Development
 
 ### 环境要求 / Requirements

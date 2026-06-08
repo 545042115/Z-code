@@ -142,15 +142,30 @@ export class ToolRegistry {
       throw new Error(`Tool not found: ${name}`);
     }
 
+    // 参数别名兼容：LLM 可能使用 training data 中的惯用参数名
+    const aliasedParams = { ...params };
+    const paramAliases: Record<string, Record<string, string>> = {
+      read_file: { path: 'filePath' },
+      write_file: { path: 'filePath' },
+    };
+    const aliases = paramAliases[name];
+    if (aliases) {
+      for (const [alias, canonical] of Object.entries(aliases)) {
+        if (aliasedParams[canonical] === undefined && aliasedParams[alias] !== undefined) {
+          aliasedParams[canonical] = aliasedParams[alias];
+        }
+      }
+    }
+
     // 校验必填参数
     const missingParams = tool.parameters
-      .filter(p => p.required && (params[p.name] === undefined || params[p.name] === null || params[p.name] === ''))
+      .filter(p => p.required && (aliasedParams[p.name] === undefined || aliasedParams[p.name] === null || aliasedParams[p.name] === ''))
       .map(p => p.name);
     if (missingParams.length > 0) {
       throw new Error(`Missing required parameter(s) for ${name}: ${missingParams.join(', ')}. Expected: ${tool.parameters.map(p => `${p.name}${p.required ? ' (required)' : ' (optional)'}`).join(', ')}`);
     }
 
-    return await tool.execute(params);
+    return await tool.execute(aliasedParams);
   }
 
   private makeReadFileTool(): Tool {

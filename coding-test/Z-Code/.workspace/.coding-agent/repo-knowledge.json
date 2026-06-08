@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "generatedAt": 1780904136243,
+  "updatedAt": 1780908192964,
+  "architecture": {
+    "summary": "1 个源码文件，other(1)",
+    "layers": [
+      {
+        "name": "other",
+        "files": [
+          "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py"
+        ],
+        "fileCount": 1,
+        "description": "其他支持文件"
+      }
+    ]
+  },
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "percentage": 100,
+        "extensions": [
+          ".py"
+        ],
+        "fileCount": 1
+      }
+    ],
+    "frameworks": [],
+    "buildTools": [],
+    "testFrameworks": [],
+    "packageManager": "unknown"
+  },
+  "entryPoints": [],
+  "coreModules": [
+    {
+      "name": "Z-Code",
+      "fileCount": 1,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py"
+      ],
+      "topExports": [],
+      "description": "1 个文件，0 个符号"
+    }
+  ],
+  "codingPatterns": {
+    "namingConventions": [],
+    "fileOrganization": "按目录/功能分层组织",
+    "commonImports": [],
+    "designPatterns": []
+  },
+  "criticalFiles": [],
+  "fileFingerprints": {
+    "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py": {
+      "mtime": 1780903309038,
+      "size": 8443
+    }
+  }
+}

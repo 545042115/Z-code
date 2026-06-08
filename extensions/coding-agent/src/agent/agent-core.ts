@@ -306,14 +306,14 @@ export class AgentCore {
   private subTasks: SubTask[] = [];
   private currentSubTaskIndex: number = 0;
   private currentSubTaskReActCount: number = 0;
-  private readonly MAX_REACT_PER_SUBTASK = 15;
-  private readonly MAX_TOTAL_ITERATIONS = 50;
-  private readonly MAX_REFLECT_REVISIONS = 3;
-  private readonly AUTO_COMPACT_TOKEN_RATIO = 0.8;
-  private readonly AUTO_COMPACT_MIN_HISTORY_MESSAGES = 18;
-  private readonly AUTO_COMPACT_KEEP_TAIL_MESSAGES = 10;
-  private readonly AUTO_COMPACT_MIN_INTERVAL = 3;
-  private readonly AUTO_COMPACT_MAX_SUMMARY_CHARS = 1800;
+  private readonly MAX_REACT_PER_SUBTASK = 25;
+  private readonly MAX_TOTAL_ITERATIONS = 100;
+  private readonly MAX_REFLECT_REVISIONS = 5;
+  private readonly AUTO_COMPACT_TOKEN_RATIO = 0.85;
+  private readonly AUTO_COMPACT_MIN_HISTORY_MESSAGES = 40;
+  private readonly AUTO_COMPACT_KEEP_TAIL_MESSAGES = 20;
+  private readonly AUTO_COMPACT_MIN_INTERVAL = 5;
+  private readonly AUTO_COMPACT_MAX_SUMMARY_CHARS = 4000;
   private totalIterations = 0;
   private reflectRevisionCount = 0;
   private activeIntent: ExecutionPlan['intent'] = 'other';
@@ -322,6 +322,7 @@ export class AgentCore {
   private activePlanId: string = '';
   private autoCompactCount = 0;
   private lastAutoCompactIteration = -999;
+  private lastToolCallFailed = false;
 
   private readonly SYSTEM_PROMPT: string;
 
@@ -725,17 +726,21 @@ export class AgentCore {
           }
           try {
             const result = await this.tools.execute(response.toolCall.name, response.toolCall.params);
+            this.lastToolCallFailed = false;
             this.messageHistory.push(
               { role: 'assistant', content: responseText },
               { role: 'user', content: `[工具结果] ${response.toolCall.name} 返回：${JSON.stringify(result)}` }
             );
           } catch (toolErr) {
             const errMsg = toolErr instanceof Error ? toolErr.message : String(toolErr);
+            this.lastToolCallFailed = true;
             onStream(`❌ 工具执行失败: ${errMsg}\n\n`);
             const toolName = response.toolCall!.name;
             let suggestion = '';
             if (toolName === 'read_file') {
-              suggestion = '提示：路径可以是相对路径（如 "README.md"）或绝对路径。建议先用 list_directory 浏览目录结构，确认文件存在后再读取。';
+              suggestion = '提示：参数名为 filePath，不要写成 path。路径可以是相对路径（如 "README.md"）或绝对路径。建议先用 list_directory 浏览目录结构，确认文件存在后再读取。';
+            } else if (toolName === 'write_file') {
+              suggestion = '提示：参数名为 filePath 和 content，不要写成 path。请确保提供了正确的文件路径和完整内容。';
             } else if (toolName === 'search_code') {
               suggestion = '提示：搜索词可能太具体。尝试简化 pattern（如只搜索函数名），或使用 search_symbols 工具。';
             } else if (toolName === 'list_directory') {
@@ -745,7 +750,7 @@ export class AgentCore {
             }
             this.messageHistory.push(
               { role: 'assistant', content: responseText },
-              { role: 'user', content: `[工具错误] ${toolName} 执行失败：${errMsg}。${suggestion}请修正后重试，或换用其他工具。` }
+              { role: 'user', content: `[工具错误] ${toolName} 执行失败：${errMsg}。${suggestion}请修正参数后重试，切勿编造工具执行结果。` }
             );
           }
         } else if (response.editOps && response.editOps.length > 0) {
@@ -807,6 +812,17 @@ export class AgentCore {
           );
         } else {
           this.messageHistory.push({ role: 'assistant', content: responseText });
+        }
+
+        // 关键防护：若当前子任务的最近一次工具调用失败，禁止标记为完成
+        if (this.lastToolCallFailed) {
+          this.lastToolCallFailed = false;
+          const retryWarning = `[系统警告] 你刚才的工具调用失败了，但你试图将子任务标记为完成。这是绝对不允许的。失败原因已在历史消息中说明。你必须：1) 分析失败原因 2) 修正参数或更换工具 3) 重新执行直到成功。只有工具真正返回成功结果后，才能设置 subTaskStatus="complete"。`;
+          this.messageHistory.push({ role: 'user', content: retryWarning });
+          if (!this.compactMode) {
+            onStream(`→ ⚠️ 工具调用失败，禁止跳过。必须修正后重试。\n\n`);
+          }
+          return { state: 'OBSERVE', content: response.content, subTaskId: response.subTaskId, subTaskStatus: 'continue', nextState: 'THINK' };
         }
 
         if (response.subTaskStatus === 'complete') {
@@ -1916,8 +1932,8 @@ PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (T
 - embedding_search: Search for semantically relevant files using TF-IDF style embedding. Returns top-K files ranked by relevance to a natural language query.
 - get_repo_graph: Get the RepoGraph: module dependency overview, data flow direction, cross-module dependencies, and module hierarchy tree.
 - planner_execute: Execute the full pipeline planner: intent → memory → embedding → repo graph → context building.
-- read_file: Read file content (required: path, optional: startLine, lineCount)
-- write_file: Write FULL file content (required: path, content). ONLY use for creating new files or complete rewrites.
+- read_file: Read file content (required: filePath, optional: startLine, lineCount)
+- write_file: Write FULL file content (required: filePath, content). ONLY use for creating new files or complete rewrites.
 - replace_text: Replace a specific text snippet in an EXISTING file (required: filePath, oldText, newText). Use this for ALL small modifications to existing files.
 - insert_before: Insert text before an anchor in an existing file (required: filePath, anchorText, newText)
 - insert_after: Insert text after an anchor in an existing file (required: filePath, anchorText, newText)
@@ -2055,8 +2071,8 @@ If revision needed:
 }
 
 ## Rules
-- In PLANNING, break complex requests into meaningful sub-tasks
-- In THINK, analyze before acting. Be specific about what you'll do.
+- In PLANNING, break complex requests into meaningful sub-tasks. If the user explicitly mentions a specific file , you MUST include "read the mentioned file" as the FIRST sub-task before any modification or rewrite.
+- In THINK, analyze before acting. Be specific about what you'll do. **THINK content must be concise: 1-2 sentences only. Do NOT repeat the overall task background or previous sub-task descriptions.**
 - In ACT, do ONE thing at a time — one tool call OR one set of edits
 - **CRITICAL: In ACT, you MUST use editOps or tool calls to write code to files. NEVER write code only in the content field. The content field is for descriptions, NOT for actual code output.**
 - **To CREATE a new file: use editOps with search="" and replace=full file content, or use write_file tool**
@@ -2065,7 +2081,8 @@ If revision needed:
 - **When using insert_before/insert_after: anchorText must be unique enough to locate the exact position.**
 - **When creating or editing files, ONLY use paths inside the current workspace root. Never invent paths like "/workspace/..." or "/vibe-coding/...". After writing a file, only report the actual path returned by the tool.**
 - **CRITICAL: You must base ALL answers on the actual source code in the project. The README is ONLY for getting the project name. You MUST use read_file, search_code, or search_symbols tools to read source files before answering ANY question about the codebase. Do NOT use README content as the basis for your answer.**
-- In OBSERVE, set subTaskStatus to "complete" only when the sub-task goal is met
+- **CRITICAL: When the user asks to rewrite, refactor, or extract code from a specific file, you MUST read that file FIRST using read_file before creating any new files or writing code. Never rewrite code from memory without reading the original source.**
+- In OBSERVE, set subTaskStatus to "complete" only when the sub-task goal is met. **OBSERVE content must be concise: 1-2 sentences only, summarizing the actual result of the current step. Do NOT repeat previous observations or the overall task description.**
 - In REFLECT, be a strict reviewer. If you find issues, set verdict to "needs_revision"
 - After REFLECT with "needs_revision", the system goes back to THINK for fixes
 - After REFLECT with "pass", move to next sub-task or DONE`;
@@ -2481,6 +2498,10 @@ If revision needed:
       'error writing file',
       'error searching code',
       'error listing directory',
+      'missing required parameter',
+      'tool not found',
+      'tool error',
+      '执行失败',
       'no results found',
       'no symbols found',
       'no related files found',

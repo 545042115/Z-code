@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generatedAt": 1780899536107,
-  "updatedAt": 1780900399633,
+  "updatedAt": 1780900688764,
   "architecture": {
     "summary": "38 个源码文件，other(30)，ui(4)，core(3)",
     "layers": [
@@ -170,7 +170,7 @@
         "LoopResult",
         "ToolCall"
       ],
-      "description": "3 个文件，1216 个符号"
+      "description": "3 个文件，1215 个符号"
     },
     {
       "name": "memory",
@@ -374,43 +374,43 @@
     "commonImports": [
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
-        "count": 11
+        "count": 418
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
-        "count": 11
+        "count": 418
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
-        "count": 9
+        "count": 342
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
-        "count": 7
+        "count": 266
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
-        "count": 7
+        "count": 266
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
-        "count": 5
+        "count": 190
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
-        "count": 5
+        "count": 190
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
-        "count": 5
+        "count": 190
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
-        "count": 4
+        "count": 152
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts",
-        "count": 4
+        "count": 152
       }
     ],
     "designPatterns": []
@@ -418,53 +418,53 @@
   "criticalFiles": [
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
-      "dependentCount": 11,
-      "reason": "被 11 个文件依赖"
+      "dependentCount": 418,
+      "reason": "被 418 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
-      "dependentCount": 11,
-      "reason": "被 11 个文件依赖"
+      "dependentCount": 418,
+      "reason": "被 418 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
-      "dependentCount": 9,
-      "reason": "被 9 个文件依赖"
+      "dependentCount": 342,
+      "reason": "被 342 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
-      "dependentCount": 7,
-      "reason": "被 7 个文件依赖"
+      "dependentCount": 266,
+      "reason": "被 266 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
-      "dependentCount": 7,
-      "reason": "被 7 个文件依赖"
+      "dependentCount": 266,
+      "reason": "被 266 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "dependentCount": 190,
+      "reason": "被 190 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "dependentCount": 190,
+      "reason": "被 190 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "dependentCount": 190,
+      "reason": "被 190 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts",
-      "dependentCount": 4,
-      "reason": "被 4 个文件依赖"
+      "dependentCount": 152,
+      "reason": "被 152 个文件依赖"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
-      "dependentCount": 4,
-      "reason": "被 4 个文件依赖"
+      "dependentCount": 152,
+      "reason": "被 152 个文件依赖"
     }
   ],
   "fileFingerprints": {
