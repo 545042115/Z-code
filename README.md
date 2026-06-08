@@ -16,17 +16,22 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │       ├── src/
 │       │   ├── agent/
 │   ├── agent/
-│   │   ├── agent-core.ts    三层混合架构 + Repo-Level Agent Core + LLM Query Rewrite
-│   │   │                    (动态 Pipeline: 根据意图选择 Plan → Memory → [Embedding → RepoGraph] → Context)
-│   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
-│   │   ├── agent-loop.ts    ReAct Tool Loop（tool_call 结果回灌 LLM，最大 15 次迭代）
+│   │   ├── agent-core.ts    知识驱动 + 自我验证闭环架构 + LLM Query Rewrite
+│   │   │                    (Pipeline: Discovery → Plan → Memory → [Embedding → RepoGraph] → Context)
+│   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT → REPLAN)
+│   │   ├── agent-loop.ts    Agent 执行循环（Discovery → Plan → Execute → Verify → Reflect → Replan）
 │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
+│       │   ├── discovery/
+│       │   │   └── discovery.ts      Discovery Phase：深度发现引擎（模块/文件/符号/风险/范围）
+│       │   ├── reflection/
+│       │   │   └── reflectionEngine.ts Reflection Loop：自我验证闭环（FailureAnalysis + RepairAction）
 │       │   ├── memory/
-│       │   │   └── memoryManager.ts 多轮记忆系统（按 repo+session+intent 维度存储）
+│       │   │   ├── memoryManager.ts  多轮记忆系统（按 repo+session+intent 维度存储）
+│       │   │   └── repoKnowledgeBase.ts Repo Knowledge Base：长期代码库知识库
 │       │   ├── embedding/
 │       │   │   └── embeddingManager.ts TF-IDF 语义检索
 │       │   ├── planner/
-│       │   │   └── planner.ts       Pipeline Planner（动态步数管道）
+│       │   │   └── planner.ts       Pipeline Planner（基于 Discovery Report 动态调整步骤）
 │       │   ├── config/
 │       │   │   └── config-manager.ts 多配置管理 / Multi-config management
 │       │   ├── llm/
@@ -34,6 +39,8 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │   │   ├── context/
 │   │   │   ├── context-manager.ts LSP 上下文管理（集成所有子模块）
 │   │   │   ├── contextBuilder.ts  增量/全量上下文构建
+│   │   │   ├── contextExpansion.ts Context Expansion Engine：7 种关系静态扩展，预算驱动
+│   │   │   ├── symbolRetrieval.ts Symbol Retrieval：全局符号空间检索
 │   │   │   ├── hybrid-retrieval.ts 混合检索（BM25 + Embedding + Graph + CodeRel + FileType）
 │   │   │   ├── repoGraph.ts       模块层级 + 数据流图
 │   │   │   ├── repoMap.ts         仓库结构地图
@@ -75,7 +82,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 
 ## Coding Agent — VS Code Extension
 
-三层混合架构 / Three-Layer Hybrid Architecture: **宏观 Plan-and-Execute + 微观 ReAct + 自动 Verifier + 兜底 Reflection**
+知识驱动 + 自我验证闭环架构 / Knowledge-Driven + Self-Verification Loop: **Discovery → Plan → Execute → Verify → Reflect → Replan**
 
 > 说明 / Note  
 > 根目录 `README.md` 用于仓库总览。扩展本体的安装、配置、使用说明、更新日志与发布信息，请以 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md) 为准。
@@ -85,6 +92,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 特性 / Feature | 说明 / Description |
 |---|---|
 | 🧠 **Repo-Level Agent** | 多轮记忆 + Embedding 检索 + RepoGraph + Planner 管道 |
+| 🔭 **Discovery Phase** | Planner 之前运行深度发现：Symbol Retrieval → Context Expansion → Module/Risk/Scope 分析 |
 | 🧭 **执行模式路由** | 由 LLM 判断走轻量流程还是完整规划流程，代码侧做安全兜底 |
 | 📋 **结构化计划清单** | `PLANNING` 阶段输出 JSON To-Do List，并在侧边栏渲染为 Checklist；完成项打勾、进行中项高亮 |
 | 🗜️ **Auto-Compact** | 长对话接近上下文上限时在内部自动压缩旧历史，保留当前计划、关键证据和未完成事项 |
@@ -94,7 +102,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🔄 **LLM Query Rewrite** | 中文查询自动改写为英文 Search Terms，提升跨语言检索召回率 |
 | 🔍 **Intent-Aware 混合检索** | BM25 + Embedding + Graph + CodeRel + FileType 五路融合，按意图动态调整权重 |
 | 🗺️ **RepoGraph** | 模块分层 + 数据流图 + 跨模块依赖 |
-| 📋 **Planner 管道** | 动态步数管道：根据意图自动选择 2~5 步（intent → memory → [embedding → repograph] → context） |
+| 📋 **Planner 管道** | 基于 Discovery Report 动态调整步骤，有知识库时简化探索步骤、追加关键文件引用 |
 | 📦 **增量上下文** | 只加载相关文件，禁止全量扫描 |
 | 🤖 **Chat 侧边栏 / Sidebar Chat** | 多会话持久化、流式响应、Markdown 渲染、自动应用修改 + Diff / 回退 |
 | 🎼 **Composer** | 多文件批量编辑 / Multi-file batch editing |
@@ -116,6 +124,10 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | ⏹️ **中断会话** | Chat 侧边栏支持停止按钮，可随时中断当前运行中的 Agent |
 | 💭 **思考过程可视化** | Compact 模式下显示 Trae 风格的可折叠思考块（THINK / OBSERVE），告别黑盒等待 |
 | 🔍 **LSP 工具链** | 跳转定义、查找引用等核心 LSP 能力，并配合检索与仓库分析工具使用 |
+| 🧩 **Symbol Retrieval** | 全局符号空间检索，融合文件相关性与符号匹配度，按 intent 调整 kind 权重 |
+| 🔗 **Context Expansion Engine** | 7 种静态关系扩展（import/export/define/call/reference/implement/inherit），预算驱动剪枝 |
+| 📚 **Repo Knowledge Base** | 长期代码库知识库：Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files |
+| 🔄 **Reflection Loop** | 结构化 FailureAnalysis + RepairAction[] + ReflectionMemory，连续两轮无改善自动停止 |
 
 ### 支持的后端 / Supported Backends
 
@@ -208,6 +220,22 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.6.0 — 2026-06-07
+
+知识驱动 + 自我验证闭环：Discovery Phase、Symbol Retrieval、Context Expansion、Repo Knowledge Base、Reflection Loop  
+Knowledge-Driven + Self-Verification Loop: Discovery Phase, Symbol Retrieval, Context Expansion, Repo Knowledge Base, Reflection Loop
+
+#### ✨ 版本摘要 / Highlights
+- **Discovery Phase**：Planner 之前运行深度发现，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 纯静态生成 Discovery Report（模块/文件/符号/风险/范围估计）
+- **Symbol Retrieval + Context Expansion**：从文件级检索升级为符号级上下文构建，7 种关系扩展（import/export/define/call/reference/implement/inherit），预算驱动剪枝
+- **Repo Knowledge Base**：长期代码库知识库，自动推断 Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files，首次构建 + 增量更新
+- **Knowledge-driven Agent**：Prompt 注入 Architecture Summary / Critical Files / Primary Symbols / Related Symbols；Planner 根据知识库动态调整步骤
+- **Reflection Loop**：自我验证闭环，结构化 FailureAnalysis + RepairAction[] + ReflectionMemory（避免重复失败）+ shouldContinueReflection（动态判断进展，连续两轮无改善自动停止）
+- **AgentLoop 状态扩展**：LoopState 新增 REFLECT / REPLAN，执行流升级为 PLAN → EXECUTE → VERIFY → REFLECT → REPLAN，最大 3 次循环
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.5.1 — 2026-06-05
 
