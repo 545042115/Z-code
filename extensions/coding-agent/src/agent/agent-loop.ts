@@ -3,10 +3,12 @@ import { ToolRegistry } from '../tools/tool-registry';
 import { Planner, ExecutionPlan, IncrementalContext, PlanStep } from '../planner/planner';
 import { RuntimeVerifier, VerificationResult } from '../verifier/runtime-verifier';
 import { ContextManager } from '../context/context-manager';
+import { DiscoveryReport } from '../discovery/discovery';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { ToolUsageAnalyzer } from '../debug/tool-usage-analyzer';
+import { ReflectionEngine, ReflectionReport } from '../reflection/reflectionEngine';
 
-export type LoopState = 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REPAIR' | 'COMPLETE' | 'FAILED';
+export type LoopState = 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REFLECT' | 'REPLAN' | 'COMPLETE' | 'FAILED';
 
 export interface LoopMetrics {
   attempts: number;
@@ -30,6 +32,7 @@ export interface LoopAttempt {
   plan?: ExecutionPlan;
   executionOutput: string;
   verificationResults: VerificationResult[];
+  reflectionReport?: ReflectionReport;
   repairPrompt?: string;
   modifiedFiles: string[];
   iterations: ToolIteration[];
@@ -67,6 +70,7 @@ interface AgentAction {
  */
 export class AgentLoop {
   private readonly MAX_RETRIES = 3;
+  private readonly MAX_REFLECTION_CYCLES = 3;
   private readonly MAX_TOOL_ITERATIONS = 15;
 
   constructor(
@@ -75,6 +79,7 @@ export class AgentLoop {
     private readonly tools: ToolRegistry,
     private readonly verifier: RuntimeVerifier,
     private readonly contextManager: ContextManager,
+    private readonly reflectionEngine?: ReflectionEngine,
     private readonly toolUsageAnalyzer?: ToolUsageAnalyzer
   ) {}
 
@@ -87,18 +92,39 @@ export class AgentLoop {
     let currentTask = task;
     let finalAnswer = '';
     let totalToolCalls = 0;
+    const reflectionHistory: ReflectionReport[] = [];
 
-    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+    const maxCycles = this.reflectionEngine ? this.MAX_REFLECTION_CYCLES : this.MAX_RETRIES;
+
+    for (let attempt = 1; attempt <= maxCycles; attempt++) {
       const attemptStart = Date.now();
-      console.log(`[AgentLoop] Attempt ${attempt}/${this.MAX_RETRIES} for task: ${task.slice(0, 60)}`);
+      console.log(`[AgentLoop] Attempt ${attempt}/${maxCycles} for task: ${task.slice(0, 60)}`);
+
+      // ── DISCOVERY ────────────────────────────────────────────────────────
+      let discoveryReport: DiscoveryReport | undefined;
+      if (this.contextManager.discoveryPhase) {
+        try {
+          const intent = this.planner.classifyIntent(currentTask);
+          const contextPackage = await this.contextManager.contextBuilder.build(currentTask);
+          discoveryReport = await this.contextManager.discoveryPhase.run(currentTask, contextPackage, intent);
+          console.log(`[AgentLoop] Discovery: ${discoveryReport?.summary}`);
+        } catch (err) {
+          console.warn('[AgentLoop] Discovery phase failed:', err);
+        }
+      }
 
       // ── PLAN ─────────────────────────────────────────────────────────────
-      const plan = this.planner.create(currentTask, `loop-${Date.now()}`);
+      const plan = this.planner.create(currentTask, `loop-${Date.now()}`, discoveryReport);
       const context = plan.context;
+
+      // 若 Discovery 已构建 contextPackage，直接复用
+      if (discoveryReport?.contextPackage) {
+        context.contextPackage = discoveryReport.contextPackage;
+      }
 
       // Execute planner steps (context building)
       for (const step of plan.steps) {
-        await this.planner.executeStep(step, currentTask, `loop-${Date.now()}`, context);
+        await this.planner.executeStep(step, currentTask, `loop-${Date.now()}`, context, plan.searchTerms, discoveryReport);
       }
 
       // ── EXECUTE ──────────────────────────────────────────────────────────
@@ -133,7 +159,7 @@ export class AgentLoop {
           finalAnswer,
           metrics: {
             attempts: attempt,
-            maxAttempts: this.MAX_RETRIES,
+            maxAttempts: maxCycles,
             totalDurationMs: Date.now() - startTime,
             toolCalls: totalToolCalls,
             verificationResults,
@@ -151,19 +177,60 @@ export class AgentLoop {
         break;
       }
 
-      // ── REPAIR ───────────────────────────────────────────────────────────
-      if (attempt >= this.MAX_RETRIES) {
-        console.log(`[AgentLoop] Max retries exceeded`);
-        break;
+      // ── REFLECT + REPLAN (Knowledge-driven) ──────────────────────────────
+      if (this.reflectionEngine) {
+        // REFLECT
+        const analysis = this.reflectionEngine.analyzeFailures(verificationResults, modifiedFiles);
+        const repairPlan = this.reflectionEngine.generateRepairPlan(analysis, task, attempt);
+
+        const reflectionReport: ReflectionReport = {
+          attempt,
+          rawResults: verificationResults,
+          analysis,
+          repairPlan,
+          memory: this.reflectionEngine.reflectionMemory,
+          timestamp: Date.now(),
+        };
+        reflectionHistory.push(reflectionReport);
+
+        history[history.length - 1].state = 'REFLECT';
+        history[history.length - 1].reflectionReport = reflectionReport;
+
+        // Check if we should continue
+        const shouldContinue = this.reflectionEngine.shouldContinueReflection(verificationResults, attempt);
+        if (!shouldContinue) {
+          console.log(`[AgentLoop] Reflection decided to stop at attempt ${attempt}`);
+          history[history.length - 1].state = 'FAILED';
+          break;
+        }
+
+        // REPLAN
+        if (attempt >= maxCycles) {
+          console.log(`[AgentLoop] Max reflection cycles exceeded`);
+          break;
+        }
+
+        currentTask = this.reflectionEngine.formatRepairPrompt(repairPlan, task, reflectionHistory);
+
+        history[history.length - 1].state = 'REPLAN';
+        history[history.length - 1].repairPrompt = currentTask;
+
+        console.log(`[AgentLoop] Reflection complete, replanning for attempt ${attempt + 1}...`);
+      } else {
+        // ── REPAIR (Legacy fallback) ───────────────────────────────────────
+        if (attempt >= this.MAX_RETRIES) {
+          console.log(`[AgentLoop] Max retries exceeded`);
+          break;
+        }
+
+        const repairPrompt = this.buildRepairPrompt(currentTask, verificationResults, modifiedFiles, attempt);
+        currentTask = repairPrompt;
+
+        history[history.length - 1].state = 'REPAIR';
+        history[history.length - 1].repairPrompt = repairPrompt;
+
+        console.log(`[AgentLoop] Repair prompt generated, retrying...`);
       }
-
-      const repairPrompt = this.buildRepairPrompt(currentTask, verificationResults, modifiedFiles, attempt);
-      currentTask = repairPrompt;
-
-      history[history.length - 1].state = 'REPAIR';
-      history[history.length - 1].repairPrompt = repairPrompt;
-
-      console.log(`[AgentLoop] Repair prompt generated, retrying...`);
     }
 
     const result: LoopResult = {
@@ -171,7 +238,7 @@ export class AgentLoop {
       finalAnswer,
       metrics: {
         attempts: history.length,
-        maxAttempts: this.MAX_RETRIES,
+        maxAttempts: maxCycles,
         totalDurationMs: Date.now() - startTime,
         toolCalls: totalToolCalls,
         verificationResults: history[history.length - 1]?.verificationResults || [],

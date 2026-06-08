@@ -6,6 +6,7 @@ import { RepoGraph } from '../context/repoGraph';
 import { ContextBuilder, ContextPackage } from '../context/contextBuilder';
 import { HybridRetrieval, HybridSearchResult } from '../context/hybrid-retrieval';
 import { GitAnalyzer } from '../git/git-analyzer';
+import { DiscoveryReport } from '../discovery/discovery';
 
 export type IntentType = 'project_understanding' | 'bug_fix' | 'feature_add' | 'refactor' | 'testing' | 'documentation' | 'removal' | 'other';
 
@@ -16,6 +17,7 @@ export type PlanAction =
   | 'query_repograph'
   | 'build_context'
   | 'generate_answer'
+  | 'discovery_insights'
   | 'git_recent_commits'
   | 'git_changed_files'
   | 'git_file_history'
@@ -36,6 +38,7 @@ export interface ExecutionPlan {
   context: IncrementalContext;
   summary: string;
   searchTerms?: string[];
+  discoveryReport?: DiscoveryReport;
 }
 
 export interface IncrementalContext {
@@ -61,9 +64,9 @@ export class Planner {
     private readonly gitAnalyzer?: GitAnalyzer
   ) {}
 
-  create(request: string, sessionId: string): ExecutionPlan {
-    const intent = this.classifyIntent(request);
-    const steps: PlanStep[] = this.buildSteps(intent, request, sessionId);
+  create(request: string, sessionId: string, discoveryReport?: DiscoveryReport): ExecutionPlan {
+    const intent = discoveryReport?.intent || this.classifyIntent(request);
+    const steps: PlanStep[] = this.buildSteps(intent, request, sessionId, discoveryReport);
 
     return {
       intent,
@@ -77,10 +80,11 @@ export class Planner {
         currentFile: undefined,
       },
       summary: `Plan for [${intent}]: ${request.slice(0, 80)}`,
+      discoveryReport,
     };
   }
 
-  async executeStep(step: PlanStep, request: string, sessionId: string, context: IncrementalContext, searchTerms?: string[]): Promise<PlanStep> {
+  async executeStep(step: PlanStep, request: string, sessionId: string, context: IncrementalContext, searchTerms?: string[], discoveryReport?: import('../discovery/discovery').DiscoveryReport): Promise<PlanStep> {
     switch (step.action) {
       case 'classify_intent': {
         const intent = this.classifyIntent(request);
@@ -126,6 +130,18 @@ export class Planner {
       }
 
       case 'build_context': {
+        // 若 Discovery Phase 已提供 contextPackage，直接复用
+        if (context.contextPackage) {
+          const pkg = context.contextPackage;
+          for (const f of pkg.selectedFiles) {
+            if (!context.selectedFiles.includes(f)) {
+              context.selectedFiles.push(f);
+            }
+          }
+          context.accumulated = this.accumulateContext(context);
+          return { ...step, status: 'completed', result: pkg };
+        }
+
         const gitContext = this.buildGitContextString(context);
         const pkg = await this.contextBuilder.build(request, context.currentFile, gitContext);
         context.contextPackage = pkg;
@@ -144,6 +160,33 @@ export class Planner {
       case 'generate_answer': {
         context.accumulated = this.accumulateContext(context);
         return { ...step, status: 'completed', result: context };
+      }
+
+      case 'discovery_insights': {
+        const parts: string[] = [];
+        const insights = this.formatDiscoveryInsights(context.contextPackage);
+        if (insights) {
+          parts.push(insights);
+        }
+        if (discoveryReport?.repoKnowledge) {
+          const kb = discoveryReport.repoKnowledge;
+          parts.push('### Repo Knowledge');
+          parts.push(`Architecture: ${kb.architecture.summary}`);
+          if (kb.techStack.frameworks.length) {
+            parts.push(`Tech Stack: ${kb.techStack.frameworks.join(', ')}`);
+          }
+          if (kb.entryPoints.length) {
+            parts.push(`Entry Points: ${kb.entryPoints.slice(0, 3).map(e => e.path.split(/[/\\]/).pop()).join(', ')}`);
+          }
+          if (kb.criticalFiles.length) {
+            parts.push(`Critical Files: ${kb.criticalFiles.slice(0, 3).map(c => c.path.split(/[/\\]/).pop()).join(', ')}`);
+          }
+        }
+        const combined = parts.join('\n');
+        if (combined) {
+          context.accumulated += '\n\n' + combined;
+        }
+        return { ...step, status: 'completed', result: combined };
       }
 
       case 'git_recent_commits': {
@@ -208,7 +251,7 @@ export class Planner {
     }
   }
 
-  private classifyIntent(request: string): IntentType {
+  classifyIntent(request: string): IntentType {
     const lower = request.toLowerCase();
 
     // NOTE: 此逻辑与 contextBuilder.classifyIntent() 保持同步
@@ -258,7 +301,7 @@ export class Planner {
     return gitKeywords.some(kw => lower.includes(kw));
   }
 
-  private buildSteps(intent: IntentType, request: string, sessionId: string): PlanStep[] {
+  private buildSteps(intent: IntentType, request: string, sessionId: string, discoveryReport?: DiscoveryReport): PlanStep[] {
     const steps: PlanStep[] = [];
 
     // 所有意图都需要分类和记忆检索
@@ -267,14 +310,36 @@ export class Planner {
       { id: 'step-2', description: 'Relevant memory retrieval', action: 'retrieve_memory', status: 'pending' },
     );
 
+    // 若已有 Discovery Report，先注入发现洞察
+    if (discoveryReport) {
+      steps.push({
+        id: 'discover-0',
+        description: `Discovery: ${discoveryReport.scopeEstimate.recommendation} (${discoveryReport.involvedFiles.length} files, ${discoveryReport.relatedSymbols.length} symbols)`,
+        action: 'discovery_insights',
+        status: 'pending',
+      });
+    }
+
     // 只有需要深度理解项目的意图才执行 embedding + repo graph + context
     const needsDeepContext = intent === 'project_understanding' || intent === 'refactor';
     const needsTargetedContext = intent === 'bug_fix' || intent === 'feature_add' || intent === 'removal' || intent === 'testing';
+    const hasKnowledge = !!discoveryReport?.repoKnowledge;
 
     if (needsDeepContext) {
       steps.push(
         { id: 'step-3', description: 'Embedding search for architecture docs', action: 'search_embedding', status: 'pending' },
-        { id: 'step-4', description: 'Query repo graph for module overview', action: 'query_repograph', status: 'pending' },
+      );
+      // 若知识库已提供架构概览，简化 repo graph 查询为验证步骤
+      if (hasKnowledge) {
+        steps.push(
+          { id: 'step-4', description: 'Validate module overview with repo graph', action: 'query_repograph', status: 'pending' },
+        );
+      } else {
+        steps.push(
+          { id: 'step-4', description: 'Query repo graph for module overview', action: 'query_repograph', status: 'pending' },
+        );
+      }
+      steps.push(
         { id: 'step-5', description: 'Build comprehensive project context', action: 'build_context', status: 'pending' },
       );
     } else if (needsTargetedContext) {
@@ -284,6 +349,20 @@ export class Planner {
       );
     }
     // documentation / other 等简单意图只做分类+记忆，其余由 ReAct 循环中的工具调用完成
+
+    // 若知识库识别出关键文件，追加引用步骤
+    if (hasKnowledge && discoveryReport!.repoKnowledge!.criticalFiles.length > 0) {
+      const criticalNames = discoveryReport!.repoKnowledge!.criticalFiles
+        .slice(0, 3)
+        .map((c) => c.path.replace(/\\/g, '/').split('/').pop())
+        .join(', ');
+      steps.push({
+        id: 'kb-critical',
+        description: `Reference critical files: ${criticalNames}`,
+        action: 'discovery_insights',
+        status: 'pending',
+      });
+    }
 
     // Git context steps when history-related intent detected
     if (this.hasGitIntent(request)) {
@@ -320,6 +399,38 @@ export class Planner {
     }
 
     return parts.join('\n\n');
+  }
+
+  private formatDiscoveryInsights(contextPackage?: ContextPackage): string | undefined {
+    if (!contextPackage?.expandedNodes || contextPackage.expandedNodes.length === 0) {
+      return undefined;
+    }
+    const parts: string[] = [];
+    parts.push('### Discovery Insights\n');
+
+    const primary = contextPackage.expandedNodes.filter(n => n.depth === 0);
+    const expanded = contextPackage.expandedNodes.filter(n => n.depth > 0);
+
+    if (primary.length > 0) {
+      parts.push(`Primary Symbols (${primary.length}):`);
+      for (const s of primary.slice(0, 8)) {
+        parts.push(`  - ${s.kind} ${s.symbolName} (${s.filePath.split('/').pop()}:${s.line})`);
+      }
+    }
+
+    if (expanded.length > 0) {
+      parts.push(`\nRelated Symbols (${expanded.length}):`);
+      const byRelation = new Map<string, typeof expanded>();
+      for (const s of expanded) {
+        if (!byRelation.has(s.relation)) byRelation.set(s.relation, []);
+        byRelation.get(s.relation)!.push(s);
+      }
+      for (const [relation, symbols] of byRelation) {
+        parts.push(`  [${relation}] ${symbols.slice(0, 3).map(s => s.symbolName).join(', ')}${symbols.length > 3 ? '...' : ''}`);
+      }
+    }
+
+    return parts.join('\n');
   }
 
   private getModulesFromEmbedding(results: HybridSearchResult[]): string[] {

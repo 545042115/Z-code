@@ -6,6 +6,7 @@ import { WorkspaceFile } from '../context/workspaceScanner';
 import { MemoryManager } from '../memory/memoryManager';
 import { EmbeddingManager } from '../embedding/embeddingManager';
 import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
+import { DiscoveryReport } from '../discovery/discovery';
 import { RepoGraph } from '../context/repoGraph';
 import { DiffEngine } from '../utils/diff-engine';
 import { Verifier, VerifierOutput } from './verifier';
@@ -339,6 +340,7 @@ export class AgentCore {
       this.tools,
       this.contextManager.runtimeVerifier,
       this.contextManager,
+      this.contextManager.reflectionEngine,
       this.toolUsageAnalyzer
     );
 
@@ -375,14 +377,36 @@ export class AgentCore {
       const memoryManager = this.contextManager.memoryManager;
       const editorCtx = await this.contextManager.gatherContext();
 
-      const plan = planner.create(userMessage, sessionId);
+      // Discovery Phase：在 Plan 之前执行深度发现
+      let discoveryReport: DiscoveryReport | undefined;
+      if (this.contextManager.discoveryPhase) {
+        try {
+          onStream('🔍 正在分析代码库...\n');
+          const intent = this.contextManager.planner.classifyIntent(userMessage);
+          const contextPackage = await this.contextManager.contextBuilder.build(userMessage, editorCtx.currentFile);
+          discoveryReport = await this.contextManager.discoveryPhase.run(userMessage, contextPackage, intent);
+          if (discoveryReport) {
+            onStream(`📊 ${discoveryReport.summary}\n\n`);
+          }
+        } catch (err) {
+          console.warn('[Discovery] Phase failed:', err);
+        }
+      }
+
+      const plan = planner.create(userMessage, sessionId, discoveryReport);
       plan.searchTerms = await this.generateSearchTerms(userMessage, plan.intent);
       console.log(`[QueryRewrite] Final searchTerms: ${JSON.stringify(plan.searchTerms)}`);
       this.activeIntent = plan.intent;
       this.activeUserMessage = userMessage;
       const context = plan.context;
       context.currentFile = editorCtx.currentFile;
-      const route = await this.decideExecutionRoute(userMessage, plan.intent, editorCtx, sessionId);
+
+      // 若 Discovery 已构建 contextPackage，直接复用，避免重复构建
+      if (discoveryReport?.contextPackage) {
+        context.contextPackage = discoveryReport.contextPackage;
+      }
+
+      const route = await this.decideExecutionRoute(userMessage, plan.intent, editorCtx, sessionId, discoveryReport);
       this.currentExecutionMode = route.mode;
       this.compactMode = route.mode === 'compact';
 
@@ -392,7 +416,7 @@ export class AgentCore {
       if (route.mode === 'full') {
         onStream('正在准备上下文...\n');
         for (const step of plan.steps) {
-          const result = await planner.executeStep(step, userMessage, sessionId, context, plan.searchTerms);
+          const result = await planner.executeStep(step, userMessage, sessionId, context, plan.searchTerms, discoveryReport);
           if (result.status !== 'completed') {
             console.warn(`Planner step failed: ${step.description}`);
           }
@@ -1096,9 +1120,20 @@ export class AgentCore {
     userMessage: string,
     intent: ExecutionPlan['intent'],
     editorCtx: AgentContext,
-    sessionId: string
+    sessionId: string,
+    discoveryReport?: DiscoveryReport
   ): Promise<ExecutionRouteDecision> {
-    const fallbackMode: ExecutionMode = this.shouldUseCompactMode(intent, userMessage, editorCtx) ? 'compact' : 'full';
+    // 若 Discovery Report 指示 large scope，强制 full mode
+    if (discoveryReport?.scopeEstimate.estimatedFiles > 10) {
+      return {
+        mode: 'full',
+        confidence: 'high',
+        needsContext: 'broad',
+        reason: `Discovery 发现涉及 ${discoveryReport.scopeEstimate.estimatedFiles} 个文件，范围较大，启用完整流程。`,
+      };
+    }
+
+    const fallbackMode: ExecutionMode = this.shouldUseCompactMode(intent, userMessage, editorCtx, discoveryReport) ? 'compact' : 'full';
     const memory = this.contextManager.memoryManager.getContextForPromptWithBudget(sessionId, 1200);
     const routeSchema = {
       type: 'object',
@@ -1516,7 +1551,12 @@ export class AgentCore {
     onStream('历史压缩完成，已保留关键进度并继续执行。\n\n');
   }
 
-  private shouldUseCompactMode(intent: string, userMessage: string, editorCtx: AgentContext): boolean {
+  private shouldUseCompactMode(intent: string, userMessage: string, editorCtx: AgentContext, discoveryReport?: DiscoveryReport): boolean {
+    // 若 Discovery Report 存在且非简单请求，不启用 compact
+    if (discoveryReport && !this.contextManager.discoveryPhase?.isSimpleRequest(intent, userMessage, discoveryReport.contextPackage)) {
+      return false;
+    }
+
     const trimmed = userMessage.trim();
     if (trimmed.length <= 10 && /^(你好|您好|hello|hi|hey)\s*[!！]?$/i.test(trimmed)) {
       return true;
@@ -2155,6 +2195,35 @@ If revision needed:
       }
     }
 
+    // 知识库驱动的架构摘要与关键文件
+    if (plan.discoveryReport?.repoKnowledge) {
+      const kb = plan.discoveryReport.repoKnowledge;
+      if (kb.architecture?.summary) {
+        const archLines: string[] = ['## Architecture Summary'];
+        archLines.push(kb.architecture.summary);
+        for (const layer of kb.architecture.layers.slice(0, 6)) {
+          archLines.push(`  ${layer.name}: ${layer.fileCount} files — ${layer.description}`);
+        }
+        staticParts.push(archLines.join('\n'));
+      }
+      if (kb.criticalFiles?.length) {
+        const criticalLines: string[] = ['## Critical Files'];
+        for (const cf of kb.criticalFiles.slice(0, 5)) {
+          const short = cf.path.replace(/\\/g, '/').split('/').slice(-2).join('/');
+          criticalLines.push(`  ${short} — ${cf.reason}`);
+        }
+        staticParts.push(criticalLines.join('\n'));
+      }
+      if (kb.entryPoints?.length) {
+        const epLines: string[] = ['## Entry Points'];
+        for (const ep of kb.entryPoints.slice(0, 5)) {
+          const short = ep.path.replace(/\\/g, '/').split('/').slice(-2).join('/');
+          epLines.push(`  ${short} (${ep.type})`);
+        }
+        staticParts.push(epLines.join('\n'));
+      }
+    }
+
     if (context.repoGraphOverview) {
       staticParts.push(`## Module Layers\n${context.repoGraphOverview}`);
     } else if (cm.repoGraph.isBuilt) {
@@ -2217,6 +2286,30 @@ If revision needed:
       dynamicParts.push(contextLines.join('\n'));
       if (pkg.gitContext) {
         dynamicParts.push(pkg.gitContext);
+      }
+
+      // 知识库驱动的符号级上下文
+      if (pkg.expandedNodes && pkg.expandedNodes.length > 0) {
+        const primaryNodes = pkg.expandedNodes.filter((n) => n.depth === 0);
+        const relatedNodes = pkg.expandedNodes.filter((n) => n.depth > 0);
+
+        if (primaryNodes.length > 0) {
+          const primaryLines: string[] = ['## Primary Symbols'];
+          for (const node of primaryNodes.slice(0, 15)) {
+            const loc = `${node.filePath.replace(/\\/g, '/').split('/').slice(-2).join('/')}#L${node.line}`;
+            primaryLines.push(`  ${node.symbolName} (${node.kind}) — ${loc}`);
+          }
+          dynamicParts.push(primaryLines.join('\n'));
+        }
+
+        if (relatedNodes.length > 0) {
+          const relatedLines: string[] = ['## Related Symbols'];
+          for (const node of relatedNodes.slice(0, 15)) {
+            const loc = `${node.filePath.replace(/\\/g, '/').split('/').slice(-2).join('/')}#L${node.line}`;
+            relatedLines.push(`  ${node.symbolName} (${node.kind}, ${node.relation}, depth=${node.depth}) — ${loc}`);
+          }
+          dynamicParts.push(relatedLines.join('\n'));
+        }
       }
     }
     dynamicParts.push(`## Latest User Request\n${request}`);

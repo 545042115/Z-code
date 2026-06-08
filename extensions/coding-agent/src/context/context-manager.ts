@@ -10,6 +10,11 @@ import { ContextBuilder, ContextPackage } from './contextBuilder';
 import { MemoryManager } from '../memory/memoryManager';
 import { EmbeddingManager } from '../embedding/embeddingManager';
 import { HybridRetrieval } from './hybrid-retrieval';
+import { SymbolRetrieval } from './symbolRetrieval';
+import { ContextExpansionEngine } from './contextExpansion';
+import { DiscoveryPhase } from '../discovery/discovery';
+import { RepoKnowledgeBase } from '../memory/repoKnowledgeBase';
+import { ReflectionEngine } from '../reflection/reflectionEngine';
 import { Planner } from '../planner/planner';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { RuntimeVerifier } from '../verifier/runtime-verifier';
@@ -43,6 +48,9 @@ export class ContextManager {
   readonly planner: Planner;
   readonly gitAnalyzer: GitAnalyzer;
   readonly runtimeVerifier: RuntimeVerifier;
+  readonly discoveryPhase: DiscoveryPhase;
+  readonly repoKnowledgeBase: RepoKnowledgeBase;
+  readonly reflectionEngine: ReflectionEngine;
   agentLoop?: AgentLoop;
 
   private initialized = false;
@@ -64,16 +72,38 @@ export class ContextManager {
       this.dependencyGraph,
       this.symbolIndex
     );
+    const symbolRetrieval = new SymbolRetrieval(this.symbolIndex);
+    const contextExpansionEngine = new ContextExpansionEngine(
+      this.symbolIndex,
+      this.dependencyGraph,
+      this.repoGraph
+    );
     this.contextBuilder = new ContextBuilder(
       this.scanner,
       this.symbolIndex,
       this.dependencyGraph,
       this.repoMap,
-      this.hybridRetrieval
+      this.hybridRetrieval,
+      symbolRetrieval,
+      contextExpansionEngine
     );
     this.gitAnalyzer = new GitAnalyzer();
     this.runtimeVerifier = new RuntimeVerifier();
     this.planner = new Planner(this.memoryManager, this.hybridRetrieval, this.repoGraph, this.contextBuilder, this.gitAnalyzer);
+    this.repoKnowledgeBase = new RepoKnowledgeBase(
+      this.scanner,
+      this.repoGraph,
+      this.repoMap,
+      this.dependencyGraph,
+      this.symbolIndex
+    );
+    this.reflectionEngine = new ReflectionEngine(this.runtimeVerifier, 3);
+    this.discoveryPhase = new DiscoveryPhase(
+      this.repoGraph,
+      this.dependencyGraph,
+      this.scanner,
+      this.repoKnowledgeBase
+    );
   }
 
   async initialize(context: vscode.ExtensionContext): Promise<void> {
@@ -114,6 +144,15 @@ export class ContextManager {
       `Coding Agent: 依赖图构建完成 — ${this.dependencyGraph.getAllNodes().length} 个节点`
     );
 
+    vscode.window.setStatusBarMessage('$(book) Coding Agent: 构建仓库知识库...', 3000);
+    await this.repoKnowledgeBase.init();
+    if (this.repoKnowledgeBase.isReady) {
+      const kb = this.repoKnowledgeBase.getKnowledge();
+      vscode.window.showInformationMessage(
+        `Coding Agent: 知识库已就绪 — ${kb?.architecture.layers.length || 0} 个模块层`
+      );
+    }
+
     vscode.window.setStatusBarMessage('$(repo) Coding Agent: 初始化 Git 分析器...', 3000);
     await this.gitAnalyzer.initialize();
     if (this.gitAnalyzer.isInitialized) {
@@ -147,6 +186,8 @@ export class ContextManager {
         // Mark embedding as needing rebuild
         this.embeddingManagerDirty = true;
         this.hybridRetrieval.invalidate();
+        // Incremental update repo knowledge base
+        this.repoKnowledgeBase.scheduleIncrementalUpdate(uri.fsPath);
       }
     });
 

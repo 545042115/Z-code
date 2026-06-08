@@ -6,12 +6,13 @@
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
 
-当前版本采用 **三层混合架构 + Repo-Level Agent**：宏观 **Plan-and-Execute**、微观 **ReAct**、自动 **Verifier**、兜底 **Reflection**，并额外引入了 **缓存友好的 Prompt 组织**、**结构化 To-Do Checklist**、**Auto-Compact 上下文压缩** 与 **LLM 驱动的轻量/完整流程决策**。  
-The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Agent** built around **Plan-and-Execute**, **ReAct**, **Verifier**, and **Reflection**, together with **cache-friendly prompt layout**, **structured To-Do checklists**, **Auto-Compact context compression**, and **LLM-driven routing between compact and full execution**.
+当前版本采用 **知识驱动 + 自我验证闭环架构**：**Discovery** → **Plan** → **Execute** → **Verify** → **Reflect** → **Replan**，并引入了 **Symbol Retrieval**、**Context Expansion**、**Repo Knowledge Base**、**结构化 RepairAction** 与 **ReflectionMemory 防重复失败机制**。  
+The current version adopts a **Knowledge-Driven + Self-Verification Loop Architecture**: **Discovery** → **Plan** → **Execute** → **Verify** → **Reflect** → **Replan**, featuring **Symbol Retrieval**, **Context Expansion**, **Repo Knowledge Base**, **structured RepairAction**, and **ReflectionMemory anti-repeat-failure mechanism**.
 
 ## 特性 / Features
 
 - 🧠 **Repo-Level Agent** - 多轮记忆、Embedding 检索、RepoGraph、Planner、LSP 工具链协同工作
+- 🔭 **Discovery Phase** - Planner 之前运行深度发现：Symbol Retrieval → Context Expansion → Module Analysis → Risk Assessment → Scope Estimation
 - 🧭 **LLM 路由决策** - 由模型判断任务适合轻量流程还是完整规划流程，代码侧负责兜底校验
 - 📋 **结构化 To-Do Checklist** - `PLANNING` 阶段输出可执行清单，侧边栏实时打勾展示进度
 - 🗜️ **Auto-Compact 上下文压缩** - 长对话接近窗口上限时自动压缩旧历史，保留当前计划、关键证据和未完成事项
@@ -32,6 +33,10 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 - 🌐 **Web 搜索** - `web_search` / `web_fetch` 工具，通过 DuckDuckGo 搜索和抓取网页内容，扩展 Agent 信息边界
 - 📤 **会话导出** - 支持将 Chat 会话导出为 Markdown 或 JSON 格式，含完整对话、计划清单与编辑记录
 - 📈 **Git 分析器** - 自动检索 `git log`、`git blame`、`git diff`，为回归定位提供上下文
+- 🧩 **Symbol Retrieval** - 全局符号空间检索，融合文件相关性与符号匹配度，按 intent 调整 kind 权重
+- 🔗 **Context Expansion Engine** - 7 种静态关系扩展（import/export/define/call/reference/implement/inherit），预算驱动剪枝
+- 📚 **Repo Knowledge Base** - 长期代码库知识库：Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files，首次构建 + 增量更新
+- 🔄 **Reflection Loop** - 自我验证闭环：结构化 FailureAnalysis + RepairAction[]，ReflectionMemory 避免重复失败，连续两轮无改善自动停止
 
 ## 支持的后端 / Supported Backends
 
@@ -47,23 +52,31 @@ The current version combines a **Three-Layer Hybrid Architecture + Repo-Level Ag
 
 ### 核心执行流
 
-`Planner → ReAct → Verifier → Reflector`
+`Discovery → Planner → ReAct → Verifier → Reflection → Replan`
 
-- **Planner**：识别意图、生成 Search Terms（LLM Query Rewrite）、决定执行模式、生成结构化 To-Do List
+- **Discovery**：在 Planner 之前运行深度发现，基于 Symbol Retrieval + Context Expansion + Repo Knowledge 生成 Discovery Report（模块/文件/符号/风险/范围估计）
+- **Planner**：基于 Discovery Report 识别意图、生成 Search Terms、决定执行模式、生成结构化 To-Do List
 - **ReAct**：在子任务内循环执行 `THINK → ACT → OBSERVE`（Agent Loop 最大 15 次迭代）
-- **Verifier**：对修改结果执行自动校验（tsc / eslint / npm test）
-- **Reflector**：根据结果决定通过、返工或继续
+- **Verifier**：对修改结果执行自动校验（tsc / eslint / npm test / build）
+- **Reflection**：结构化分析失败根因，生成 RepairAction[]，ReflectionMemory 避免重复失败
+- **Replan**：基于 Reflection Report 重新规划，最多 3 次循环
 
 ### 检索 Pipeline
 
-`User Query → LLM Query Rewrite → Hybrid Retrieval → Intent-Aware Rerank`
+`User Query → Hybrid Retrieval → Symbol Retrieval → Context Expansion → Context Assembly`
 
-- **LLM Query Rewrite**：中文查询自动改写为英文 Search Terms
-- **Hybrid Retrieval**：BM25 + Embedding + Graph Relevance + CodeRel + FileType 五路融合
+- **Hybrid Retrieval**：BM25 + Embedding + Graph Relevance + CodeRel + FileType 五路融合，输出 TopK Files
+- **Symbol Retrieval**：在全局符号索引中检索与 Query 相关的符号，融合文件级相关性与符号名匹配度
+- **Context Expansion**：对 Primary Symbols 进行 7 种静态关系扩展（import/export/define/call/reference/implement/inherit），1-hop / 2-hop，预算驱动（maxNodes / maxFiles / tokenBudget）
 - **Intent-Aware Rerank**：根据 `modification` / `bug_fix` / `project_understanding` 动态调整权重
+- **LLM Query Rewrite**：中文查询自动改写为英文 Search Terms
 
 ### 当前版本新增机制
 
+- **Discovery Phase**：在 Planner 之前运行，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 生成结构化 Discovery Report，包含模块分析、风险分析、范围估计
+- **Repo Knowledge Base**：长期代码库知识库，自动推断 Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files，首次构建 + 增量更新，供 Discovery / Planner / Prompt 消费
+- **Symbol Retrieval + Context Expansion**：从文件级检索升级为符号级上下文构建，7 种关系扩展，预算驱动剪枝，Prompt 注入 Primary/Related Symbols
+- **Reflection Loop**：结构化 FailureAnalysis（compile/test/lint/logic 分类）+ RepairAction[]（非自然语言步骤）+ ReflectionMemory（避免重复失败）+ shouldContinueReflection（动态判断进展）
 - **Prompt Cache Optimization**：稳定的系统规则、项目概览、关键源码前置；最新请求、诊断、上下文包后置
 - **Cursor 风格计划清单**：计划阶段强制生成 JSON To-Do List，并在侧边栏展示为 Checklist
 - **Claude Code 风格 Auto-Compact**：历史消息接近上限时自动摘要压缩，保留关键进度继续推理
@@ -301,15 +314,21 @@ extensions/coding-agent/
 ├── src/
 │   ├── agent/
 │   │   ├── agent-core.ts             # 三层混合架构 + Repo-Level Agent Core
-│   │   │                            (Pipeline: Plan → Memory → Embedding → RepoGraph → Context → LLM)
-│   │   │                            (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT)
+│   │   │                            (Pipeline: Discovery → Plan → Memory → Embedding → RepoGraph → Context → LLM)
+│   │   │                            (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT → REPLAN)
+│   │   ├── agent-loop.ts             # Agent 执行循环（Discovery → Plan → Execute → Verify → Reflect → Replan）
 │   │   └── verifier.ts               # 自动化验证（tsc --noEmit / eslint / npm test）
+│   ├── discovery/
+│   │   └── discovery.ts              # Discovery Phase：深度发现引擎（模块/文件/符号/风险/范围）
+│   ├── reflection/
+│   │   └── reflectionEngine.ts       # Reflection Loop：自我验证闭环（FailureAnalysis + RepairAction + ReflectionMemory）
 │   ├── memory/
-│   │   └── memoryManager.ts          # 多轮记忆系统（按 repo+session+intent 维度存储）
+│   │   ├── memoryManager.ts          # 多轮记忆系统（按 repo+session+intent 维度存储）
+│   │   └── repoKnowledgeBase.ts      # Repo Knowledge Base：长期代码库知识库（架构/技术栈/入口点/关键文件）
 │   ├── embedding/
 │   │   └── embeddingManager.ts       # TF-IDF 语义检索（对核心文件自动生成向量）
 │   ├── planner/
-│   │   └── planner.ts                # Pipeline Planner（6 步管道：intent → memory → embedding → repograph → context → answer）
+│   │   └── planner.ts                # Pipeline Planner（基于 Discovery Report 动态调整步骤）
 │   ├── config/
 │   │   └── config-manager.ts         # 多配置管理（globalState 存储）
 │   ├── llm/
@@ -317,6 +336,8 @@ extensions/coding-agent/
 │   ├── context/
 │   │   ├── context-manager.ts        # LSP 上下文管理（集成所有子模块）
 │   │   ├── contextBuilder.ts         # 自动上下文构建（意图分析 + 增量/全量模式）
+│   │   ├── contextExpansion.ts       # Context Expansion Engine：7 种关系静态扩展，预算驱动
+│   │   ├── symbolRetrieval.ts        # Symbol Retrieval：全局符号空间检索
 │   │   ├── dependencyGraph.ts        # 文件依赖关系图
 │   │   ├── impactAnalyzer.ts         # 变更影响分析
 │   │   ├── repoMap.ts                # 仓库结构地图
@@ -368,6 +389,32 @@ extensions/coding-agent/
 
 > 说明 / Note  
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
+### v0.6.0 — 2026-06-07
+
+知识驱动 + 自我验证闭环：Discovery Phase、Symbol Retrieval、Context Expansion、Repo Knowledge Base、Reflection Loop  
+Knowledge-Driven + Self-Verification Loop: Discovery Phase, Symbol Retrieval, Context Expansion, Repo Knowledge Base, Reflection Loop
+
+#### ✨ 新特性 / New Features
+- **Discovery Phase**：在 Planner 之前运行的深度发现阶段，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 纯静态生成 Discovery Report，包含涉及模块、文件、关键符号、风险分析、范围估计（small/medium/large）
+- **Symbol Retrieval**：全局符号空间检索层，三条路径融合（symbolIndex.search + TopK Files 符号提取 + currentFile 加权），按 intent 动态调整 kind 权重
+- **Context Expansion Engine**：7 种静态关系扩展（import/export/define/call/reference/implement/inherit），1-hop / 2-hop，预算驱动剪枝（maxNodes/maxFiles/tokenBudget），纯静态实现不依赖 LSP
+- **Repo Knowledge Base**：长期代码库知识库，自动推断 Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files，保存到 `.workspace/.coding-agent/repo-knowledge.json`，首次构建 + 增量更新（防抖 500ms）
+- **Knowledge-driven Agent**：Prompt 注入 Architecture Summary / Critical Files / Primary Symbols / Related Symbols；Planner 根据 Knowledge Base 动态调整步骤（简化 repo graph 查询为验证步骤，追加 critical files 引用）
+- **Reflection Loop**：自我验证闭环，结构化 FailureAnalysis（compile/test/lint/logic 分类）+ RepairAction[]（非自然语言步骤）+ ReflectionMemory（failedFixes/touchedFiles/rootCauses 避免重复失败）+ shouldContinueReflection（根据 error count / failed tests 动态判断进展，连续两轮无改善自动停止）
+- **Discovery 快速路径**：简单请求（documentation / 当前文件 bug_fix）自动降级为 Minimal Report，避免过度分析
+
+#### 🔧 优化 / Improvements
+- **Prompt 结构升级**：Static Parts 新增 Architecture Summary、Critical Files、Entry Points；Dynamic Parts 新增 Primary Symbols、Related Symbols（depth=0 / depth>0）
+- **ContextBuilder 流程重构**：TopK Files → Symbol Retrieval → Context Expansion → Context Assembly，不再直接使用文件列表
+- **Planner 动态步骤**：基于 DiscoveryReport 动态生成 build_steps，有知识库时简化 embedding/context 步骤，追加关键文件引用
+- **AgentLoop 状态扩展**：LoopState 新增 REFLECT / REPLAN，执行流升级为 PLAN → EXECUTE → VERIFY → REFLECT → REPLAN
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **新增模块**：`src/discovery/discovery.ts`、`src/reflection/reflectionEngine.ts`、`src/context/symbolRetrieval.ts`、`src/context/contextExpansion.ts`、`src/memory/repoKnowledgeBase.ts`
+- **Discovery 融合 Knowledge Base**：analyzeModules / assessRisks 优先查询 Knowledge Base，降级时走原有逻辑
+- **ReflectionEngine 复用 RuntimeVerifier**：verify() 直接消费 VerificationResult[]，不重复实现验证逻辑
+- **三层降级策略**：Full Discovery → Partial Discovery → Minimal Report，确保任何场景不阻塞
 
 ### v0.5.1 — 2026-06-05
 

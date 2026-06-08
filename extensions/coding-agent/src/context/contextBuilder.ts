@@ -3,12 +3,15 @@ import { SymbolIndex, SymbolEntry } from './symbolIndex';
 import { DependencyGraph } from './dependencyGraph';
 import { RepoMap } from './repoMap';
 import { HybridRetrieval } from './hybrid-retrieval';
+import { SymbolRetrieval } from './symbolRetrieval';
+import { ContextExpansionEngine, ContextNode, ExpansionResult } from './contextExpansion';
 
 export interface ContextPackage {
   primaryFiles: string[];
   relatedFiles: string[];
   dependencyFiles: string[];
   selectedFiles: string[];
+  expandedNodes?: ContextNode[];
   repoSummary: string;
   reason: string;
   gitContext?: string;
@@ -43,54 +46,101 @@ export class ContextBuilder {
     private readonly symbolIndex: SymbolIndex,
     private readonly dependencyGraph: DependencyGraph,
     private readonly repoMap: RepoMap,
-    private readonly hybridRetrieval?: HybridRetrieval
+    private readonly hybridRetrieval?: HybridRetrieval,
+    private readonly symbolRetrieval?: SymbolRetrieval,
+    private readonly contextExpansionEngine?: ContextExpansionEngine
   ) {}
 
   async build(userRequest: string, currentFile?: string, gitContext?: string, verificationResults?: string): Promise<ContextPackage> {
     const keywords = this.extractKeywords(userRequest);
     const intent = this.classifyIntent(userRequest);
 
-    const primaryFiles = await this.findPrimaryFiles(keywords, currentFile, intent);
+    // 1. Hybrid Retrieval → TopK Files
+    let topKFiles = await this.findPrimaryFiles(keywords, currentFile, intent);
+    const topKFileResults = topKFiles.map((fp, idx) => ({
+      filePath: fp,
+      score: Math.max(1.0 - idx * 0.1, 0.1),
+      summary: '',
+      bm25Score: 0,
+      embeddingScore: 0,
+      graphScore: 0,
+      codeRelevanceScore: 0,
+      fileTypeScore: 0,
+    }));
 
-    const relatedSet = new Set<string>();
-    const dependencySet = new Set<string>();
+    // 2. Symbol Retrieval → Primary Symbols
+    let primarySymbols: SymbolEntry[] = [];
+    let expansionResult: ExpansionResult | undefined;
 
-    for (const pf of primaryFiles) {
-      const node = this.dependencyGraph.getNode(pf);
-      if (node) {
-        for (const dep of node.dependents) {
-          if (!primaryFiles.includes(dep)) {
-            relatedSet.add(dep);
-          }
-        }
-        for (const dep of node.dependencies) {
-          if (!primaryFiles.includes(dep)) {
-            dependencySet.add(dep);
-          }
-        }
+    if (this.symbolRetrieval && this.contextExpansionEngine) {
+      const symbolResults = this.symbolRetrieval.search(userRequest, topKFileResults, {
+        maxSymbols: 20,
+        intent,
+        currentFile,
+      });
+      primarySymbols = symbolResults.map(r => r.symbol);
+
+      // 3. Context Expansion → Expanded Nodes
+      if (primarySymbols.length > 0) {
+        expansionResult = await this.contextExpansionEngine.expand(primarySymbols, {
+          relations: ['import', 'export', 'call', 'reference', 'implement', 'inherit'],
+          budget: { maxNodes: 30, maxFiles: 15, tokenBudget: 4000 },
+          intent,
+        });
       }
     }
 
-    if (currentFile && !primaryFiles.includes(currentFile)) {
-      const node = this.dependencyGraph.getNode(currentFile);
-      if (node) {
-        for (const dep of node.dependents) {
-          if (!primaryFiles.includes(dep)) relatedSet.add(dep);
-        }
-        for (const dep of node.dependencies) {
-          if (!primaryFiles.includes(dep)) dependencySet.add(dep);
+    // 4. 组装文件列表
+    let primaryFiles: string[];
+    let relatedFiles: string[];
+    let dependencyFiles: string[];
+    let selectedFiles: string[];
+
+    if (expansionResult) {
+      // 新流程：基于扩展结果组装
+      const allFiles = expansionResult.filesInvolved;
+      primaryFiles = [...new Set(primarySymbols.map(s => s.filePath))];
+      relatedFiles = allFiles.filter(f => !primaryFiles.includes(f));
+      dependencyFiles = [];
+      selectedFiles = allFiles.slice(0, this.MAX_TOTAL);
+    } else {
+      // 降级到旧流程
+      primaryFiles = topKFiles.slice(0, this.MAX_PRIMARY);
+      const relatedSet = new Set<string>();
+      const dependencySet = new Set<string>();
+
+      for (const pf of primaryFiles) {
+        const node = this.dependencyGraph.getNode(pf);
+        if (node) {
+          for (const dep of node.dependents) {
+            if (!primaryFiles.includes(dep)) relatedSet.add(dep);
+          }
+          for (const dep of node.dependencies) {
+            if (!primaryFiles.includes(dep)) dependencySet.add(dep);
+          }
         }
       }
+
+      if (currentFile && !primaryFiles.includes(currentFile)) {
+        const node = this.dependencyGraph.getNode(currentFile);
+        if (node) {
+          for (const dep of node.dependents) {
+            if (!primaryFiles.includes(dep)) relatedSet.add(dep);
+          }
+          for (const dep of node.dependencies) {
+            if (!primaryFiles.includes(dep)) dependencySet.add(dep);
+          }
+        }
+      }
+
+      relatedFiles = Array.from(relatedSet).slice(0, this.MAX_RELATED);
+      dependencyFiles = Array.from(dependencySet).slice(0, this.MAX_DEPENDENCY);
+
+      const allScored = this.scoreFiles(primaryFiles, relatedFiles, dependencyFiles, keywords);
+      selectedFiles = allScored.slice(0, this.MAX_TOTAL).map(s => s.filePath);
     }
-
-    const relatedFiles = Array.from(relatedSet).slice(0, this.MAX_RELATED);
-    const dependencyFiles = Array.from(dependencySet).slice(0, this.MAX_DEPENDENCY);
-
-    const allScored = this.scoreFiles(primaryFiles, relatedFiles, dependencyFiles, keywords);
-    const selectedFiles = allScored.slice(0, this.MAX_TOTAL).map(s => s.filePath);
 
     const repoSummary = this.repoMap.formatAsciiTree(2);
-
     const reason = this.buildReason(userRequest, intent, primaryFiles, selectedFiles);
 
     return {
@@ -98,6 +148,7 @@ export class ContextBuilder {
       relatedFiles,
       dependencyFiles,
       selectedFiles,
+      expandedNodes: expansionResult?.allNodes,
       repoSummary,
       reason,
       gitContext,
@@ -144,6 +195,15 @@ export class ContextBuilder {
       parts.push(`  - \`${f}\``);
     }
 
+    if (pkg.expandedNodes && pkg.expandedNodes.length > 0) {
+      parts.push('');
+      parts.push(`### Expanded Symbols (${pkg.expandedNodes.length} nodes)\n`);
+      for (const node of pkg.expandedNodes.slice(0, 20)) {
+        const depthLabel = node.depth === 0 ? 'P' : `${node.depth}H`;
+        parts.push(`  [${depthLabel}|${node.relation}] ${node.kind} ${node.symbolName} (${this.shortenPath(node.filePath)}:${node.line})`);
+      }
+    }
+
     if (pkg.gitContext) {
       parts.push('');
       parts.push(pkg.gitContext);
@@ -171,27 +231,69 @@ export class ContextBuilder {
     for (const f of repoGraphFiles) filePool.add(f);
 
     const primaryFiles = Array.from(filePool).slice(0, this.MAX_PRIMARY);
+    const topKFileResults = primaryFiles.map((fp, idx) => ({
+      filePath: fp,
+      score: Math.max(1.0 - idx * 0.1, 0.1),
+      summary: '',
+      bm25Score: 0,
+      embeddingScore: 0,
+      graphScore: 0,
+      codeRelevanceScore: 0,
+      fileTypeScore: 0,
+    }));
 
-    const relatedSet = new Set<string>();
-    const dependencySet = new Set<string>();
+    // Symbol Retrieval + Context Expansion（增量构建同样支持）
+    let expansionResult: ExpansionResult | undefined;
+    let primarySymbols: SymbolEntry[] = [];
 
-    for (const pf of primaryFiles) {
-      const node = this.dependencyGraph.getNode(pf);
-      if (node) {
-        for (const dep of node.dependents) {
-          if (!primaryFiles.includes(dep)) relatedSet.add(dep);
-        }
-        for (const dep of node.dependencies) {
-          if (!primaryFiles.includes(dep)) dependencySet.add(dep);
-        }
+    if (this.symbolRetrieval && this.contextExpansionEngine) {
+      const symbolResults = this.symbolRetrieval.search(userRequest, topKFileResults, {
+        maxSymbols: 15,
+        intent,
+      });
+      primarySymbols = symbolResults.map(r => r.symbol);
+
+      if (primarySymbols.length > 0) {
+        expansionResult = await this.contextExpansionEngine.expand(primarySymbols, {
+          relations: ['import', 'export', 'call', 'reference', 'implement', 'inherit'],
+          budget: { maxNodes: 20, maxFiles: 10, tokenBudget: 2500 },
+          intent,
+        });
       }
     }
 
-    const relatedFiles = Array.from(relatedSet).slice(0, this.MAX_RELATED);
-    const depFiles = Array.from(dependencySet).slice(0, this.MAX_DEPENDENCY);
+    let relatedFiles: string[];
+    let dependencyFiles: string[];
+    let selectedFiles: string[];
 
-    const allScored = this.scoreFiles(primaryFiles, relatedFiles, depFiles, keywords);
-    const selectedFiles = allScored.slice(0, this.MAX_TOTAL).map(s => s.filePath);
+    if (expansionResult) {
+      const allFiles = expansionResult.filesInvolved;
+      const primaryFileSet = new Set(primarySymbols.map(s => s.filePath));
+      relatedFiles = allFiles.filter(f => !primaryFileSet.has(f));
+      dependencyFiles = [];
+      selectedFiles = allFiles.slice(0, this.MAX_TOTAL);
+    } else {
+      const relatedSet = new Set<string>();
+      const dependencySet = new Set<string>();
+
+      for (const pf of primaryFiles) {
+        const node = this.dependencyGraph.getNode(pf);
+        if (node) {
+          for (const dep of node.dependents) {
+            if (!primaryFiles.includes(dep)) relatedSet.add(dep);
+          }
+          for (const dep of node.dependencies) {
+            if (!primaryFiles.includes(dep)) dependencySet.add(dep);
+          }
+        }
+      }
+
+      relatedFiles = Array.from(relatedSet).slice(0, this.MAX_RELATED);
+      dependencyFiles = Array.from(dependencySet).slice(0, this.MAX_DEPENDENCY);
+
+      const allScored = this.scoreFiles(primaryFiles, relatedFiles, dependencyFiles, keywords);
+      selectedFiles = allScored.slice(0, this.MAX_TOTAL).map(s => s.filePath);
+    }
 
     const repoSummary = this.repoMap.formatAsciiTree(2);
     const reason = `[Incremental] ${this.buildReason(userRequest, intent, primaryFiles, selectedFiles)}`;
@@ -199,8 +301,9 @@ export class ContextBuilder {
     return {
       primaryFiles,
       relatedFiles,
-      dependencyFiles: depFiles,
+      dependencyFiles,
       selectedFiles,
+      expandedNodes: expansionResult?.allNodes,
       repoSummary,
       reason,
     };
