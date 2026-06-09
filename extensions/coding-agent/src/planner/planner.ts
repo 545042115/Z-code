@@ -7,6 +7,12 @@ import { ContextBuilder, ContextPackage } from '../context/contextBuilder';
 import { HybridRetrieval, HybridSearchResult } from '../context/hybrid-retrieval';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { DiscoveryReport } from '../discovery/discovery';
+import { TaskType, TaskUnderstandingResult } from '../task-understanding/task-understanding';
+import { ArchitectureReview, ArchitectureReviewReport } from '../architecture-review/architecture-review';
+import { ChangeImpactReport, ChangeImpactAnalysis } from '../change-impact/change-impact-analysis';
+import { ComplexityEstimate } from '../complexity/complexity-estimator';
+import { SymbolIndex } from '../context/symbolIndex';
+import { DependencyGraph } from '../context/dependencyGraph';
 
 export type IntentType = 'project_understanding' | 'bug_fix' | 'feature_add' | 'refactor' | 'testing' | 'documentation' | 'removal' | 'other';
 
@@ -18,6 +24,8 @@ export type PlanAction =
   | 'build_context'
   | 'generate_answer'
   | 'discovery_insights'
+  | 'architecture_review_insights'
+  | 'change_impact_insights'
   | 'git_recent_commits'
   | 'git_changed_files'
   | 'git_file_history'
@@ -34,11 +42,16 @@ export interface PlanStep {
 
 export interface ExecutionPlan {
   intent: IntentType;
+  taskType?: TaskType;
+  architectureReview?: ArchitectureReviewReport;
+  changeImpactReport?: ChangeImpactReport;
+  complexityEstimate?: ComplexityEstimate;
   steps: PlanStep[];
   context: IncrementalContext;
   summary: string;
   searchTerms?: string[];
   discoveryReport?: DiscoveryReport;
+  taskUnderstanding?: TaskUnderstandingResult;
 }
 
 export interface IncrementalContext {
@@ -61,15 +74,35 @@ export class Planner {
     private readonly hybridRetrieval: HybridRetrieval,
     private readonly repoGraph: RepoGraph,
     private readonly contextBuilder: ContextBuilder,
+    private readonly symbolIndex: SymbolIndex,
+    private readonly dependencyGraph: DependencyGraph,
     private readonly gitAnalyzer?: GitAnalyzer
   ) {}
 
-  create(request: string, sessionId: string, discoveryReport?: DiscoveryReport): ExecutionPlan {
+  create(
+    request: string,
+    sessionId: string,
+    discoveryReport?: DiscoveryReport,
+    taskUnderstanding?: TaskUnderstandingResult,
+    architectureReview?: ArchitectureReviewReport,
+    changeImpactReport?: ChangeImpactReport,
+    complexityEstimate?: ComplexityEstimate
+  ): ExecutionPlan {
     const intent = (discoveryReport?.intent as IntentType) || this.classifyIntent(request);
-    const steps: PlanStep[] = this.buildSteps(intent, request, sessionId, discoveryReport);
+
+    let steps: PlanStep[];
+    if (taskUnderstanding) {
+      steps = this.buildTaskSpecificSteps(taskUnderstanding, architectureReview, changeImpactReport, request, sessionId, discoveryReport);
+    } else {
+      steps = this.buildSteps(intent, request, sessionId, discoveryReport);
+    }
 
     const plan: ExecutionPlan = {
       intent,
+      taskType: taskUnderstanding?.taskType,
+      architectureReview,
+      changeImpactReport,
+      complexityEstimate,
       steps,
       context: {
         memoryFragment: '',
@@ -79,8 +112,9 @@ export class Planner {
         accumulated: '',
         currentFile: undefined,
       },
-      summary: `Plan for [${intent}]: ${request.slice(0, 80)}`,
+      summary: `Plan for [${intent}${taskUnderstanding ? ` / ${taskUnderstanding.taskType}` : ''}]: ${request.slice(0, 80)}`,
       discoveryReport,
+      taskUnderstanding,
     };
 
     return plan;
@@ -189,6 +223,24 @@ export class Planner {
           context.accumulated += '\n\n' + combined;
         }
         return { ...step, status: 'completed', result: combined };
+      }
+
+      case 'architecture_review_insights': {
+        // Injected by Architecture Review phase; the payload is already in step.result
+        const reviewText = step.result as string;
+        if (reviewText) {
+          context.accumulated += '\n\n' + reviewText;
+        }
+        return { ...step, status: 'completed', result: reviewText };
+      }
+
+      case 'change_impact_insights': {
+        // Injected by Change Impact Analysis phase; the payload is already in step.result
+        const impactText = step.result as string;
+        if (impactText) {
+          context.accumulated += '\n\n' + impactText;
+        }
+        return { ...step, status: 'completed', result: impactText };
       }
 
       case 'git_recent_commits': {
@@ -377,6 +429,153 @@ export class Planner {
     }
 
     // Web search step when web-related intent detected
+    if (this.hasWebIntent(request)) {
+      steps.push(
+        { id: 'web-1', description: 'Search the web for relevant information', action: 'web_search', status: 'pending' },
+      );
+    }
+
+    return steps;
+  }
+
+  /**
+   * Builds steps tailored to the task type (CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE).
+   * These templates guide the ReAct loop toward the correct high-level workflow.
+   */
+  private buildTaskSpecificSteps(
+    taskUnderstanding: TaskUnderstandingResult,
+    architectureReview: ArchitectureReviewReport | undefined,
+    changeImpactReport: ChangeImpactReport | undefined,
+    request: string,
+    sessionId: string,
+    discoveryReport?: DiscoveryReport
+  ): PlanStep[] {
+    const steps: PlanStep[] = [];
+    const { taskType } = taskUnderstanding;
+
+    // Universal preamble
+    steps.push(
+      { id: 'step-1', description: 'Classify user intent', action: 'classify_intent', status: 'pending' },
+      { id: 'step-2', description: 'Relevant memory retrieval', action: 'retrieve_memory', status: 'pending' },
+    );
+
+    if (discoveryReport) {
+      steps.push({
+        id: 'discover-0',
+        description: `Discovery: ${discoveryReport.scopeEstimate.recommendation} (${discoveryReport.involvedFiles.length} files, ${discoveryReport.relatedSymbols.length} symbols)`,
+        action: 'discovery_insights',
+        status: 'pending',
+      });
+    }
+
+    // Inject Architecture Review insights if available
+    if (architectureReview) {
+      const reviewText = new ArchitectureReview().formatForPrompt(architectureReview);
+      steps.push({
+        id: 'arch-review-0',
+        description: `Architecture Review: ${architectureReview.suggestions.length} suggestion(s)`,
+        action: 'architecture_review_insights',
+        status: 'pending',
+        result: reviewText,
+      });
+    }
+
+    // Inject Change Impact Analysis insights if available
+    if (changeImpactReport) {
+      const impactText = new ChangeImpactAnalysis(
+        this.symbolIndex, this.dependencyGraph, this.repoGraph
+      ).formatForPrompt(changeImpactReport);
+      steps.push({
+        id: 'change-impact-0',
+        description: `Change Impact: ${changeImpactReport.directImpactFiles.length} direct + ${changeImpactReport.indirectImpactFiles.length} indirect files`,
+        action: 'change_impact_insights',
+        status: 'pending',
+        result: impactText,
+      });
+    }
+
+    // Task-type specific context-building steps
+    switch (taskType) {
+      case 'replace': {
+        steps.push(
+          { id: 'step-3', description: 'Locate Old Implementation (semantic search)', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Understand module structure for replacement', action: 'query_repograph', status: 'pending' },
+          { id: 'step-5', description: 'Build comprehensive context for old and new implementation', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+
+      case 'migrate': {
+        steps.push(
+          { id: 'step-3', description: 'Locate Old Implementation to migrate', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Query repo graph for migration target module', action: 'query_repograph', status: 'pending' },
+          { id: 'step-5', description: 'Build context for migration planning', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+
+      case 'refactor': {
+        steps.push(
+          { id: 'step-3', description: 'Search files to refactor', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Query module dependencies for safe refactoring', action: 'query_repograph', status: 'pending' },
+          { id: 'step-5', description: 'Build comprehensive refactoring context', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+
+      case 'create': {
+        steps.push(
+          { id: 'step-3', description: 'Search for insertion point and conventions', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Query module structure for new file placement', action: 'query_repograph', status: 'pending' },
+          { id: 'step-5', description: 'Build context for new implementation', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+
+      case 'modify': {
+        steps.push(
+          { id: 'step-3', description: 'Search relevant files to modify', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Build focused modification context', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+
+      case 'analyze': {
+        steps.push(
+          { id: 'step-3', description: 'Embedding search for architecture docs', action: 'search_embedding', status: 'pending' },
+          { id: 'step-4', description: 'Query repo graph for module overview', action: 'query_repograph', status: 'pending' },
+          { id: 'step-5', description: 'Build comprehensive project context', action: 'build_context', status: 'pending' },
+        );
+        break;
+      }
+    }
+
+    // Knowledge base critical files
+    const hasKnowledge = !!discoveryReport?.repoKnowledge;
+    if (hasKnowledge && discoveryReport!.repoKnowledge!.criticalFiles.length > 0) {
+      const criticalNames = discoveryReport!.repoKnowledge!.criticalFiles
+        .slice(0, 3)
+        .map((c) => c.path.replace(/\\/g, '/').split('/').pop())
+        .join(', ');
+      steps.push({
+        id: 'kb-critical',
+        description: `Reference critical files: ${criticalNames}`,
+        action: 'discovery_insights',
+        status: 'pending',
+      });
+    }
+
+    // Git context
+    if (this.hasGitIntent(request)) {
+      steps.push(
+        { id: 'git-1', description: 'Collect recent commits', action: 'git_recent_commits', status: 'pending' },
+        { id: 'git-2', description: 'Collect changed files', action: 'git_changed_files', status: 'pending' },
+        { id: 'git-3', description: 'Collect file histories', action: 'git_file_history', status: 'pending' },
+        { id: 'git-4', description: 'Collect recent diff', action: 'git_diff_between', status: 'pending' },
+      );
+    }
+
+    // Web search
     if (this.hasWebIntent(request)) {
       steps.push(
         { id: 'web-1', description: 'Search the web for relevant information', action: 'web_search', status: 'pending' },

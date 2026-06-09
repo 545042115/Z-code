@@ -19,6 +19,12 @@ import { Planner } from '../planner/planner';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { RuntimeVerifier } from '../verifier/runtime-verifier';
 import { AgentLoop } from '../agent/agent-loop';
+import { TaskUnderstanding } from '../task-understanding/task-understanding';
+import { ArchitectureReview } from '../architecture-review/architecture-review';
+import { ReflectionAgent } from '../reflection/reflection-agent';
+import { ChangeImpactAnalysis } from '../change-impact/change-impact-analysis';
+import { ComplexityEstimator } from '../complexity/complexity-estimator';
+import { SkillManager } from '../skills/skill-manager';
 
 export interface AgentContext {
   currentFile?: string;
@@ -51,6 +57,12 @@ export class ContextManager {
   readonly discoveryPhase: DiscoveryPhase;
   readonly repoKnowledgeBase: RepoKnowledgeBase;
   readonly reflectionEngine: ReflectionEngine;
+  readonly reflectionAgent: ReflectionAgent;
+  readonly taskUnderstanding: TaskUnderstanding;
+  readonly architectureReview: ArchitectureReview;
+  readonly changeImpactAnalysis: ChangeImpactAnalysis;
+  readonly complexityEstimator: ComplexityEstimator;
+  readonly skillManager: SkillManager;
   agentLoop?: AgentLoop;
 
   private initialized = false;
@@ -89,7 +101,7 @@ export class ContextManager {
     );
     this.gitAnalyzer = new GitAnalyzer();
     this.runtimeVerifier = new RuntimeVerifier();
-    this.planner = new Planner(this.memoryManager, this.hybridRetrieval, this.repoGraph, this.contextBuilder, this.gitAnalyzer);
+    this.planner = new Planner(this.memoryManager, this.hybridRetrieval, this.repoGraph, this.contextBuilder, this.symbolIndex, this.dependencyGraph, this.gitAnalyzer);
     this.repoKnowledgeBase = new RepoKnowledgeBase(
       this.scanner,
       this.repoGraph,
@@ -98,6 +110,16 @@ export class ContextManager {
       this.symbolIndex
     );
     this.reflectionEngine = new ReflectionEngine(this.runtimeVerifier, 3);
+    this.reflectionAgent = new ReflectionAgent(this.reflectionEngine);
+    this.taskUnderstanding = new TaskUnderstanding();
+    this.architectureReview = new ArchitectureReview();
+    this.complexityEstimator = new ComplexityEstimator();
+    this.skillManager = new SkillManager();
+    this.changeImpactAnalysis = new ChangeImpactAnalysis(
+      this.symbolIndex,
+      this.dependencyGraph,
+      this.repoGraph
+    );
     this.discoveryPhase = new DiscoveryPhase(
       this.repoGraph,
       this.dependencyGraph,

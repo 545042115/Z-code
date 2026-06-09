@@ -4,9 +4,14 @@ import { Planner, ExecutionPlan, IncrementalContext, PlanStep } from '../planner
 import { RuntimeVerifier, VerificationResult } from '../verifier/runtime-verifier';
 import { ContextManager } from '../context/context-manager';
 import { DiscoveryReport } from '../discovery/discovery';
+import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { ToolUsageAnalyzer } from '../debug/tool-usage-analyzer';
 import { ReflectionEngine, ReflectionReport } from '../reflection/reflectionEngine';
+import { ReflectionAgent, ReflectionRecord, ToolResult, ReflectionOutput, ReflectionInput } from '../reflection/reflection-agent';
+import { ChangeImpactReport, ChangeImpactAnalysis, ChangePlanInput } from '../change-impact/change-impact-analysis';
+import { ComplexityEstimate } from '../complexity/complexity-estimator';
+import { SelectedSkill } from '../skills/skill-types';
 
 export type LoopState = 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REFLECT' | 'REPLAN' | 'COMPLETE' | 'FAILED';
 
@@ -33,6 +38,7 @@ export interface LoopAttempt {
   executionOutput: string;
   verificationResults: VerificationResult[];
   reflectionReport?: ReflectionReport;
+  reflectionOutput?: ReflectionOutput;
   repairPrompt?: string;
   modifiedFiles: string[];
   iterations: ToolIteration[];
@@ -80,6 +86,7 @@ export class AgentLoop {
     private readonly verifier: RuntimeVerifier,
     private readonly contextManager: ContextManager,
     private readonly reflectionEngine?: ReflectionEngine,
+    private readonly reflectionAgent?: ReflectionAgent,
     private readonly toolUsageAnalyzer?: ToolUsageAnalyzer
   ) {}
 
@@ -94,7 +101,7 @@ export class AgentLoop {
     let totalToolCalls = 0;
     const reflectionHistory: ReflectionReport[] = [];
 
-    const maxCycles = this.reflectionEngine ? this.MAX_REFLECTION_CYCLES : this.MAX_RETRIES;
+    const maxCycles = (this.reflectionAgent || this.reflectionEngine) ? this.MAX_REFLECTION_CYCLES : this.MAX_RETRIES;
 
     for (let attempt = 1; attempt <= maxCycles; attempt++) {
       const attemptStart = Date.now();
@@ -113,8 +120,64 @@ export class AgentLoop {
         }
       }
 
+      // ── SKILL DISCOVERY ──────────────────────────────────────────────────
+      let selectedSkills: SelectedSkill[] = [];
+      if (this.contextManager.skillManager) {
+        selectedSkills = this.contextManager.skillManager.select({
+          userRequest: currentTask,
+          taskType: undefined, // will be set after TaskUnderstanding
+          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
+          topK: 3,
+        });
+        if (selectedSkills.length > 0) {
+          console.log(`[AgentLoop] Skills loaded: ${selectedSkills.map(s => s.name).join(', ')}`);
+        }
+      }
+
+      // ── TASK UNDERSTANDING ───────────────────────────────────────────────
+      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(currentTask, discoveryReport);
+      if (taskUnderstanding) {
+        console.log(`[AgentLoop] Task Understanding: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% confidence)`);
+      }
+
+      // ── COMPLEXITY ESTIMATION ────────────────────────────────────────────
+      let complexityEstimate: ComplexityEstimate | undefined;
+      if (this.contextManager.complexityEstimator && taskUnderstanding) {
+        complexityEstimate = this.contextManager.complexityEstimator.estimate(currentTask, taskUnderstanding);
+        console.log(`[AgentLoop] Complexity: ${complexityEstimate.level.toUpperCase()} (${complexityEstimate.fastPathEligible ? 'Fast Path' : 'Full Path'})`);
+      }
+
+      // ── ARCHITECTURE REVIEW (Full Path only) ─────────────────────────────
+      let architectureReview: ArchitectureReviewReport | undefined;
+      if (!complexityEstimate?.fastPathEligible && this.contextManager.architectureReview && discoveryReport && taskUnderstanding) {
+        try {
+          architectureReview = this.contextManager.architectureReview.review(discoveryReport, taskUnderstanding);
+          console.log(`[AgentLoop] Architecture Review: ${architectureReview.rationale}`);
+        } catch (err) {
+          console.warn('[AgentLoop] Architecture review failed:', err);
+        }
+      }
+
+      // ── CHANGE IMPACT ANALYSIS (Full Path only) ──────────────────────────
+      let changeImpactReport: ChangeImpactReport | undefined;
+      if (!complexityEstimate?.fastPathEligible && this.contextManager.changeImpactAnalysis && discoveryReport && taskUnderstanding) {
+        try {
+          const changeInput: ChangePlanInput = {
+            userRequest: currentTask,
+            taskType: taskUnderstanding.taskType,
+            taskUnderstanding,
+            architectureReview: architectureReview || { shouldSplitFunction: false, shouldExtractClass: false, shouldAddNewFile: false, shouldUpdateReferences: false, violatesSingleResponsibility: false, suggestions: [], recommendedFiles: [], rationale: 'no review' },
+            discoveryReport,
+          };
+          changeImpactReport = this.contextManager.changeImpactAnalysis.analyze(changeInput);
+          console.log(`[AgentLoop] Change Impact: ${changeImpactReport.directImpactFiles.length} direct + ${changeImpactReport.indirectImpactFiles.length} indirect files, confidence=${Math.round(changeImpactReport.confidence * 100)}%`);
+        } catch (err) {
+          console.warn('[AgentLoop] Change impact analysis failed:', err);
+        }
+      }
+
       // ── PLAN ─────────────────────────────────────────────────────────────
-      const plan = this.planner.create(currentTask, `loop-${Date.now()}`, discoveryReport);
+      const plan = this.planner.create(currentTask, `loop-${Date.now()}`, discoveryReport, taskUnderstanding, architectureReview, changeImpactReport, complexityEstimate);
       const context = plan.context;
 
       // 若 Discovery 已构建 contextPackage，直接复用
@@ -131,7 +194,9 @@ export class AgentLoop {
       const { output, toolCalls, modifiedFiles, iterations, terminatedCorrectly } = await this.runExecutionLoop(
         currentTask,
         context,
-        attempt
+        attempt,
+        plan.taskType,
+        selectedSkills
       );
       totalToolCalls += toolCalls;
       finalAnswer = output;
@@ -177,9 +242,47 @@ export class AgentLoop {
         break;
       }
 
-      // ── REFLECT + REPLAN (Knowledge-driven) ──────────────────────────────
-      if (this.reflectionEngine) {
-        // REFLECT
+      // ── CONDITIONAL REFLECT + REPLAN ───────────────────────────────────
+      // Only triggered when verification failed (we reached here because allPassed === false)
+      if (this.reflectionAgent) {
+        // Build standardized ReflectionInput
+        const reflectionInput = this.buildReflectionInput(
+          task,
+          plan,
+          output,
+          iterations,
+          verificationResults,
+          this.reflectionAgent.reflectionRecords
+        );
+
+        // Trigger ReflectionAgent
+        const reflectionOutput = this.reflectionAgent.reflect(reflectionInput);
+
+        history[history.length - 1].state = 'REFLECT';
+        history[history.length - 1].reflectionOutput = reflectionOutput;
+
+        console.log(`[AgentLoop] Reflection: rootCause="${reflectionOutput.rootCause}", shouldContinue=${reflectionOutput.shouldContinue}, shouldReplan=${reflectionOutput.shouldReplan}`);
+
+        if (!reflectionOutput.shouldContinue) {
+          console.log(`[AgentLoop] ReflectionAgent decided to stop at attempt ${attempt}`);
+          history[history.length - 1].state = 'FAILED';
+          break;
+        }
+
+        if (reflectionOutput.shouldReplan) {
+          if (attempt >= maxCycles) {
+            console.log(`[AgentLoop] Max reflection cycles exceeded`);
+            break;
+          }
+
+          currentTask = this.reflectionAgent.formatRepairPrompt(reflectionOutput, task, plan, reflectionInput.toolResults);
+          history[history.length - 1].state = 'REPLAN';
+          history[history.length - 1].repairPrompt = currentTask;
+
+          console.log(`[AgentLoop] ReflectionAgent replanning for attempt ${attempt + 1}...`);
+        }
+      } else if (this.reflectionEngine) {
+        // ── Legacy ReflectionEngine fallback ──────────────────────────────
         const analysis = this.reflectionEngine.analyzeFailures(verificationResults, modifiedFiles);
         const repairPlan = this.reflectionEngine.generateRepairPlan(analysis, task, attempt);
 
@@ -196,15 +299,13 @@ export class AgentLoop {
         history[history.length - 1].state = 'REFLECT';
         history[history.length - 1].reflectionReport = reflectionReport;
 
-        // Check if we should continue
         const shouldContinue = this.reflectionEngine.shouldContinueReflection(verificationResults, attempt);
         if (!shouldContinue) {
-          console.log(`[AgentLoop] Reflection decided to stop at attempt ${attempt}`);
+          console.log(`[AgentLoop] ReflectionEngine decided to stop at attempt ${attempt}`);
           history[history.length - 1].state = 'FAILED';
           break;
         }
 
-        // REPLAN
         if (attempt >= maxCycles) {
           console.log(`[AgentLoop] Max reflection cycles exceeded`);
           break;
@@ -215,9 +316,9 @@ export class AgentLoop {
         history[history.length - 1].state = 'REPLAN';
         history[history.length - 1].repairPrompt = currentTask;
 
-        console.log(`[AgentLoop] Reflection complete, replanning for attempt ${attempt + 1}...`);
+        console.log(`[AgentLoop] ReflectionEngine replanning for attempt ${attempt + 1}...`);
       } else {
-        // ── REPAIR (Legacy fallback) ───────────────────────────────────────
+        // ── REPAIR (Legacy fallback without any reflection) ───────────────
         if (attempt >= this.MAX_RETRIES) {
           console.log(`[AgentLoop] Max retries exceeded`);
           break;
@@ -255,14 +356,16 @@ export class AgentLoop {
   private async runExecutionLoop(
     task: string,
     plannerContext: IncrementalContext,
-    attempt: number
+    attempt: number,
+    taskType?: string,
+    selectedSkills?: SelectedSkill[]
   ): Promise<{ output: string; toolCalls: number; modifiedFiles: string[]; iterations: ToolIteration[]; terminatedCorrectly: boolean }> {
     const modifiedFiles: string[] = [];
     const iterations: ToolIteration[] = [];
     let toolCalls = 0;
     const messages: Message[] = [
       { role: 'system', content: this.buildSystemPrompt() },
-      { role: 'user', content: this.buildExecutionPrompt(task, plannerContext, attempt) },
+      { role: 'user', content: this.buildExecutionPrompt(task, plannerContext, attempt, taskType, selectedSkills) },
     ];
 
     for (let i = 0; i < this.MAX_TOOL_ITERATIONS; i++) {
@@ -385,11 +488,18 @@ Rules:
 - Always provide a thoughtful "thought" field.`;
   }
 
-  private buildExecutionPrompt(task: string, context: IncrementalContext, attempt: number): string {
+  private buildExecutionPrompt(task: string, context: IncrementalContext, attempt: number, taskType?: string, selectedSkills?: SelectedSkill[]): string {
     const parts: string[] = [];
     parts.push(`## Task (Attempt ${attempt})`);
+    parts.push(`Type: ${taskType || 'general'}`);
     parts.push(task);
     parts.push('');
+
+    // Inject Active Skills at the top of the prompt
+    if (selectedSkills && selectedSkills.length > 0 && this.contextManager.skillManager) {
+      parts.push(this.contextManager.skillManager.getPrompt(selectedSkills));
+      parts.push('');
+    }
 
     if (context.memoryFragment) {
       parts.push('## Conversation History');
@@ -430,9 +540,83 @@ Rules:
     }
 
     parts.push('## Instructions');
-    parts.push('Analyze the task, use tools to make necessary changes, then provide a final_answer.');
+    parts.push(...this.buildTaskInstructions(taskType));
 
     return parts.join('\n');
+  }
+
+  private buildTaskInstructions(taskType?: string): string[] {
+    const base = 'Analyze the task, use tools to make necessary changes, then provide a final_answer.';
+    switch (taskType) {
+      case 'replace': {
+        return [
+          base,
+          '',
+          'This is a REPLACE task. Follow this workflow strictly:',
+          '1. LOCATE OLD IMPLEMENTATION: Read the existing file(s) to understand the current logic.',
+          '2. CREATE NEW IMPLEMENTATION: Create the new file/module with the replacement logic. Do NOT modify the old implementation in-place unless explicitly allowed.',
+          '3. UPDATE REFERENCES: Find all call sites / imports of the old implementation and redirect them to the new one.',
+          '4. VERIFY BEHAVIOR: Confirm that the public interface remains unchanged and behavior is consistent.',
+          '5. Provide a final_answer summarizing what was replaced and where.',
+        ];
+      }
+      case 'migrate': {
+        return [
+          base,
+          '',
+          'This is a MIGRATE task. Follow this workflow strictly:',
+          '1. LOCATE OLD IMPLEMENTATION: Understand the current code to be migrated.',
+          '2. CREATE NEW ADAPTER / MODULE: Build the new target implementation or compatibility layer.',
+          '3. UPDATE REFERENCES: Redirect consumers to the new module.',
+          '4. VERIFY BEHAVIOR: Run tests or checks to ensure nothing is broken.',
+          '5. Provide a final_answer summarizing migration steps.',
+        ];
+      }
+      case 'refactor': {
+        return [
+          base,
+          '',
+          'This is a REFACTOR task. Follow this workflow strictly:',
+          '1. UNDERSTAND CURRENT STRUCTURE: Read the target code thoroughly.',
+          '2. SPLIT / EXTRACT: Apply structural improvements (split functions, extract classes, move logic to new files).',
+          '3. PRESERVE BEHAVIOR: Do NOT change external behavior; keep public signatures stable.',
+          '4. VERIFY: Ensure the code still compiles and tests pass.',
+          '5. Provide a final_answer summarizing what was refactored.',
+        ];
+      }
+      case 'create': {
+        return [
+          base,
+          '',
+          'This is a CREATE task. Follow this workflow strictly:',
+          '1. RESEARCH CONVENTIONS: Look at existing files to match style, patterns, and module structure.',
+          '2. CREATE FILES: Implement the new feature in the appropriate location.',
+          '3. WIRE UP: Update any necessary imports, configs, or entry points.',
+          '4. VERIFY: Ensure the new code compiles and integrates correctly.',
+          '5. Provide a final_answer summarizing what was created.',
+        ];
+      }
+      case 'modify': {
+        return [
+          base,
+          '',
+          'This is a MODIFY task. Follow this workflow strictly:',
+          '1. LOCATE TARGET: Find the exact code to change.',
+          '2. APPLY CHANGES: Make the minimal, focused edits required.',
+          '3. VERIFY: Ensure the changes compile and tests pass.',
+          '4. Provide a final_answer summarizing what was modified.',
+        ];
+      }
+      case 'analyze': {
+        return [
+          'Analyze the codebase and provide a clear, structured answer.',
+          'Use tools to read files and search code as needed.',
+          'Provide a final_answer with your findings.',
+        ];
+      }
+      default:
+        return [base];
+    }
   }
 
   private buildRepairPrompt(
@@ -538,6 +722,35 @@ Rules:
     }
   }
 
+  // ── Reflection Input Builder ───────────────────────────────────────────
+
+  private buildReflectionInput(
+    userRequest: string,
+    currentPlan: ExecutionPlan,
+    executionResult: string,
+    iterations: ToolIteration[],
+    verificationResults: VerificationResult[],
+    previousReflections: ReflectionRecord[]
+  ): ReflectionInput {
+    const toolResults: ToolResult[] = iterations
+      .filter(it => it.role === 'tool' && it.toolName)
+      .map(it => ({
+        toolName: it.toolName!,
+        params: {}, // params are not stored in ToolIteration; we infer success from content
+        result: it.toolResult || it.content,
+        success: !it.content.startsWith('Error:'),
+      }));
+
+    return {
+      userRequest,
+      currentPlan,
+      executionResult,
+      toolResults,
+      verificationResults,
+      previousReflections,
+    };
+  }
+
   // ── Formatting ───────────────────────────────────────────────────────────
 
   formatResultForPrompt(result: LoopResult): string {
@@ -552,6 +765,9 @@ Rules:
       lines.push(`### Attempt ${h.attempt} (${h.state})`);
       if (h.plan) {
         lines.push(`Plan: ${h.plan.intent} — ${h.plan.steps.length} steps`);
+      }
+      if (h.reflectionOutput) {
+        lines.push(`Reflection: ${h.reflectionOutput.rootCause} (confidence: ${Math.round(h.reflectionOutput.confidence * 100)}%)`);
       }
       if (h.repairPrompt) {
         lines.push('(Repair retry after verification failure)');

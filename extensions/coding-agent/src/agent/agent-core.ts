@@ -7,6 +7,10 @@ import { MemoryManager } from '../memory/memoryManager';
 import { EmbeddingManager } from '../embedding/embeddingManager';
 import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
 import { DiscoveryReport } from '../discovery/discovery';
+import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
+import { ChangeImpactReport, ChangePlanInput } from '../change-impact/change-impact-analysis';
+import { ComplexityEstimate } from '../complexity/complexity-estimator';
+import { SelectedSkill } from '../skills/skill-types';
 import { RepoGraph } from '../context/repoGraph';
 import { DiffEngine } from '../utils/diff-engine';
 import { Verifier, VerifierOutput } from './verifier';
@@ -345,6 +349,7 @@ export class AgentCore {
       this.contextManager.runtimeVerifier,
       this.contextManager,
       this.contextManager.reflectionEngine,
+      this.contextManager.reflectionAgent,
       this.toolUsageAnalyzer
     );
 
@@ -397,7 +402,86 @@ export class AgentCore {
         }
       }
 
-      const plan = planner.create(userMessage, sessionId, discoveryReport);
+      // Skill Discovery Phase：自动发现并加载相关 Skill
+      let selectedSkills: SelectedSkill[] = [];
+      if (this.contextManager.skillManager) {
+        selectedSkills = this.contextManager.skillManager.select({
+          userRequest: userMessage,
+          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
+          topK: 3,
+        });
+        if (selectedSkills.length > 0) {
+          onStream(this.contextManager.skillManager.formatSummary(selectedSkills));
+        }
+      }
+
+      // Task Understanding Phase：分类用户请求
+      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(userMessage, discoveryReport);
+      if (taskUnderstanding) {
+        onStream(`🎯 任务类型: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% 置信度)\n`);
+        if (taskUnderstanding.constraints.requireNewFile) {
+          onStream('📄 约束: 需要新建文件\n');
+        }
+        onStream('\n');
+      }
+
+      // Complexity Estimation Phase：评估任务复杂度，选择 Fast Path 或 Full Path
+      let complexityEstimate: ComplexityEstimate | undefined;
+      if (this.contextManager.complexityEstimator && taskUnderstanding) {
+        complexityEstimate = this.contextManager.complexityEstimator.estimate(userMessage, taskUnderstanding);
+        onStream(`${this.contextManager.complexityEstimator.format(complexityEstimate)}\n`);
+        if (complexityEstimate.fastPathEligible) {
+          onStream('⚡ 使用 Fast Path：跳过 Architecture Review 和 Change Impact Analysis\n\n');
+        } else {
+          onStream('🔍 使用 Full Path：执行完整分析流程\n\n');
+        }
+      }
+
+      // Architecture Review Phase（Full Path only）：分析是否需要结构变更
+      let architectureReview: ArchitectureReviewReport | undefined;
+      if (!complexityEstimate?.fastPathEligible && this.contextManager.architectureReview && discoveryReport && taskUnderstanding) {
+        try {
+          architectureReview = this.contextManager.architectureReview.review(discoveryReport, taskUnderstanding);
+          if (architectureReview.suggestions.length > 0) {
+            onStream(`🏗️ 架构建议: ${architectureReview.suggestions.length} 条\n`);
+            for (const s of architectureReview.suggestions.slice(0, 3)) {
+              onStream(`   ${s.priority === 'high' ? '🔴' : s.priority === 'medium' ? '🟡' : '🟢'} ${s.description}\n`);
+            }
+            onStream('\n');
+          }
+        } catch (err) {
+          console.warn('[ArchitectureReview] Phase failed:', err);
+        }
+      }
+
+      // Change Impact Analysis Phase（Full Path only）：分析修改影响范围
+      let changeImpactReport: ChangeImpactReport | undefined;
+      if (!complexityEstimate?.fastPathEligible && this.contextManager.changeImpactAnalysis && discoveryReport && taskUnderstanding) {
+        try {
+          const changeInput: ChangePlanInput = {
+            userRequest: userMessage,
+            taskType: taskUnderstanding.taskType,
+            taskUnderstanding,
+            architectureReview: architectureReview || { shouldSplitFunction: false, shouldExtractClass: false, shouldAddNewFile: false, shouldUpdateReferences: false, violatesSingleResponsibility: false, suggestions: [], recommendedFiles: [], rationale: 'no review' },
+            discoveryReport,
+          };
+          changeImpactReport = this.contextManager.changeImpactAnalysis.analyze(changeInput);
+          onStream(`📊 影响分析: ${changeImpactReport.directImpactFiles.length} 个直接文件, ${changeImpactReport.indirectImpactFiles.length} 个间接文件\n`);
+          onStream(`   置信度: ${Math.round(changeImpactReport.confidence * 100)}%`);
+          if (changeImpactReport.entryPointRisk) {
+            onStream(' | ⚠️ 触及入口点');
+          }
+          onStream('\n');
+          if (changeImpactReport.testCoverageGap.length > 0) {
+            onStream(`   测试缺口: ${changeImpactReport.testCoverageGap.length} 个文件无测试覆盖\n`);
+          }
+          onStream('\n');
+        } catch (err) {
+          console.warn('[ChangeImpact] Phase failed:', err);
+        }
+      }
+
+      const plan = planner.create(userMessage, sessionId, discoveryReport, taskUnderstanding, architectureReview, changeImpactReport, complexityEstimate);
       plan.searchTerms = await this.generateSearchTerms(userMessage, plan.intent);
       console.log(`[QueryRewrite] Final searchTerms: ${JSON.stringify(plan.searchTerms)}`);
       this.activeIntent = plan.intent;
@@ -427,7 +511,15 @@ export class AgentCore {
         }
         contextMessage = await this.buildPipelinePrompt(userMessage, plan, context, editorCtx);
       } else {
-        contextMessage = this.buildCompactPrompt(userMessage, plan.intent, editorCtx);
+        contextMessage = this.buildCompactPrompt(userMessage, plan.intent, editorCtx, plan.taskType, plan.architectureReview);
+      }
+
+      // Inject Active Skills into the prompt before sending to LLM
+      if (selectedSkills.length > 0 && this.contextManager.skillManager) {
+        const skillPrompt = this.contextManager.skillManager.getPrompt(selectedSkills);
+        if (skillPrompt) {
+          contextMessage = skillPrompt + '\n' + contextMessage;
+        }
       }
 
       this.messageHistory = [
@@ -1104,11 +1196,11 @@ export class AgentCore {
     return mode === 'compact' ? '适合轻量流程' : '适合完整规划流程';
   }
 
-  private buildCompactPrompt(request: string, intent: string, editorCtx: AgentContext): string {
-    return this.buildFastPrompt(request, intent, editorCtx);
+  private buildCompactPrompt(request: string, intent: string, editorCtx: AgentContext, taskType?: string, architectureReview?: ArchitectureReviewReport): string {
+    return this.buildFastPrompt(request, intent, editorCtx, taskType, architectureReview);
   }
 
-  private buildFastPrompt(request: string, intent: string, editorCtx: AgentContext): string {
+  private buildFastPrompt(request: string, intent: string, editorCtx: AgentContext, taskType?: string, architectureReview?: ArchitectureReviewReport): string {
     const staticParts: string[] = [];
     const dynamicParts: string[] = [];
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
@@ -1120,6 +1212,10 @@ export class AgentCore {
     staticParts.push('## Cache-Friendly Prompt Layout');
     staticParts.push('Static guidance and workspace facts are intentionally placed first. Task-specific context appears later.');
     staticParts.push(`## Intent\n${intent}`);
+    if (taskType) {
+      staticParts.push(`## Task Type\n${taskType.toUpperCase()}`);
+      staticParts.push(...this.buildTaskTypeGuidance(taskType));
+    }
     staticParts.push(`## Workspace\n${workspaceName}`);
     if (workspaceRoot) {
       staticParts.push(`## Workspace Root\n${workspaceRoot}`);
@@ -1127,6 +1223,13 @@ export class AgentCore {
     staticParts.push('## Operating Rules');
     staticParts.push('Prefer the active file or selected code. Only search broader files when local evidence is insufficient.');
     staticParts.push('Keep tools and edits grounded in actual source evidence. Do not invent hidden files or paths.');
+
+    if (architectureReview && architectureReview.suggestions.length > 0) {
+      staticParts.push('## Architecture Review');
+      for (const s of architectureReview.suggestions.slice(0, 3)) {
+        staticParts.push(`  [${s.priority.toUpperCase()}] ${s.type}: ${s.description}`);
+      }
+    }
 
     if (editorCtx.currentFile) {
       dynamicParts.push(`## Active File\n${editorCtx.currentFile}`);
@@ -1147,6 +1250,62 @@ export class AgentCore {
 
     dynamicParts.push(`## Latest User Request\n${request}`);
     return [...staticParts, ...dynamicParts].join('\n\n');
+  }
+
+  private buildTaskTypeGuidance(taskType: string): string[] {
+    switch (taskType) {
+      case 'replace': {
+        return [
+          'This is a REPLACE task. Follow this workflow strictly:',
+          '1. LOCATE OLD IMPLEMENTATION: Read the existing file(s) to understand the current logic.',
+          '2. CREATE NEW IMPLEMENTATION: Create the new file/module with the replacement logic. Do NOT modify the old implementation in-place unless explicitly allowed.',
+          '3. UPDATE REFERENCES: Find all call sites / imports of the old implementation and redirect them to the new one.',
+          '4. VERIFY BEHAVIOR: Confirm that the public interface remains unchanged and behavior is consistent.',
+        ];
+      }
+      case 'migrate': {
+        return [
+          'This is a MIGRATE task. Follow this workflow strictly:',
+          '1. LOCATE OLD IMPLEMENTATION: Understand the current code to be migrated.',
+          '2. CREATE NEW ADAPTER / MODULE: Build the new target implementation or compatibility layer.',
+          '3. UPDATE REFERENCES: Redirect consumers to the new module.',
+          '4. VERIFY BEHAVIOR: Run tests or checks to ensure nothing is broken.',
+        ];
+      }
+      case 'refactor': {
+        return [
+          'This is a REFACTOR task. Follow this workflow strictly:',
+          '1. UNDERSTAND CURRENT STRUCTURE: Read the target code thoroughly.',
+          '2. SPLIT / EXTRACT: Apply structural improvements (split functions, extract classes, move logic to new files).',
+          '3. PRESERVE BEHAVIOR: Do NOT change external behavior; keep public signatures stable.',
+          '4. VERIFY: Ensure the code still compiles and tests pass.',
+        ];
+      }
+      case 'create': {
+        return [
+          'This is a CREATE task. Follow this workflow strictly:',
+          '1. RESEARCH CONVENTIONS: Look at existing files to match style, patterns, and module structure.',
+          '2. CREATE FILES: Implement the new feature in the appropriate location.',
+          '3. WIRE UP: Update any necessary imports, configs, or entry points.',
+          '4. VERIFY: Ensure the new code compiles and integrates correctly.',
+        ];
+      }
+      case 'modify': {
+        return [
+          'This is a MODIFY task. Follow this workflow strictly:',
+          '1. LOCATE TARGET: Find the exact code to change.',
+          '2. APPLY CHANGES: Make the minimal, focused edits required.',
+          '3. VERIFY: Ensure the changes compile and tests pass.',
+        ];
+      }
+      case 'analyze': {
+        return [
+          'This is an ANALYZE task. Provide a clear, structured answer based on source code evidence.',
+        ];
+      }
+      default:
+        return ['Follow the user request carefully and use tools as needed.'];
+    }
   }
 
   private async generateSearchTerms(request: string, intent: string): Promise<string[]> {
@@ -2324,6 +2483,29 @@ If revision needed:
     }
     if (plan.intent === 'bug_fix') {
       staticParts.push(`For bug-fix requests, prefer reading the active file or files explicitly referenced by the user before calling broad architecture tools. Do not guess hidden file paths.`);
+    }
+
+    // Inject task-type specific workflow guidance
+    if (plan.taskType) {
+      staticParts.push(`## Task Type: ${plan.taskType.toUpperCase()}`);
+      staticParts.push(...this.buildTaskTypeGuidance(plan.taskType));
+    }
+
+    // Inject Architecture Review insights
+    if (plan.architectureReview) {
+      const ar = plan.architectureReview;
+      const arLines: string[] = ['## Architecture Review'];
+      arLines.push(`Rationale: ${ar.rationale}`);
+      if (ar.suggestions.length > 0) {
+        arLines.push('Suggestions:');
+        for (const s of ar.suggestions.slice(0, 5)) {
+          arLines.push(`  [${s.priority.toUpperCase()}] ${s.type}: ${s.description}`);
+        }
+      }
+      if (ar.recommendedFiles.length > 0) {
+        arLines.push(`Recommended files: ${ar.recommendedFiles.join(', ')}`);
+      }
+      staticParts.push(arLines.join('\n'));
     }
 
     if (context.memoryFragment) {

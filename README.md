@@ -1,5 +1,13 @@
 # Z Code
 
+> **项目定位 / Project Positioning**
+> 本项目是一个**面向学习的 Agent 流程实现**，核心目标是逐步构建和理解 Coding Agent 的完整工作流。从 v0.3.0 到最新版本，每个版本的迭代都对应一个可学习的里程碑，适合**按版本顺序逐步阅读代码、理解演进过程**。
+>
+> **注意事项 / Caveats**
+> - 随着功能持续叠加，部分模块之间可能出现边界模糊或轻微 Bug
+> - 目前**缺少 MCP (Model Context Protocol) 类型的外部工具调用**，所有工具均为内置实现
+> - 不以生产级稳定性为目标，而以**可理解、可扩展、可教学**为优先
+>
 > AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
 > AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
 
@@ -14,17 +22,29 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 ├── extensions/
 │   └── coding-agent/               VS Code 扩展（核心项目 / Core project）
 │       ├── src/
-│       │   ├── agent/
+│   │   ├── agent/
 │   ├── agent/
 │   │   ├── agent-core.ts    知识驱动 + 自我验证闭环架构 + LLM Query Rewrite
-│   │   │                    (Pipeline: Discovery → Plan → Memory → [Embedding → RepoGraph] → Context)
+│   │   │                    (Pipeline: Discovery → Task Understanding → Architecture Review → Change Impact → Plan → ...)
 │   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT → REPLAN)
-│   │   ├── agent-loop.ts    Agent 执行循环（Discovery → Plan → Execute → Verify → Reflect → Replan）
+│   │   ├── agent-loop.ts    Agent 执行循环（Discovery → Plan → Execute → Verify → [条件触发] Reflect → Replan）
 │   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
 │       │   ├── discovery/
 │       │   │   └── discovery.ts      Discovery Phase：深度发现引擎（模块/文件/符号/风险/范围）
+│       │   ├── task-understanding/
+│       │   │   └── task-understanding.ts  Task Understanding：意图分类（CREATE/MODIFY/REFACTOR/REPLACE/MIGRATE/ANALYZE）+ 约束提取
+│       │   ├── architecture-review/
+│       │   │   └── architecture-review.ts  Architecture Review：结构变更分析（拆函数/拆类/新增文件/更新引用/单一职责）
+│       │   ├── change-impact/
+│       │   │   └── change-impact-analysis.ts  Change Impact Analysis：静态分析影响范围（SymbolIndex + DependencyGraph + RepoGraph）
+│       │   ├── skills/
+│       │   │   ├── skill-manager.ts      Skill Manager：Skill 发现/选择/加载/缓存（Claude Code 风格）
+│       │   │   ├── skill-loader.ts       Skill Loader：扫描 .skills/**/SKILL.md，解析 YAML frontmatter
+│       │   │   ├── skill-selector.ts     Skill Selector：Top-K 相关性匹配
+│       │   │   └── skill-types.ts        Skill 类型定义
 │       │   ├── reflection/
-│       │   │   └── reflectionEngine.ts Reflection Loop：自我验证闭环（FailureAnalysis + RepairAction）
+│       │   │   ├── reflectionEngine.ts   Reflection Engine：FailureAnalysis + RepairAction + ReflectionMemory
+│       │   │   └── reflection-agent.ts   Reflection Agent：条件触发反射（Verify 失败时触发，标准化输入输出接口）
 │       │   ├── memory/
 │       │   │   ├── memoryManager.ts  多轮记忆系统（按 repo+session+intent 维度存储）
 │       │   │   └── repoKnowledgeBase.ts Repo Knowledge Base：长期代码库知识库
@@ -82,7 +102,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 
 ## Coding Agent — VS Code Extension
 
-知识驱动 + 自我验证闭环架构 / Knowledge-Driven + Self-Verification Loop: **Discovery → Plan → Execute → Verify → Reflect → Replan**
+知识驱动 + 自我验证闭环架构 / Knowledge-Driven + Self-Verification Loop: **Discovery → Skill Discovery → Task Understanding → Complexity Estimation → Architecture Review → Change Impact → Plan → Execute → Verify → [条件触发] Reflect → Replan**
 
 > 说明 / Note  
 > 根目录 `README.md` 用于仓库总览。扩展本体的安装、配置、使用说明、更新日志与发布信息，请以 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md) 为准。
@@ -132,6 +152,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🧩 **Symbol Retrieval** | 全局符号空间检索，融合文件相关性与符号匹配度，按 intent 调整 kind 权重 |
 | 🔗 **Context Expansion Engine** | 7 种静态关系扩展（import/export/define/call/reference/implement/inherit），预算驱动剪枝 |
 | 📚 **Repo Knowledge Base** | 长期代码库知识库：Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files |
+| 🛠️ **Skill System** | Claude Code 风格的 Skill 系统：自动扫描 `.skills/**/SKILL.md`，基于关键词+tag 匹配选择 Top-3 相关 Skill，自动注入 Planner Prompt |
 | 🔄 **Reflection Loop** | 结构化 FailureAnalysis + RepairAction[] + ReflectionMemory，连续两轮无改善自动停止 |
 
 ### 支持的后端 / Supported Backends
@@ -231,6 +252,36 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v0.6.3 — 2026-06-09
+
+Skill System 完整落地 / Skill System Rollout
+
+#### ✨ 版本摘要 / Highlights
+- **Skill System（Claude Code 风格）**：新增 `.skills/**/SKILL.md` 自动发现、解析和注入系统
+  - `SkillLoader`：递归扫描 `.skills/` 目录，解析 YAML frontmatter（name + tags）和 Markdown 正文
+  - `SkillSelector`：基于用户请求关键词、TaskType、Discovery 结果中的文件扩展名和符号名进行评分，返回 Top-K（默认 3）相关 Skill
+  - `SkillManager`：整合发现/选择/加载/缓存，30 秒 TTL 索引缓存，Prompt 自动注入 `=== ACTIVE SKILLS ===` 块
+- **与现有流水线兼容**：Skill Discovery 插入在 Discovery 之后、Task Understanding 之前，不改动后续任何阶段
+- **向后兼容**：若无 `.skills/` 目录，系统静默跳过，不影响现有流程
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
+
+### v0.6.2 — 2026-06-09
+
+Change Planning Layer 完整落地 / Full Change Planning Layer Rollout
+
+#### ✨ 版本摘要 / Highlights
+- **Task Understanding**：新增意图分类模块，将用户请求自动分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，并提取约束条件（如"新建文件"、"不要在原文件实现"、"保持接口不变"）
+- **Architecture Review**：新增架构审查模块，基于 Discovery 报告分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反，将结构化建议注入 Planner
+- **Change Impact Analysis**：新增变更影响分析模块，基于 SymbolIndex + DependencyGraph + RepoGraph 纯静态分析影响范围，输出直接/间接影响文件列表、关键受影响符号、测试覆盖缺口与风险摘要
+- **条件触发 Reflection Agent**：改造反射循环为条件触发模式，Verify 通过时不触发反射，仅失败时调用标准化 ReflectionAgent.reflect() 接口，返回 shouldContinue / shouldReplan / rootCause / repairActions
+- **Planner 任务类型模板**：Planner 根据 TaskType 生成差异化步骤模板（REPLACE：定位旧实现 → 创建新实现 → 更新引用 → 验证行为；REFACTOR：理解结构 → 拆分/抽取 → 保持行为 → 验证）
+- **三层流水线兼容**：Task Understanding → Architecture Review → Change Impact Analysis → Planner 形成完整 Change Planning Layer，与现有 Discovery / Execution / Verify / Reflection 全兼容
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.6.1 — 2026-06-08
 

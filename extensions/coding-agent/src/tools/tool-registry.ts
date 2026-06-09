@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { ContextManager } from '../context/context-manager';
@@ -179,6 +180,10 @@ export class ToolRegistry {
       ],
       execute: async (params) => {
         const resolvedPath = this.resolveWorkspacePath(params.filePath);
+        if (!fs.existsSync(resolvedPath)) {
+          // 防御性检查：阻止 Agent 读取不存在的文件，减少幻觉
+          return `Error: File does not exist: ${resolvedPath}. Please use search_code or list_directory to locate the correct file path before reading.`;
+        }
         const uri = vscode.Uri.file(resolvedPath);
         const doc = await vscode.workspace.openTextDocument(uri);
         const content = doc.getText();
@@ -205,12 +210,38 @@ export class ToolRegistry {
       ],
       execute: async (params) => {
         const resolvedPath = this.resolveWritableWorkspacePath(params.filePath);
+
+        // 防御性检查：阻止写入空内容
+        if (!params.content || params.content.trim().length === 0) {
+          return `Error: Cannot write empty content to ${resolvedPath}. Please provide valid file content.`;
+        }
+
         const uri = vscode.Uri.file(resolvedPath);
         const encoder = new TextEncoder();
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
-        await vscode.workspace.fs.writeFile(uri, encoder.encode(params.content));
-        await vscode.workspace.fs.stat(uri);
-        return `File written successfully: ${resolvedPath}`;
+        const contentBytes = encoder.encode(params.content);
+
+        try {
+          await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(resolvedPath)));
+        } catch (dirErr: any) {
+          return `Error: Failed to create parent directory for ${resolvedPath}: ${dirErr.message}`;
+        }
+
+        try {
+          await vscode.workspace.fs.writeFile(uri, contentBytes);
+        } catch (writeErr: any) {
+          return `Error: Failed to write file ${resolvedPath}: ${writeErr.message}`;
+        }
+
+        // 双重验证：确保文件确实被写入磁盘且内容一致
+        try {
+          const stat = await vscode.workspace.fs.stat(uri);
+          if (stat.size === 0 && contentBytes.length > 0) {
+            return `Warning: File ${resolvedPath} was written but size is 0 bytes. Content may have been lost.`;
+          }
+          return `File written successfully: ${resolvedPath} (${contentBytes.length} bytes, ${params.content.split('\n').length} lines)`;
+        } catch (statErr: any) {
+          return `Warning: File write appeared to succeed but could not verify ${resolvedPath}: ${statErr.message}`;
+        }
       },
     };
   }

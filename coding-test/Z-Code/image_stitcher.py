@@ -12,6 +12,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
+from my_ransac import ransac_homography
 
 def main():
     # 两张图片的路径（请根据实际情况修改）
@@ -79,8 +80,8 @@ def main():
     src_pts = np.float32([kp_left[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     dst_pts = np.float32([kp_right[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
     
-    # 使用cv2.findHomography，内嵌RANSAC
-    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    # 使用手写的RANSAC实现
+    H, mask = ransac_homography(src_pts, dst_pts, threshold=5.0)
     inliers = np.sum(mask)
     print(f"RANSAC过滤后内点数量：{inliers} / {len(good_matches)}")
     
@@ -150,12 +151,6 @@ def main():
                     alpha = np.linspace(1, 0, y_max_overlap - y_min_overlap + 1)
                     alpha = np.tile(alpha, (3, 1)).T  # 扩展到三通道
                     # 混合
-                    warped_left[y_min_overlap:y_max_overlap+1, x, :] = (
-                        alpha * warped_left[y_min_overlap:y_max_overlap+1, x, :].astype(np.float32) +
-                        (1 - alpha) * canvas[y_min_overlap:y_max_overlap+1, x, :].astype(np.float32)
-                    ).astype(np.uint8)
-                    # 将canvas对应区域更新为混合结果？实际上应该将结果放在canvas上
-                    # 更好的做法：将融合结果存入canvas
                     canvas[y_min_overlap:y_max_overlap+1, x, :] = (
                         alpha * warped_left[y_min_overlap:y_max_overlap+1, x, :].astype(np.float32) +
                         (1 - alpha) * canvas[y_min_overlap:y_max_overlap+1, x, :].astype(np.float32)
