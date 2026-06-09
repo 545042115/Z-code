@@ -6,8 +6,8 @@
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
 
-当前版本采用 **知识驱动 + 自我验证闭环架构**：**Discovery** → **Plan** → **Execute** → **Verify** → **Reflect** → **Replan**，并引入了 **Symbol Retrieval**、**Context Expansion**、**Repo Knowledge Base**、**结构化 RepairAction** 与 **ReflectionMemory 防重复失败机制**。  
-The current version adopts a **Knowledge-Driven + Self-Verification Loop Architecture**: **Discovery** → **Plan** → **Execute** → **Verify** → **Reflect** → **Replan**, featuring **Symbol Retrieval**, **Context Expansion**, **Repo Knowledge Base**, **structured RepairAction**, and **ReflectionMemory anti-repeat-failure mechanism**.
+当前版本采用 **知识驱动 + 自我验证闭环架构**：**Discovery → Skill Discovery → Task Understanding → Complexity Estimation → Architecture Review → Change Impact Analysis → Planner → Execute → Verify → [条件触发] Reflect → Replan**，并引入了 **Symbol Retrieval**、**Context Expansion**、**Repo Knowledge Base**、**Skill System**、**结构化 RepairAction** 与 **ReflectionMemory 防重复失败机制**。  
+The current version adopts a **Knowledge-Driven + Self-Verification Loop Architecture**: **Discovery → Skill Discovery → Task Understanding → Complexity Estimation → Architecture Review → Change Impact Analysis → Planner → Execute → Verify → [Conditional] Reflect → Replan**, featuring **Symbol Retrieval**, **Context Expansion**, **Repo Knowledge Base**, **Skill System**, **structured RepairAction**, and **ReflectionMemory anti-repeat-failure mechanism**.
 
 ## 特性 / Features
 
@@ -52,13 +52,23 @@ The current version adopts a **Knowledge-Driven + Self-Verification Loop Archite
 
 ### 核心执行流
 
-`Discovery → Planner → ReAct → Verifier → Reflection → Replan`
+```
+Discovery → Skill Discovery → Task Understanding → Complexity Estimation
+    → Architecture Review → Change Impact Analysis → Planner
+    → Execute (ReAct: THINK → ACT → OBSERVE) → Verify
+    → [条件触发] Reflection → Replan
+```
 
-- **Discovery**：在 Planner 之前运行深度发现，基于 Symbol Retrieval + Context Expansion + Repo Knowledge 生成 Discovery Report（模块/文件/符号/风险/范围估计）
+- **Discovery**：深度代码库分析，基于 Symbol Retrieval + Context Expansion + Repo Knowledge 生成 Discovery Report（模块/文件/符号/风险/范围估计）
+- **Skill Discovery**：扫描 `.skills/**/SKILL.md`，选择 Top-K 相关 Skill 注入 Planner Prompt
+- **Task Understanding**：将用户请求分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，提取约束条件
+- **Complexity Estimation**：评估任务复杂度（LOW / MEDIUM / HIGH），决定走 Fast Path 或 Full Path
+- **Architecture Review**：分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反
+- **Change Impact Analysis**：基于 SymbolIndex + DependencyGraph + RepoGraph 静态分析变更影响范围
 - **Planner**：基于 Discovery Report 识别意图、生成 Search Terms、决定执行模式、生成结构化 To-Do List
-- **ReAct**：在子任务内循环执行 `THINK → ACT → OBSERVE`（Agent Loop 最大 15 次迭代）
+- **Execute (ReAct)**：在子任务内循环执行 `THINK → ACT → OBSERVE`（最大 15 次迭代）
 - **Verifier**：对修改结果执行自动校验（tsc / eslint / npm test / build）
-- **Reflection**：结构化分析失败根因，生成 RepairAction[]，ReflectionMemory 避免重复失败
+- **Reflection**：**条件触发**（仅 Verify 失败时），结构化分析失败根因，生成 RepairAction[]，ReflectionMemory 避免重复失败
 - **Replan**：基于 Reflection Report 重新规划，最多 3 次循环
 
 ### 检索 Pipeline
@@ -74,13 +84,18 @@ The current version adopts a **Knowledge-Driven + Self-Verification Loop Archite
 ### 当前版本新增机制
 
 - **Discovery Phase**：在 Planner 之前运行，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 生成结构化 Discovery Report，包含模块分析、风险分析、范围估计
+- **Skill System**：Claude Code 风格的 Skill 系统，自动扫描 `.skills/**/SKILL.md`，基于关键词+tag 匹配选择 Top-3 相关 Skill，自动注入 Planner Prompt
+- **Task Understanding**：意图分类模块，将用户请求自动分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，并提取约束条件
+- **Complexity Estimation**：评估任务复杂度（LOW / MEDIUM / HIGH），决定走 Fast Path（跳过 Architecture Review + Change Impact）还是 Full Path
+- **Architecture Review**：基于 Discovery 报告分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反，将结构化建议注入 Planner
+- **Change Impact Analysis**：基于 SymbolIndex + DependencyGraph + RepoGraph 纯静态分析变更影响范围，输出直接/间接影响文件列表、关键受影响符号、测试覆盖缺口与风险摘要
 - **Repo Knowledge Base**：长期代码库知识库，自动推断 Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files，首次构建 + 增量更新，供 Discovery / Planner / Prompt 消费
 - **Symbol Retrieval + Context Expansion**：从文件级检索升级为符号级上下文构建，7 种关系扩展，预算驱动剪枝，Prompt 注入 Primary/Related Symbols
-- **Reflection Loop**：结构化 FailureAnalysis（compile/test/lint/logic 分类）+ RepairAction[]（非自然语言步骤）+ ReflectionMemory（避免重复失败）+ shouldContinueReflection（动态判断进展）
+- **Reflection Loop**：条件触发模式，仅 Verify 失败时调用。结构化 FailureAnalysis（compile/test/lint/logic 分类）+ RepairAction[]（非自然语言步骤）+ ReflectionMemory（避免重复失败）+ 连续两轮无改善自动停止
 - **Prompt Cache Optimization**：稳定的系统规则、项目概览、关键源码前置；最新请求、诊断、上下文包后置
 - **Cursor 风格计划清单**：计划阶段强制生成 JSON To-Do List，并在侧边栏展示为 Checklist
 - **Claude Code 风格 Auto-Compact**：历史消息接近上限时自动摘要压缩，保留关键进度继续推理
-- **LLM-Driven Routing**：由模型判断走 `compact` 还是 `full`，避免固定规则误判任务复杂度
+- **LLM-Driven Routing**：由模型判断走 `compact` 还是 `full`，代码侧根据 Complexity Estimation 兜底校验
 - **局部编辑优先**：`replace_text` / `insert_before` / `insert_after` / `append_text` 优先于 `write_file`
 - **工具使用率分析**：自动统计 Agent 调用工具的频率和覆盖率，发现死工具
 

@@ -10,6 +10,8 @@
 >
 > AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
 > AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
+>
+> **当前版本 / Current Version: v0.7.0**
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
@@ -22,73 +24,74 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 ├── extensions/
 │   └── coding-agent/               VS Code 扩展（核心项目 / Core project）
 │       ├── src/
-│   │   ├── agent/
-│   ├── agent/
-│   │   ├── agent-core.ts    知识驱动 + 自我验证闭环架构 + LLM Query Rewrite
-│   │   │                    (Pipeline: Discovery → Task Understanding → Architecture Review → Change Impact → Plan → ...)
-│   │   │                    (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT → REPLAN)
-│   │   ├── agent-loop.ts    Agent 执行循环（Discovery → Plan → Execute → Verify → [条件触发] Reflect → Replan）
-│   │   └── verifier.ts      自动化验证（tsc --noEmit / eslint / npm test）
+│       │   ├── agent/
+│       │   │   ├── agent-core.ts    三层混合架构核心（ReAct: THINK → ACT → OBSERVE）
+│       │   │   ├── agent-loop.ts    Agent 执行循环（PLAN → EXECUTE → VERIFY → [条件触发] REFLECT → REPLAN）
+│       │   │   └── verifier.ts      自动化验证封装（tsc --noEmit / eslint / npm test）
 │       │   ├── discovery/
 │       │   │   └── discovery.ts      Discovery Phase：深度发现引擎（模块/文件/符号/风险/范围）
 │       │   ├── task-understanding/
-│       │   │   └── task-understanding.ts  Task Understanding：意图分类（CREATE/MODIFY/REFACTOR/REPLACE/MIGRATE/ANALYZE）+ 约束提取
+│       │   │   └── task-understanding.ts  Task Understanding：意图分类 + 约束提取
 │       │   ├── architecture-review/
-│       │   │   └── architecture-review.ts  Architecture Review：结构变更分析（拆函数/拆类/新增文件/更新引用/单一职责）
+│       │   │   └── architecture-review.ts  Architecture Review：结构变更分析
 │       │   ├── change-impact/
-│       │   │   └── change-impact-analysis.ts  Change Impact Analysis：静态分析影响范围（SymbolIndex + DependencyGraph + RepoGraph）
+│       │   │   └── change-impact-analysis.ts  Change Impact Analysis：静态分析影响范围
+│       │   ├── complexity/
+│       │   │   └── complexity-estimator.ts  Complexity Estimation：任务复杂度评估（Fast/Full Path 路由）
 │       │   ├── skills/
-│       │   │   ├── skill-manager.ts      Skill Manager：Skill 发现/选择/加载/缓存（Claude Code 风格）
-│       │   │   ├── skill-loader.ts       Skill Loader：扫描 .skills/**/SKILL.md，解析 YAML frontmatter
+│       │   │   ├── skill-manager.ts      Skill Manager：Skill 发现/选择/加载/缓存
+│       │   │   ├── skill-loader.ts       Skill Loader：扫描 .skills/**/SKILL.md
 │       │   │   ├── skill-selector.ts     Skill Selector：Top-K 相关性匹配
 │       │   │   └── skill-types.ts        Skill 类型定义
 │       │   ├── reflection/
 │       │   │   ├── reflectionEngine.ts   Reflection Engine：FailureAnalysis + RepairAction + ReflectionMemory
-│       │   │   └── reflection-agent.ts   Reflection Agent：条件触发反射（Verify 失败时触发，标准化输入输出接口）
+│       │   │   └── reflection-agent.ts   Reflection Agent：条件触发反射（Verify 失败时触发）
 │       │   ├── memory/
-│       │   │   ├── memoryManager.ts  多轮记忆系统（按 repo+session+intent 维度存储）
-│       │   │   └── repoKnowledgeBase.ts Repo Knowledge Base：长期代码库知识库
+│       │   │   ├── memoryManager.ts      多轮记忆系统（按 repo+session+intent 存储）
+│       │   │   └── repoKnowledgeBase.ts  Repo Knowledge Base：长期代码库知识库
 │       │   ├── embedding/
-│       │   │   └── embeddingManager.ts TF-IDF 语义检索
+│       │   │   └── embeddingManager.ts   TF-IDF 语义检索
 │       │   ├── planner/
-│       │   │   └── planner.ts       Pipeline Planner（基于 Discovery Report 动态调整步骤）
+│       │   │   └── planner.ts            Pipeline Planner（基于 Discovery Report 动态调整步骤）
 │       │   ├── config/
-│       │   │   └── config-manager.ts 多配置管理 / Multi-config management
+│       │   │   └── config-manager.ts     多配置管理 / Multi-config management
 │       │   ├── llm/
-│       │   │   └── llm-provider.ts   统一 LLM 接口 / Unified LLM interface
-│   │   ├── context/
-│   │   │   ├── context-manager.ts LSP 上下文管理（集成所有子模块）
-│   │   │   ├── contextBuilder.ts  增量/全量上下文构建
-│   │   │   ├── contextExpansion.ts Context Expansion Engine：7 种关系静态扩展，预算驱动
-│   │   │   ├── symbolRetrieval.ts Symbol Retrieval：全局符号空间检索
-│   │   │   ├── hybrid-retrieval.ts 混合检索（BM25 + Embedding + Graph + CodeRel + FileType）
-│   │   │   ├── repoGraph.ts       模块层级 + 数据流图
-│   │   │   ├── repoMap.ts         仓库结构地图
-│   │   │   ├── reranker.ts        Intent-Aware Reranker（动态权重调整）
-│   │   │   ├── symbolIndex.ts     符号索引
-│   │   │   ├── retrieval.ts       代码检索
-│   │   │   ├── dependencyGraph.ts 文件依赖关系图
-│   │   │   ├── impactAnalyzer.ts  变更影响分析
-│   │   │   └── workspaceScanner.ts 工作区扫描
-│   │   ├── tools/
-│   │   │   └── tool-registry.ts  工具系统（含 LSP + 上下文 + 记忆/embedding/Repograph + 局部编辑工具）
-│   │   ├── git/
-│   │   │   └── git-analyzer.ts   Git 分析器（commit log / blame / diff / file history）
-│   │   ├── verifier/
-│   │   │   └── runtime-verifier.ts 运行时验证器（tsc / eslint / npm test）
-│   │   ├── debug/
-│   │   │   ├── tool-usage-analyzer.ts 工具使用率分析器
-│   │   │   ├── agent-loop-debugger.ts Agent Loop 调试器
-│   │   │   └── retrieval-debugger.ts  检索质量调试器
-│   │   ├── panels/
+│       │   │   └── llm-provider.ts       统一 LLM 接口 / Unified LLM interface
+│       │   ├── context/
+│       │   │   ├── context-manager.ts    LSP 上下文管理（集成所有子模块）
+│       │   │   ├── contextBuilder.ts     增量/全量上下文构建
+│       │   │   ├── contextExpansion.ts   Context Expansion Engine：7 种关系静态扩展，预算驱动
+│       │   │   ├── symbolRetrieval.ts    Symbol Retrieval：全局符号空间检索
+│       │   │   ├── hybrid-retrieval.ts   混合检索（BM25 + Embedding + Graph + CodeRel + FileType）
+│       │   │   ├── repoGraph.ts          模块层级 + 数据流图
+│       │   │   ├── repoMap.ts            仓库结构地图
+│       │   │   ├── reranker.ts           Intent-Aware Reranker（动态权重调整）
+│       │   │   ├── symbolIndex.ts        符号索引
+│       │   │   ├── retrieval.ts          代码检索
+│       │   │   ├── dependencyGraph.ts    文件依赖关系图
+│       │   │   ├── impactAnalyzer.ts     变更影响分析
+│       │   │   └── workspaceScanner.ts   工作区扫描
+│       │   ├── tools/
+│       │   │   └── tool-registry.ts      工具系统（含 LSP + 上下文 + 记忆/embedding/RepoGraph + 局部编辑工具）
+│       │   ├── git/
+│       │   │   └── git-analyzer.ts       Git 分析器（commit log / blame / diff / file history）
+│       │   ├── verifier/
+│       │   │   └── runtime-verifier.ts   运行时验证器（tsc / eslint / npm test）
+│       │   ├── debug/
+│       │   │   ├── tool-usage-analyzer.ts   工具使用率分析器
+│       │   │   ├── agent-loop-debugger.ts   Agent Loop 调试器
+│       │   │   ├── retrieval-debugger.ts    检索质量调试器
+│       │   │   ├── git-context-debugger.ts  Git 上下文调试器
+│       │   │   └── verification-debugger.ts 验证调试器
+│       │   ├── panels/
 │       │   │   ├── chat-view-provider.ts 侧边栏 Chat（WebviewView）
-│       │   │   ├── chat-panel.ts     输出面板 Chat
-│       │   │   └── composer-panel.ts Composer 面板
+│       │   │   ├── chat-panel.ts         输出面板 Chat
+│       │   │   └── composer-panel.ts     Composer 面板
 │       │   ├── inline/
-│       │   │   └── inline-completion.ts Tab 补全和行内编辑
+│       │   │   └── inline-completion.ts  Tab 补全和行内编辑
 │       │   ├── utils/
-│       │   │   └── diff-engine.ts    工具库 / Utilities
-│       │   └── extension.ts          扩展入口
+│       │   │   └── diff-engine.ts        工具库 / Utilities
+│       │   └── extension.ts              扩展入口
 │       └── package.json
 ├── tools/                           开发工具脚本 / Dev scripts
 │   ├── update.ps1                   更新/打包脚本 / Update & package
@@ -102,7 +105,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 
 ## Coding Agent — VS Code Extension
 
-知识驱动 + 自我验证闭环架构 / Knowledge-Driven + Self-Verification Loop: **Discovery → Skill Discovery → Task Understanding → Complexity Estimation → Architecture Review → Change Impact → Plan → Execute → Verify → [条件触发] Reflect → Replan**
+知识驱动 + 自我验证闭环架构 / Knowledge-Driven + Self-Verification Loop: **Discovery → Skill Discovery → Task Understanding → Complexity Estimation → Architecture Review → Change Impact Analysis → Planner → Execute → Verify → [条件触发] Reflect → Replan**
 
 > 说明 / Note  
 > 根目录 `README.md` 用于仓库总览。扩展本体的安装、配置、使用说明、更新日志与发布信息，请以 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md) 为准。
@@ -117,7 +120,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 📋 **结构化计划清单** | `PLANNING` 阶段输出 JSON To-Do List，并在侧边栏渲染为 Checklist；完成项打勾、进行中项高亮 |
 | 🗜️ **Auto-Compact** | 长对话接近上下文上限时在内部自动压缩旧历史，保留当前计划、关键证据和未完成事项 |
 | 🧱 **缓存友好的 Prompt 布局优化** | 静态上下文前置、动态上下文后置，提升前缀复用率并降低重复 Token 成本 |
-| 🧠 **上下文窗口 128K** | 默认支持 128K 上下文，并为模型生成回复预留输出空间 |
+| 🧠 **长上下文支持** | 支持最大 128K 上下文窗口，Auto-Compact 自动压缩旧历史，为生成回复预留输出空间 |
 | 💬 **多轮记忆系统** | 按 repo/session/intent 维度存储对话，LLM 可访问历史 |
 | 🔄 **LLM Query Rewrite** | 中文查询自动改写为英文 Search Terms，提升跨语言检索召回率 |
 | 🔍 **Intent-Aware 混合检索** | BM25 + Embedding + Graph + CodeRel + FileType 五路融合，按意图动态调整权重 |
@@ -253,7 +256,7 @@ npm run compile
 
 ## 更新日志 / Changelog
 
-### v0.6.3 — 2026-06-09
+### v0.7.0 — 2026-06-09
 
 Skill System 完整落地 / Skill System Rollout
 
