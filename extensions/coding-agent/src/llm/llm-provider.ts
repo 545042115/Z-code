@@ -56,6 +56,33 @@ export abstract class LLMProvider {
     }
     return headers;
   }
+
+  protected getEndpointUrl(path: string, terminalPaths: string[] = [path]): string {
+    const endpoint = this.config.endpoint.trim();
+    const queryIndex = endpoint.indexOf('?');
+    const rawBase = queryIndex >= 0 ? endpoint.slice(0, queryIndex) : endpoint;
+    const query = queryIndex >= 0 ? endpoint.slice(queryIndex) : '';
+    const base = rawBase.replace(/\/+$/, '');
+
+    if (terminalPaths.some(p => base.endsWith(p))) {
+      return `${base}${query}`;
+    }
+
+    if (path.startsWith('/v1') && base.endsWith('/v1')) {
+      return `${base}${path.slice('/v1'.length)}${query}`;
+    }
+
+    return `${base}${path}${query}`;
+  }
+
+  protected addQueryParam(url: string, key: string, value: string): string {
+    const encodedKey = encodeURIComponent(key);
+    if (new RegExp(`[?&]${encodedKey}=`).test(url)) {
+      return url;
+    }
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}${encodedKey}=${encodeURIComponent(value)}`;
+  }
 }
 
 /**
@@ -63,9 +90,9 @@ export abstract class LLMProvider {
  */
 export class SGLangProvider extends LLMProvider {
   async generate(request: GenerateRequest): Promise<string> {
-    const url = `${this.config.endpoint}/v1/chat/completions`;
+    const url = this.getEndpointUrl('/v1/chat/completions', ['/v1/chat/completions', '/chat/completions']);
     
-    const body: any = {
+    let body: any = {
       model: this.config.model,
       messages: request.messages,
       max_tokens: this.config.maxTokens,
@@ -95,9 +122,9 @@ export class SGLangProvider extends LLMProvider {
   }
 
   async *generateStream(request: GenerateRequest): AsyncIterable<string> {
-    const url = `${this.config.endpoint}/v1/chat/completions`;
+    const url = this.getEndpointUrl('/v1/chat/completions', ['/v1/chat/completions', '/chat/completions']);
     
-    const body: any = {
+    let body: any = {
       model: this.config.model,
       messages: request.messages,
       max_tokens: this.config.maxTokens,
@@ -150,7 +177,7 @@ export class SGLangProvider extends LLMProvider {
   }
 
   async fimComplete(request: FIMRequest): Promise<string> {
-    const url = `${this.config.endpoint}/v1/completions`;
+    const url = this.getEndpointUrl('/v1/completions', ['/v1/completions', '/completions']);
     
     const prompt = `<fim_prefix>${request.prefix}<fim_suffix>${request.suffix}<fim_middle>`;
 
@@ -194,9 +221,9 @@ export class SGLangProvider extends LLMProvider {
  */
 export class OpenAIProvider extends LLMProvider {
   async generate(request: GenerateRequest): Promise<string> {
-    const url = `${this.config.endpoint}/v1/chat/completions`;
+    const url = this.getChatCompletionsUrl();
     
-    const body: any = {
+    let body: any = {
       model: this.config.model,
       messages: request.messages,
       max_tokens: this.config.maxTokens,
@@ -219,6 +246,7 @@ export class OpenAIProvider extends LLMProvider {
         ...request.messages.filter(m => m.role !== 'system'),
       ];
     }
+    body = this.prepareChatBody(body);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -236,9 +264,9 @@ export class OpenAIProvider extends LLMProvider {
   }
 
   async *generateStream(request: GenerateRequest): AsyncIterable<string> {
-    const url = `${this.config.endpoint}/v1/chat/completions`;
+    const url = this.getChatCompletionsUrl();
     
-    const body: any = {
+    let body: any = {
       model: this.config.model,
       messages: request.messages,
       max_tokens: this.config.maxTokens,
@@ -256,6 +284,7 @@ export class OpenAIProvider extends LLMProvider {
         ...request.messages.filter(m => m.role !== 'system'),
       ];
     }
+    body = this.prepareChatBody(body);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -297,17 +326,14 @@ export class OpenAIProvider extends LLMProvider {
 
   async fimComplete(request: FIMRequest): Promise<string> {
     // OpenAI 不支持原生 FIM，使用 chat completion 模拟
-    const url = `${this.config.endpoint}/v1/chat/completions`;
+    const url = this.getChatCompletionsUrl();
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: this.getHeaders(),
-      body: JSON.stringify({
-        model: this.config.model,
-        messages: [
-          {
-            role: 'user',
-            content: `Complete the code between the markers:
+    const body = this.prepareChatBody({
+      model: this.config.model,
+      messages: [
+        {
+          role: 'user',
+          content: `Complete the code between the markers:
 
 <before>
 ${request.prefix}
@@ -318,11 +344,16 @@ ${request.suffix}
 </after>
 
 Provide only the code that should go between them, without any explanation.`,
-          },
-        ],
-        max_tokens: request.maxTokens || 128,
-        temperature: this.config.temperature,
-      }),
+        },
+      ],
+      max_tokens: request.maxTokens || 128,
+      temperature: this.config.temperature,
+    });
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(body),
     });
 
     if (!response.ok) {
@@ -347,6 +378,39 @@ Provide only the code that should go between them, without any explanation.`,
     }
     return null;
   }
+
+  protected getChatCompletionsUrl(): string {
+    return this.getEndpointUrl('/v1/chat/completions', ['/v1/chat/completions', '/chat/completions']);
+  }
+
+  protected prepareChatBody(body: any): any {
+    return body;
+  }
+}
+
+/**
+ * Azure OpenAI Provider
+ */
+export class AzureOpenAIProvider extends OpenAIProvider {
+  protected getHeaders(): Record<string, string> {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (this.config.apiKey) {
+      headers['api-key'] = this.config.apiKey;
+    }
+    return headers;
+  }
+
+  protected getChatCompletionsUrl(): string {
+    const url = this.getEndpointUrl('/chat/completions', ['/chat/completions']);
+    return this.addQueryParam(url, 'api-version', '2024-02-15-preview');
+  }
+
+  protected prepareChatBody(body: any): any {
+    const { model, ...azureBody } = body;
+    return azureBody;
+  }
 }
 
 /**
@@ -357,8 +421,9 @@ export class LLMProviderFactory {
     switch (config.provider) {
       case 'sglang':
         return new SGLangProvider(config);
-      case 'openai':
       case 'azure':
+        return new AzureOpenAIProvider(config);
+      case 'openai':
       case 'deepseek':
       case 'mimo':
         return new OpenAIProvider(config);
@@ -391,7 +456,7 @@ export class LLMProviderFactory {
     const profile = ConfigManager.getActiveProfile();
 
     const config: LLMConfig = {
-      provider: cfg.get<string>('llm.provider') as 'sglang' | 'openai' | 'azure' | 'deepseek' | 'mimo' || 'sglang',
+      provider: this.normalizeProvider(cfg.get<string>('llm.provider')),
       endpoint: cfg.get<string>('llm.endpoint') || 'http://localhost:30000',
       apiKey: profile?.apiKey || cfg.get<string>('llm.apiKey') || undefined,
       model: cfg.get<string>('llm.model') || 'default',
@@ -401,5 +466,10 @@ export class LLMProviderFactory {
     };
 
     return this.create(config);
+  }
+
+  private static normalizeProvider(provider?: string): LLMConfig['provider'] {
+    const allowed: LLMConfig['provider'][] = ['sglang', 'openai', 'azure', 'deepseek', 'mimo'];
+    return allowed.includes(provider as LLMConfig['provider']) ? provider as LLMConfig['provider'] : 'sglang';
   }
 }

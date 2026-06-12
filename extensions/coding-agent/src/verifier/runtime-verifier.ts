@@ -39,11 +39,13 @@ export interface ProjectConfig {
  */
 export class RuntimeVerifier {
   private workspaceRoot: string;
+  private projectRoot: string;
   private config: ProjectConfig | null = null;
   private initialized = false;
 
   constructor() {
     this.workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath || '';
+    this.projectRoot = this.workspaceRoot;
   }
 
   async initialize(): Promise<void> {
@@ -59,6 +61,10 @@ export class RuntimeVerifier {
 
   get projectConfig(): ProjectConfig | null {
     return this.config;
+  }
+
+  get detectedProjectRoot(): string {
+    return this.projectRoot;
   }
 
   /** Run the project's build command. */
@@ -148,7 +154,8 @@ export class RuntimeVerifier {
   // ── Internal ─────────────────────────────────────────────────────────────
 
   private async detectProjectConfig(): Promise<ProjectConfig> {
-    const root = this.workspaceRoot;
+    const root = await this.resolveProjectRoot();
+    this.projectRoot = root;
     if (!root) return { type: 'unknown' };
 
     // Node.js ecosystem
@@ -193,7 +200,7 @@ export class RuntimeVerifier {
   }
 
   private async detectNodeProject(): Promise<ProjectConfig> {
-    const root = this.workspaceRoot;
+    const root = this.projectRoot;
 
     // Detect package manager
     let pm = 'npm';
@@ -239,7 +246,7 @@ export class RuntimeVerifier {
     const start = Date.now();
     try {
       const { stdout, stderr } = await execAsync(command, {
-        cwd: this.workspaceRoot,
+        cwd: this.projectRoot,
         timeout: 120000,
         maxBuffer: 5 * 1024 * 1024,
       });
@@ -404,12 +411,75 @@ export class RuntimeVerifier {
 
   private async fileExists(fileName: string): Promise<boolean> {
     try {
-      const uri = vscode.Uri.joinPath(vscode.Uri.file(this.workspaceRoot), fileName);
+      const uri = vscode.Uri.joinPath(vscode.Uri.file(this.projectRoot), fileName);
       await vscode.workspace.fs.stat(uri);
       return true;
     } catch {
       return false;
     }
+  }
+
+  private async resolveProjectRoot(): Promise<string> {
+    if (!this.workspaceRoot) return '';
+
+    const activeFile = vscode.window.activeTextEditor?.document.uri;
+    if (activeFile?.scheme === 'file') {
+      const containingRoot = await this.findNearestProjectRoot(activeFile);
+      if (containingRoot) return containingRoot;
+    }
+
+    const workspaceUri = vscode.Uri.file(this.workspaceRoot);
+    if (await this.hasProjectMarker(workspaceUri)) {
+      return this.workspaceRoot;
+    }
+
+    const commonNestedRoots = [
+      'extensions/coding-agent',
+      'frontend',
+      'backend',
+      'app',
+      'server',
+      'client',
+      'packages/app',
+    ];
+
+    for (const rel of commonNestedRoots) {
+      const candidate = vscode.Uri.joinPath(workspaceUri, ...rel.split('/'));
+      if (await this.hasProjectMarker(candidate)) {
+        return candidate.fsPath;
+      }
+    }
+
+    return this.workspaceRoot;
+  }
+
+  private async findNearestProjectRoot(fileUri: vscode.Uri): Promise<string | undefined> {
+    let current = vscode.Uri.joinPath(fileUri, '..');
+    const workspacePath = this.workspaceRoot.replace(/\\/g, '/').toLowerCase();
+
+    while (current.fsPath.replace(/\\/g, '/').toLowerCase().startsWith(workspacePath)) {
+      if (await this.hasProjectMarker(current)) {
+        return current.fsPath;
+      }
+      const parent = vscode.Uri.joinPath(current, '..');
+      if (parent.fsPath === current.fsPath) break;
+      current = parent;
+    }
+
+    return undefined;
+  }
+
+  private async hasProjectMarker(root: vscode.Uri): Promise<boolean> {
+    const markers = ['package.json', 'Cargo.toml', 'go.mod', 'pyproject.toml', 'setup.py', 'requirements.txt'];
+    for (const marker of markers) {
+      try {
+        await vscode.workspace.fs.stat(vscode.Uri.joinPath(root, marker));
+        return true;
+      } catch {
+        // keep checking
+      }
+    }
+    return false;
   }
 
   private shortenPath(filePath: string): string {

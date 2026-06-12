@@ -2,7 +2,7 @@
     "name": "coding-agent",
     "displayName": "Coding Agent",
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
-    "version": "0.7.0",
+    "version": "1.0.0",
     "publisher": "545042115",
     "repository": {
         "type": "git",
