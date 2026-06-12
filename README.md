@@ -11,7 +11,7 @@
 > AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
 > AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
 >
-> **当前版本 / Current Version: v0.7.0**
+> **当前版本 / Current Version: v1.1.0**
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
@@ -41,8 +41,9 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │       │   ├── skills/
 │       │   │   ├── skill-manager.ts      Skill Manager：Skill 发现/选择/加载/缓存
 │       │   │   ├── skill-loader.ts       Skill Loader：扫描 .skills/**/SKILL.md
-│       │   │   ├── skill-selector.ts     Skill Selector：Top-K 相关性匹配
-│       │   │   └── skill-types.ts        Skill 类型定义
+│       │   │   ├── skill-selector.ts     Skill Selector：硬过滤 + 多信号加权评分 + imports 展开
+│       │   │   ├── skill-validator.ts    Skill Validator：frontmatter/imports/循环引用/文件引用校验
+│       │   │   └── skill-types.ts        Skill 类型定义（SkillMode/Triggers/Verification/Sections）
 │       │   ├── reflection/
 │       │   │   ├── reflectionEngine.ts   Reflection Engine：FailureAnalysis + RepairAction + ReflectionMemory
 │       │   │   └── reflection-agent.ts   Reflection Agent：条件触发反射（Verify 失败时触发）
@@ -59,6 +60,7 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 │       │   │   └── llm-provider.ts       统一 LLM 接口 / Unified LLM interface
 │       │   ├── context/
 │       │   │   ├── context-manager.ts    LSP 上下文管理（集成所有子模块）
+│       │   │   ├── context-budget.ts     Context Budget：统一预算管理，防止 Prompt 膨胀
 │       │   │   ├── contextBuilder.ts     增量/全量上下文构建
 │       │   │   ├── contextExpansion.ts   Context Expansion Engine：7 种关系静态扩展，预算驱动
 │       │   │   ├── symbolRetrieval.ts    Symbol Retrieval：全局符号空间检索
@@ -155,7 +157,8 @@ Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek*
 | 🧩 **Symbol Retrieval** | 全局符号空间检索，融合文件相关性与符号匹配度，按 intent 调整 kind 权重 |
 | 🔗 **Context Expansion Engine** | 7 种静态关系扩展（import/export/define/call/reference/implement/inherit），预算驱动剪枝 |
 | 📚 **Repo Knowledge Base** | 长期代码库知识库：Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files |
-| 🛠️ **Skill System** | Claude Code 风格的 Skill 系统：自动扫描 `.skills/**/SKILL.md`，基于关键词+tag 匹配选择 Top-3 相关 Skill，自动注入 Planner Prompt |
+| 🛠️ **Skill System** | Claude Code 风格的 Skill 系统：结构化 frontmatter（mode/priority/triggers/imports/verification）、硬过滤 + 7 信号加权评分、imports 递归展开、循环引用检测、Skill Validator 校验、4 个调试命令 |
+| 📏 **Context Budget** | 统一预算管理：按来源限制字符数（Skill 5K / File 6K / KeyCode 4K / 总计 24K），优先级驱动裁剪，防止 Prompt 膨胀 |
 | 🔄 **Reflection Loop** | 结构化 FailureAnalysis + RepairAction[] + ReflectionMemory，连续两轮无改善自动停止 |
 
 ### 支持的后端 / Supported Backends
@@ -255,6 +258,23 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v1.1.0 — 2026-06-12
+
+Skill 系统升级 + Context Budget / Skill System Upgrade + Context Budget
+
+#### ✨ 版本摘要 / Highlights
+- **Skill 系统完整升级**：结构化 frontmatter（description / mode / priority / triggers / imports / stop_if / verification）、Markdown sections 解析（Purpose / Workflow / Do / Do Not 等 9 个标准 section）
+- **Skill 选择算法升级**：硬过滤（stop_if / intents / file_globs）+ 7 信号加权软评分（名称 0.35 + 关键词 0.25 + 文件 0.20 + 标签 0.15 + 描述 0.15 + 符号 0.10 + 优先级 0.10），命中原因记录
+- **Skill imports 与组合**：imports 递归展开（最大深度 3）、循环引用检测（DFS）、导入 Skill 不占直接 Top-K
+- **Skill Validator**：校验 name / mode / priority / frontmatter 闭合 / imports 可解析 / 循环引用 / references 和 scripts 文件存在性
+- **4 个调试命令**：`Validate Skills` / `Reload Skills` / `Show Active Skills` / `Explain Skill Selection`
+- **Context Budget**：统一预算管理，按来源限制字符数（Skill 5K / File 6K / KeyCode 4K / Diagnostics 800 / 总计 24K），优先级驱动裁剪，防止 Prompt 膨胀
+- **Skill 选择移到 TaskUnderstanding 之后**：传入 taskType / currentFile / openFiles，提升选择精度
+- **示例 Skill**：`typescript-quality`（strict 模式）、`llm-provider`（imports typescript-quality）
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v0.7.0 — 2026-06-09
 

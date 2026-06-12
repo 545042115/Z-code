@@ -6,6 +6,7 @@ import { RepoMap } from './repoMap';
 import { HybridRetrieval } from './hybrid-retrieval';
 import { SymbolRetrieval } from './symbolRetrieval';
 import { ContextExpansionEngine, ContextNode, ExpansionResult } from './contextExpansion';
+import { BudgetManager, DEFAULT_BUDGET } from './context-budget';
 
 export interface ContextPackage {
   primaryFiles: string[];
@@ -161,64 +162,62 @@ export class ContextBuilder {
   }
 
   formatForPrompt(pkg: ContextPackage): string {
-    const parts: string[] = [];
+    const budgetMgr = new BudgetManager({
+      ...DEFAULT_BUDGET,
+      maxTotalChars: DEFAULT_BUDGET.maxContextPackageChars,
+    });
 
-    parts.push('## Repository Summary\n');
-    parts.push(pkg.repoSummary);
-    parts.push('');
+    // Repository Summary
+    if (pkg.repoSummary) {
+      budgetMgr.addChunk('repoKnowledge', 'Repository Summary', `## Repository Summary\n\n${pkg.repoSummary}`, { priority: 55 });
+    }
 
-    parts.push(`## Context: ${pkg.selectedFiles.length} files selected\n`);
-    parts.push(`Reason: ${pkg.reason}\n`);
+    // Context reason
+    budgetMgr.addChunk('contextPackage', 'Context Reason', `## Context: ${pkg.selectedFiles.length} files selected\nReason: ${pkg.reason}`, { priority: 80 });
 
+    // Primary Files
     if (pkg.primaryFiles.length > 0) {
-      parts.push('### Primary Files\n');
-      for (const f of pkg.primaryFiles) {
-        parts.push(`  📄 ${this.shortenPath(f)}`);
-      }
-      parts.push('');
+      const lines = pkg.primaryFiles.map(f => `  📄 ${this.shortenPath(f)}`);
+      budgetMgr.addChunk('file', 'Primary Files', `### Primary Files\n${lines.join('\n')}`, { priority: 65 });
     }
 
+    // Related Files
     if (pkg.relatedFiles.length > 0) {
-      parts.push('### Related Files (dependents)\n');
-      for (const f of pkg.relatedFiles) {
-        parts.push(`  📄 ${this.shortenPath(f)}`);
-      }
-      parts.push('');
+      const lines = pkg.relatedFiles.map(f => `  📄 ${this.shortenPath(f)}`);
+      budgetMgr.addChunk('file', 'Related Files', `### Related Files (dependents)\n${lines.join('\n')}`, { priority: 60 });
     }
 
+    // Dependency Files
     if (pkg.dependencyFiles.length > 0) {
-      parts.push('### Dependency Files\n');
-      for (const f of pkg.dependencyFiles) {
-        parts.push(`  📄 ${this.shortenPath(f)}`);
-      }
-      parts.push('');
+      const lines = pkg.dependencyFiles.map(f => `  📄 ${this.shortenPath(f)}`);
+      budgetMgr.addChunk('file', 'Dependency Files', `### Dependency Files\n${lines.join('\n')}`, { priority: 55 });
     }
 
-    parts.push('### Selected Files (full paths)\n');
-    for (const f of pkg.selectedFiles) {
-      parts.push(`  - \`${f}\``);
-    }
+    // Selected Files
+    const selectedLines = pkg.selectedFiles.map(f => `  - \`${f}\``);
+    budgetMgr.addChunk('contextPackage', 'Selected Files', `### Selected Files (full paths)\n${selectedLines.join('\n')}`, { priority: 70 });
 
+    // Expanded Symbols
     if (pkg.expandedNodes && pkg.expandedNodes.length > 0) {
-      parts.push('');
-      parts.push(`### Expanded Symbols (${pkg.expandedNodes.length} nodes)\n`);
-      for (const node of pkg.expandedNodes.slice(0, 20)) {
+      const lines = pkg.expandedNodes.slice(0, 20).map(node => {
         const depthLabel = node.depth === 0 ? 'P' : `${node.depth}H`;
-        parts.push(`  [${depthLabel}|${node.relation}] ${node.kind} ${node.symbolName} (${this.shortenPath(node.filePath)}:${node.line})`);
-      }
+        return `  [${depthLabel}|${node.relation}] ${node.kind} ${node.symbolName} (${this.shortenPath(node.filePath)}:${node.line})`;
+      });
+      budgetMgr.addChunk('symbol', 'Expanded Symbols', `### Expanded Symbols (${pkg.expandedNodes.length} nodes)\n${lines.join('\n')}`, { priority: 50 });
     }
 
+    // Git Context
     if (pkg.gitContext) {
-      parts.push('');
-      parts.push(pkg.gitContext);
+      budgetMgr.addChunk('git', 'Git Context', pkg.gitContext, { priority: 40 });
     }
 
+    // Verification Results
     if (pkg.verificationResults) {
-      parts.push('');
-      parts.push(pkg.verificationResults);
+      budgetMgr.addChunk('diagnostic', 'Verification Results', pkg.verificationResults, { priority: 70 });
     }
 
-    return parts.join('\n');
+    const allocation = budgetMgr.allocate();
+    return budgetMgr.buildPromptFromResult(allocation);
   }
 
   async buildIncremental(

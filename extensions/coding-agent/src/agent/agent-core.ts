@@ -8,6 +8,7 @@ import { EmbeddingManager } from '../embedding/embeddingManager';
 import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
 import { DiscoveryReport } from '../discovery/discovery';
 import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
+import { BudgetManager } from '../context/context-budget';
 import { ChangeImpactReport, ChangePlanInput } from '../change-impact/change-impact-analysis';
 import { ComplexityEstimate } from '../complexity/complexity-estimator';
 import { SelectedSkill } from '../skills/skill-types';
@@ -402,19 +403,6 @@ export class AgentCore {
         }
       }
 
-      // Skill Discovery Phase：自动发现并加载相关 Skill
-      let selectedSkills: SelectedSkill[] = [];
-      if (this.contextManager.skillManager) {
-        selectedSkills = this.contextManager.skillManager.select({
-          userRequest: userMessage,
-          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
-          topK: 3,
-        });
-        if (selectedSkills.length > 0) {
-          onStream(this.contextManager.skillManager.formatSummary(selectedSkills));
-        }
-      }
-
       // Task Understanding Phase：分类用户请求
       let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(userMessage, discoveryReport);
       if (taskUnderstanding) {
@@ -423,6 +411,22 @@ export class AgentCore {
           onStream('📄 约束: 需要新建文件\n');
         }
         onStream('\n');
+      }
+
+      // Skill Selection Phase：在 TaskUnderstanding 之后执行，传入 taskType
+      let selectedSkills: SelectedSkill[] = [];
+      if (this.contextManager.skillManager) {
+        selectedSkills = this.contextManager.skillManager.select({
+          userRequest: userMessage,
+          taskType: taskUnderstanding?.taskType,
+          currentFile: editorCtx.currentFile,
+          openFiles: editorCtx.openFiles,
+          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
+          topK: 3,
+        });
+        if (selectedSkills.length > 0) {
+          onStream(this.contextManager.skillManager.formatSummary(selectedSkills));
+        }
       }
 
       // Complexity Estimation Phase：评估任务复杂度，选择 Fast Path 或 Full Path
@@ -2572,7 +2576,89 @@ If revision needed:
     }
     dynamicParts.push(`## Latest User Request\n${request}`);
 
-    return [...staticParts, ...dynamicParts].join('\n\n');
+    // ── Context Budget Allocation ──────────────────────────────────────
+    // All static and dynamic parts go through BudgetManager to prevent
+    // Prompt bloat. Each part is tagged with a source and priority.
+    const budgetMgr = new BudgetManager();
+
+    // Static parts (higher priority: these are stable across turns)
+    for (const part of staticParts) {
+      if (!part || part.trim().length === 0) continue;
+      const source = this.classifyPartSource(part);
+      const priority = this.classifyPartPriority(source);
+      budgetMgr.addChunk(source, this.extractPartTitle(part), part, { priority });
+    }
+
+    // Dynamic parts (lower priority: these change per turn)
+    for (const part of dynamicParts) {
+      if (!part || part.trim().length === 0) continue;
+      const source = this.classifyPartSource(part);
+      const priority = this.classifyPartPriority(source);
+      budgetMgr.addChunk(source, this.extractPartTitle(part), part, { priority });
+    }
+
+    const allocation = budgetMgr.allocate();
+
+    // Log budget usage for debugging
+    if (allocation.excluded.length > 0 || allocation.trimLog.length > 0) {
+      console.log(`[BudgetManager] ${allocation.totalChars}/${allocation.budget.maxTotalChars} chars, excluded: ${allocation.excluded.length}, trimmed: ${allocation.trimLog.length}`);
+    }
+
+    return budgetMgr.buildPromptFromResult(allocation);
+  }
+
+  /**
+   * Classify a prompt part into a ContextSource based on content heuristics.
+   */
+  private classifyPartSource(part: string): import('../context/context-budget').ContextSource {
+    const lower = part.toLowerCase();
+    if (lower.startsWith('## key source code') || lower.includes('key source code')) return 'keyCode';
+    if (lower.startsWith('## context files') || lower.includes('context package')) return 'contextPackage';
+    if (lower.startsWith('## active skills') || lower.includes('active skill')) return 'skill';
+    if (lower.startsWith('## diagnostics')) return 'diagnostic';
+    if (lower.startsWith('## architecture summary') || lower.includes('architecture review')) return 'architecture';
+    if (lower.startsWith('## previous conversation') || lower.includes('memory')) return 'memory';
+    if (lower.startsWith('## module layers') || lower.includes('repo knowledge')) return 'repoKnowledge';
+    if (lower.startsWith('## git') || lower.includes('recent changes')) return 'git';
+    if (lower.startsWith('## project overview') || lower.startsWith('## project identity') || lower.startsWith('## project structure')) return 'projectInfo';
+    if (lower.startsWith('## stable guidance') || lower.startsWith('## task type') || lower.startsWith('## intent')) return 'guidance';
+    if (lower.startsWith('## semantically relevant')) return 'embedding';
+    if (lower.startsWith('## primary symbols') || lower.startsWith('## related symbols')) return 'symbol';
+    if (lower.startsWith('## active file') || lower.startsWith('## open files') || lower.startsWith('## selected code')) return 'file';
+    return 'other';
+  }
+
+  /**
+   * Assign a priority to a prompt part based on its source.
+   */
+  private classifyPartPriority(source: import('../context/context-budget').ContextSource): number {
+    const priorities: Record<string, number> = {
+      keyCode: 90,
+      contextPackage: 80,
+      skill: 75,
+      diagnostic: 70,
+      file: 65,
+      symbol: 60,
+      repoKnowledge: 55,
+      architecture: 50,
+      memory: 45,
+      git: 40,
+      projectInfo: 35,
+      guidance: 30,
+      embedding: 25,
+      plan: 20,
+      other: 10,
+    };
+    return priorities[source] ?? 50;
+  }
+
+  /**
+   * Extract a short title from a prompt part for budget logging.
+   */
+  private extractPartTitle(part: string): string {
+    const headingMatch = part.match(/^##\s+(.+)$/m);
+    if (headingMatch) return headingMatch[1].trim().slice(0, 60);
+    return part.slice(0, 40).replace(/\n/g, ' ').trim();
   }
 
   private buildTechStackSummary(context: IncrementalContext): string {

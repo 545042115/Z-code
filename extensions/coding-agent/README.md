@@ -60,7 +60,7 @@ Discovery → Skill Discovery → Task Understanding → Complexity Estimation
 ```
 
 - **Discovery**：深度代码库分析，基于 Symbol Retrieval + Context Expansion + Repo Knowledge 生成 Discovery Report（模块/文件/符号/风险/范围估计）
-- **Skill Discovery**：扫描 `.skills/**/SKILL.md`，选择 Top-K 相关 Skill 注入 Planner Prompt
+- **Skill Discovery**：扫描 `.skills/**/SKILL.md`，结构化 frontmatter 解析，硬过滤 + 7 信号加权评分，imports 递归展开，选择 Top-K 相关 Skill 注入 Planner Prompt
 - **Task Understanding**：将用户请求分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，提取约束条件
 - **Complexity Estimation**：评估任务复杂度（LOW / MEDIUM / HIGH），决定走 Fast Path 或 Full Path
 - **Architecture Review**：分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反
@@ -84,7 +84,8 @@ Discovery → Skill Discovery → Task Understanding → Complexity Estimation
 ### 当前版本新增机制
 
 - **Discovery Phase**：在 Planner 之前运行，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 生成结构化 Discovery Report，包含模块分析、风险分析、范围估计
-- **Skill System**：Claude Code 风格的 Skill 系统，自动扫描 `.skills/**/SKILL.md`，基于关键词+tag 匹配选择 Top-3 相关 Skill，自动注入 Planner Prompt
+- **Skill System**：Claude Code 风格的 Skill 系统，结构化 frontmatter（mode/priority/triggers/imports/verification），硬过滤 + 7 信号加权评分，imports 递归展开，循环引用检测，Skill Validator 校验
+- **Context Budget**：统一预算管理，按来源限制字符数（Skill 5K / File 6K / KeyCode 4K / 总计 24K），优先级驱动裁剪，防止 Prompt 膨胀
 - **Task Understanding**：意图分类模块，将用户请求自动分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，并提取约束条件
 - **Complexity Estimation**：评估任务复杂度（LOW / MEDIUM / HIGH），决定走 Fast Path（跳过 Architecture Review + Change Impact）还是 Full Path
 - **Architecture Review**：基于 Discovery 报告分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反，将结构化建议注入 Planner
@@ -350,6 +351,7 @@ extensions/coding-agent/
 │   │   └── llm-provider.ts           # 统一 LLM 接口
 │   ├── context/
 │   │   ├── context-manager.ts        # LSP 上下文管理（集成所有子模块）
+│   │   ├── context-budget.ts         # Context Budget：统一预算管理，防止 Prompt 膨胀
 │   │   ├── contextBuilder.ts         # 自动上下文构建（意图分析 + 增量/全量模式）
 │   │   ├── contextExpansion.ts       # Context Expansion Engine：7 种关系静态扩展，预算驱动
 │   │   ├── symbolRetrieval.ts        # Symbol Retrieval：全局符号空间检索
@@ -402,8 +404,34 @@ extensions/coding-agent/
 
 ## 更新日志 / Changelog
 
-> 说明 / Note  
+> 说明 / Note
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
+### v1.1.0 — 2026-06-12
+
+Skill 系统升级 + Context Budget / Skill System Upgrade + Context Budget
+
+#### ✨ 新特性 / New Features
+- **Skill 结构化 frontmatter**：SKILL.md 支持完整 frontmatter（description / mode / priority / triggers / imports / stop_if / verification），向后兼容旧格式
+- **Skill Markdown sections**：支持 9 个标准 section（Purpose / Workflow / Do / Do Not / Preferred Tools / Verification / References / Examples / Notes）+ 任意自定义 section
+- **Skill 选择算法升级**：硬过滤（stop_if / intents / file_globs / 缺少 name）+ 7 信号加权软评分（名称 0.35 + 关键词 0.25 + 文件 0.20 + 标签 0.15 + 描述 0.15 + 符号 0.10 + 优先级 0.10），阈值 0.15 + Top-K=3
+- **Skill imports 与组合**：imports 按名称/id 查找，递归展开（最大深度 3），循环引用检测（DFS），导入 Skill 不占直接 Top-K（最多 3 个），Prompt 标明 "Imported by: xxx"
+- **Skill Validator**：校验 name / mode / priority / frontmatter 闭合 / imports 可解析 / 循环引用 / references 和 scripts 文件存在性
+- **4 个调试命令**：`Coding Agent: Validate Skills` / `Coding Agent: Reload Skills` / `Coding Agent: Show Active Skills` / `Coding Agent: Explain Skill Selection`
+- **Context Budget**：统一预算管理模块（`context-budget.ts`），按来源限制字符数（Skill 5K / File 6K / KeyCode 4K / ContextPackage 4K / RepoKnowledge 3K / Architecture 2K / Memory 2K / Guidance 2K / Diagnostics 800 / 总计 24K），优先级驱动裁剪，支持 trimLog 和 allocationSummary
+- **Skill 选择移到 TaskUnderstanding 之后**：agent-core.ts 和 agent-loop.ts 均传入 taskType / currentFile / openFiles，提升选择精度
+- **示例 Skill**：`.skills/typescript-quality/SKILL.md`（strict 模式）、`.skills/llm-provider/SKILL.md`（imports typescript-quality）、`.skills/llm-provider/references/provider-contract.md`
+
+#### 🔧 优化 / Improvements
+- **Skill Prompt 注入升级**：结构化 Prompt 格式（Active Skills 标题 + strict 优先 → advisory → imported），每个 Skill 显示 Mode + Score + Reasons
+- **contextBuilder.formatForPrompt**：使用 BudgetManager 替代简单 join，每个 section 按来源和优先级注册
+- **skill-manager.getPrompt**：使用 BudgetManager 替代手动字符累加，imported Skill 优先级降为 40
+- **agent-core.buildPipelinePrompt**：所有 staticParts 和 dynamicParts 通过 BudgetManager 分配，新增 classifyPartSource / classifyPartPriority / extractPartTitle 辅助方法
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **新增模块**：`src/context/context-budget.ts`、`src/skills/skill-validator.ts`
+- **类型扩展**：`Skill` 接口增加 id / description / priority / mode / triggers / stopIf / imports / toolsAllow / verification / sections / rootDir；`SelectedSkill` 增加 skill / reasons / importedBy
+- **内置 glob 匹配**：不依赖 minimatch，使用正则实现
 
 ### v0.6.0 — 2026-06-07
 

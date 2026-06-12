@@ -120,24 +120,24 @@ export class AgentLoop {
         }
       }
 
-      // ── SKILL DISCOVERY ──────────────────────────────────────────────────
+      // ── TASK UNDERSTANDING ───────────────────────────────────────────────
+      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(currentTask, discoveryReport);
+      if (taskUnderstanding) {
+        console.log(`[AgentLoop] Task Understanding: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% confidence)`);
+      }
+
+      // ── SKILL SELECTION (after TaskUnderstanding) ───────────────────────
       let selectedSkills: SelectedSkill[] = [];
       if (this.contextManager.skillManager) {
         selectedSkills = this.contextManager.skillManager.select({
           userRequest: currentTask,
-          taskType: undefined, // will be set after TaskUnderstanding
+          taskType: taskUnderstanding?.taskType,
           discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
           topK: 3,
         });
         if (selectedSkills.length > 0) {
           console.log(`[AgentLoop] Skills loaded: ${selectedSkills.map(s => s.name).join(', ')}`);
         }
-      }
-
-      // ── TASK UNDERSTANDING ───────────────────────────────────────────────
-      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(currentTask, discoveryReport);
-      if (taskUnderstanding) {
-        console.log(`[AgentLoop] Task Understanding: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% confidence)`);
       }
 
       // ── COMPLEXITY ESTIMATION ────────────────────────────────────────────

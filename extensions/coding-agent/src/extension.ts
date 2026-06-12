@@ -14,6 +14,7 @@ import { GitContextDebugger } from './debug/git-context-debugger';
 import { VerificationDebugger } from './debug/verification-debugger';
 import { AgentLoopDebugger } from './debug/agent-loop-debugger';
 import { ToolUsageAnalyzer } from './debug/tool-usage-analyzer';
+import { SkillValidator } from './skills/skill-validator';
 
 /**
  * Coding Agent 扩展入口
@@ -336,6 +337,116 @@ function registerCommands(context: vscode.ExtensionContext) {
       });
       await vscode.window.showTextDocument(doc, {
         preview: false,
+        viewColumn: vscode.ViewColumn.Two,
+      });
+    }),
+
+    // ========== Skill Management Commands ==========
+
+    // Validate Skills: check all SKILL.md files for issues
+    vscode.commands.registerCommand('codingAgent.validateSkills', async () => {
+      if (!contextManager.skillManager) {
+        vscode.window.showWarningMessage('Skill manager not initialized.');
+        return;
+      }
+
+      const skills = contextManager.skillManager.getAllSkills();
+      if (skills.length === 0) {
+        vscode.window.showInformationMessage('No skills found in .skills/ directory.');
+        return;
+      }
+
+      const validator = new SkillValidator();
+      const result = validator.validateAll(skills);
+      const report = validator.formatResult(result);
+
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'markdown',
+        content: `# Skill Validation Report\n\n${report}`,
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: true,
+        viewColumn: vscode.ViewColumn.Two,
+      });
+    }),
+
+    // Reload Skills: force refresh the skill index
+    vscode.commands.registerCommand('codingAgent.reloadSkills', async () => {
+      if (!contextManager.skillManager) {
+        vscode.window.showWarningMessage('Skill manager not initialized.');
+        return;
+      }
+
+      contextManager.skillManager.invalidateCache();
+      const skills = contextManager.skillManager.getAllSkills();
+      vscode.window.showInformationMessage(`Skills reloaded: ${skills.length} skill(s) found.`);
+    }),
+
+    // Show Active Skills: display all discovered skills
+    vscode.commands.registerCommand('codingAgent.showActiveSkills', async () => {
+      if (!contextManager.skillManager) {
+        vscode.window.showWarningMessage('Skill manager not initialized.');
+        return;
+      }
+
+      const skills = contextManager.skillManager.getAllSkills();
+      if (skills.length === 0) {
+        vscode.window.showInformationMessage('No skills found in .skills/ directory.');
+        return;
+      }
+
+      const items = skills.map(s => ({
+        label: s.name,
+        description: `priority: ${s.priority}, mode: ${s.mode}`,
+        detail: s.description || s.tags.join(', '),
+      }));
+
+      await vscode.window.showQuickPick(items, {
+        placeHolder: `Found ${skills.length} skill(s)`,
+      });
+    }),
+
+    // Explain Skill Selection: explain why a skill was/wasn't selected
+    vscode.commands.registerCommand('codingAgent.explainSkillSelection', async () => {
+      if (!contextManager.skillManager) {
+        vscode.window.showWarningMessage('Skill manager not initialized.');
+        return;
+      }
+
+      const skills = contextManager.skillManager.getAllSkills();
+      if (skills.length === 0) {
+        vscode.window.showInformationMessage('No skills found in .skills/ directory.');
+        return;
+      }
+
+      const skillItems = skills.map(s => ({
+        label: s.name,
+        description: s.id,
+      }));
+
+      const selectedSkill = await vscode.window.showQuickPick(skillItems, {
+        placeHolder: 'Select a skill to explain',
+      });
+
+      if (!selectedSkill) return;
+
+      const userInput = await vscode.window.showInputBox({
+        prompt: 'Enter a user request to simulate skill selection',
+        placeHolder: 'e.g., "帮我重构这个 React 组件"',
+      });
+
+      if (!userInput) return;
+
+      const explanation = contextManager.skillManager.explainSelection(selectedSkill.description, {
+        userRequest: userInput,
+      });
+
+      const doc = await vscode.workspace.openTextDocument({
+        language: 'markdown',
+        content: `# Skill Selection Explanation\n\nSkill: **${selectedSkill.label}**\nRequest: "${userInput}"\n\n${explanation}`,
+      });
+      await vscode.window.showTextDocument(doc, {
+        preview: true,
         viewColumn: vscode.ViewColumn.Two,
       });
     })
