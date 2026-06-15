@@ -86,6 +86,8 @@ Discovery → Skill Discovery → Task Understanding → Complexity Estimation
 - **Discovery Phase**：在 Planner 之前运行，基于 Symbol Retrieval + Context Expansion + RepoGraph + DependencyGraph 生成结构化 Discovery Report，包含模块分析、风险分析、范围估计
 - **Skill System**：Claude Code 风格的 Skill 系统，结构化 frontmatter（mode/priority/triggers/imports/verification），硬过滤 + 7 信号加权评分，imports 递归展开，循环引用检测，Skill Validator 校验
 - **Context Budget**：统一预算管理，按来源限制字符数（Skill 5K / File 6K / KeyCode 4K / 总计 24K），优先级驱动裁剪，防止 Prompt 膨胀
+- **AgentPipeline**：统一前置分析流水线，8 阶段按序执行，AgentCore 和 AgentLoop 共用，确保前置分析结果一致
+- **EditTransaction**：编辑事务化，多文件修改绑定统一事务 ID，快照捕获 + 冲突检测 + 按事务回滚 + 验证结果绑定
 - **Task Understanding**：意图分类模块，将用户请求自动分类为 CREATE / MODIFY / REFACTOR / REPLACE / MIGRATE / ANALYZE，并提取约束条件
 - **Complexity Estimation**：评估任务复杂度（LOW / MEDIUM / HIGH），决定走 Fast Path（跳过 Architecture Review + Change Impact）还是 Full Path
 - **Architecture Review**：基于 Discovery 报告分析是否需要拆函数、拆类、新增文件、更新引用，检测单一职责原则违反，将结构化建议注入 Planner
@@ -333,6 +335,8 @@ extensions/coding-agent/
 │   │   │                            (Pipeline: Discovery → Plan → Memory → Embedding → RepoGraph → Context → LLM)
 │   │   │                            (ReAct Loop: THINK → ACT → OBSERVE → VERIFIER → REFLECT → REPLAN)
 │   │   ├── agent-loop.ts             # Agent 执行循环（Discovery → Plan → Execute → Verify → Reflect → Replan）
+│   │   ├── agent-pipeline.ts         # 统一前置分析流水线（8 阶段，AgentCore 和 AgentLoop 共用）
+│   │   ├── pipeline-types.ts         # Pipeline 类型定义
 │   │   └── verifier.ts               # 自动化验证（tsc --noEmit / eslint / npm test）
 │   ├── discovery/
 │   │   └── discovery.ts              # Discovery Phase：深度发现引擎（模块/文件/符号/风险/范围）
@@ -372,6 +376,9 @@ extensions/coding-agent/
 │   │   └── inline-completion.ts      # Tab 补全和行内编辑
 │   ├── utils/
 │   │   └── diff-engine.ts            # Diff 引擎
+│   ├── edit/
+│   │   ├── edit-transaction.ts       # EditTransaction：事务模型（FileSnapshot/TransactionStatus）
+│   │   └── edit-transaction-manager.ts # EditTransactionManager：事务创建/应用/回滚/冲突检测
 │   └── extension.ts                  # 扩展入口
 ├── package.json
 ├── tsconfig.json
@@ -406,6 +413,33 @@ extensions/coding-agent/
 
 > 说明 / Note
 > 更新日志按发布日期归档，同一天内的功能、优化与修复合并到同一个版本条目。
+
+### v1.2.0 — 2026-06-15
+
+AgentPipeline + EditTransaction / Unified Pipeline & Edit Transactions
+
+#### ✨ 新特性 / New Features
+- **AgentPipeline**：提取 AgentCore 和 AgentLoop 的共享前置分析流水线为独立模块（`agent-pipeline.ts` + `pipeline-types.ts`），8 阶段按序执行：Discovery → TaskUnderstanding → SkillSelection → ComplexityEstimation → ArchitectureReview → ChangeImpactAnalysis → Planning → ContextSetup
+- **EditTransaction**：编辑事务化，多文件修改绑定统一事务 ID（`edit-transaction.ts` + `edit-transaction-manager.ts`）
+  - FileSnapshot：捕获文件编辑前状态（existed / content / contentHash）
+  - 冲突检测：应用前检查 contentHash 是否与快照一致
+  - 按事务回滚：`revert(txnId)` 一次恢复所有文件快照 + 写后验证
+  - 验证结果绑定：`setVerificationResults(txnId, results)` 绑定到事务
+  - 9 种事务状态：planned → applying → applied → verifying → verified → reverting → reverted / failed / conflict
+  - 事件系统：TransactionEvent 支持监听事务生命周期
+
+#### 🔧 优化 / Improvements
+- **AgentCore 重构**：~100 行内联预分析代码替换为 `pipeline.run()`，Planner steps 不再重复执行
+- **AgentLoop 重构**：~70 行内联预分析代码替换为 `pipeline.run()`，清理 5 个未使用 import
+- **AgentLoop 修复**：通过 Pipeline 统一修复 3 处参数缺失问题
+  - `contextBuilder.build` 现在传入 `currentFile`
+  - `skillManager.select` 现在传入 `currentFile` + `openFiles`
+  - `context.currentFile` 现在自动设置
+
+#### 🏗️ 技术升级 / Technical Upgrades
+- **新增模块**：`src/agent/agent-pipeline.ts`、`src/agent/pipeline-types.ts`、`src/edit/edit-transaction.ts`、`src/edit/edit-transaction-manager.ts`
+- **AgentCore 新增字段**：`editTxnManager: EditTransactionManager` + `getEditTransactionManager()` getter
+- **PipelineOutput 类型**：统一输出 discoveryReport / taskUnderstanding / selectedSkills / complexityEstimate / architectureReview / changeImpactReport / plan / context
 
 ### v1.1.0 — 2026-06-12
 

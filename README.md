@@ -11,7 +11,7 @@
 > AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
 > AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
 >
-> **当前版本 / Current Version: v1.1.0**
+> **当前版本 / Current Version: v1.2.0**
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
@@ -258,6 +258,18 @@ npm run compile
 ---
 
 ## 更新日志 / Changelog
+
+### v1.2.0 — 2026-06-15
+
+AgentPipeline + EditTransaction / Unified Pipeline & Edit Transactions
+
+#### ✨ 版本摘要 / Highlights
+- **AgentPipeline**：提取 AgentCore 和 AgentLoop 的共享前置分析流水线为独立模块，8 阶段按序执行（Discovery → TaskUnderstanding → SkillSelection → ComplexityEstimation → ArchitectureReview → ChangeImpactAnalysis → Planning → ContextSetup），确保 UI 模式和 Loop 模式对同一请求的前置分析结果一致
+- **EditTransaction**：编辑事务化，多文件修改绑定统一事务 ID，支持快照捕获（FileSnapshot）、冲突检测（contentHash）、按事务回滚、验证结果绑定，9 种事务状态（planned → applying → applied → verifying → verified → reverting → reverted / failed / conflict）
+- **AgentLoop 修复**：通过 AgentPipeline 统一修复了 AgentLoop 的 3 处参数缺失问题（contextBuilder.build 缺少 currentFile、skillManager.select 缺少 currentFile/openFiles、context.currentFile 未设置）
+
+#### 📚 详细说明 / Full Notes
+- 详细安装、使用方式与完整更新日志，请查看 [extensions/coding-agent/README.md](file:///d:/mycode/Z%20Code/extensions/coding-agent/README.md)
 
 ### v1.1.0 — 2026-06-12
 

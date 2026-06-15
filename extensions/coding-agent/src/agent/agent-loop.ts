@@ -3,14 +3,11 @@ import { ToolRegistry } from '../tools/tool-registry';
 import { Planner, ExecutionPlan, IncrementalContext, PlanStep } from '../planner/planner';
 import { RuntimeVerifier, VerificationResult } from '../verifier/runtime-verifier';
 import { ContextManager } from '../context/context-manager';
-import { DiscoveryReport } from '../discovery/discovery';
-import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
+import { AgentPipeline } from './agent-pipeline';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { ToolUsageAnalyzer } from '../debug/tool-usage-analyzer';
 import { ReflectionEngine, ReflectionReport } from '../reflection/reflectionEngine';
 import { ReflectionAgent, ReflectionRecord, ToolResult, ReflectionOutput, ReflectionInput } from '../reflection/reflection-agent';
-import { ChangeImpactReport, ChangeImpactAnalysis, ChangePlanInput } from '../change-impact/change-impact-analysis';
-import { ComplexityEstimate } from '../complexity/complexity-estimator';
 import { SelectedSkill } from '../skills/skill-types';
 
 export type LoopState = 'PLAN' | 'EXECUTE' | 'VERIFY' | 'REFLECT' | 'REPLAN' | 'COMPLETE' | 'FAILED';
@@ -107,88 +104,20 @@ export class AgentLoop {
       const attemptStart = Date.now();
       console.log(`[AgentLoop] Attempt ${attempt}/${maxCycles} for task: ${task.slice(0, 60)}`);
 
-      // ── DISCOVERY ────────────────────────────────────────────────────────
-      let discoveryReport: DiscoveryReport | undefined;
-      if (this.contextManager.discoveryPhase) {
-        try {
-          const intent = this.planner.classifyIntent(currentTask);
-          const contextPackage = await this.contextManager.contextBuilder.build(currentTask);
-          discoveryReport = await this.contextManager.discoveryPhase.run(currentTask, contextPackage, intent);
-          console.log(`[AgentLoop] Discovery: ${discoveryReport?.summary}`);
-        } catch (err) {
-          console.warn('[AgentLoop] Discovery phase failed:', err);
-        }
-      }
+      // ── UNIFIED PRE-ANALYSIS PIPELINE ──────────────────────────────────
+      // All pre-analysis stages are handled by AgentPipeline.
+      const pipeline = new AgentPipeline(this.contextManager);
+      const pipelineResult = await pipeline.run({
+        userRequest: currentTask,
+        sessionId: `loop-${Date.now()}`,
+        editorContext: {
+          currentFile: undefined,
+          openFiles: [],
+          diagnostics: [],
+        },
+      });
 
-      // ── TASK UNDERSTANDING ───────────────────────────────────────────────
-      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(currentTask, discoveryReport);
-      if (taskUnderstanding) {
-        console.log(`[AgentLoop] Task Understanding: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% confidence)`);
-      }
-
-      // ── SKILL SELECTION (after TaskUnderstanding) ───────────────────────
-      let selectedSkills: SelectedSkill[] = [];
-      if (this.contextManager.skillManager) {
-        selectedSkills = this.contextManager.skillManager.select({
-          userRequest: currentTask,
-          taskType: taskUnderstanding?.taskType,
-          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
-          topK: 3,
-        });
-        if (selectedSkills.length > 0) {
-          console.log(`[AgentLoop] Skills loaded: ${selectedSkills.map(s => s.name).join(', ')}`);
-        }
-      }
-
-      // ── COMPLEXITY ESTIMATION ────────────────────────────────────────────
-      let complexityEstimate: ComplexityEstimate | undefined;
-      if (this.contextManager.complexityEstimator && taskUnderstanding) {
-        complexityEstimate = this.contextManager.complexityEstimator.estimate(currentTask, taskUnderstanding);
-        console.log(`[AgentLoop] Complexity: ${complexityEstimate.level.toUpperCase()} (${complexityEstimate.fastPathEligible ? 'Fast Path' : 'Full Path'})`);
-      }
-
-      // ── ARCHITECTURE REVIEW (Full Path only) ─────────────────────────────
-      let architectureReview: ArchitectureReviewReport | undefined;
-      if (!complexityEstimate?.fastPathEligible && this.contextManager.architectureReview && discoveryReport && taskUnderstanding) {
-        try {
-          architectureReview = this.contextManager.architectureReview.review(discoveryReport, taskUnderstanding);
-          console.log(`[AgentLoop] Architecture Review: ${architectureReview.rationale}`);
-        } catch (err) {
-          console.warn('[AgentLoop] Architecture review failed:', err);
-        }
-      }
-
-      // ── CHANGE IMPACT ANALYSIS (Full Path only) ──────────────────────────
-      let changeImpactReport: ChangeImpactReport | undefined;
-      if (!complexityEstimate?.fastPathEligible && this.contextManager.changeImpactAnalysis && discoveryReport && taskUnderstanding) {
-        try {
-          const changeInput: ChangePlanInput = {
-            userRequest: currentTask,
-            taskType: taskUnderstanding.taskType,
-            taskUnderstanding,
-            architectureReview: architectureReview || { shouldSplitFunction: false, shouldExtractClass: false, shouldAddNewFile: false, shouldUpdateReferences: false, violatesSingleResponsibility: false, suggestions: [], recommendedFiles: [], rationale: 'no review' },
-            discoveryReport,
-          };
-          changeImpactReport = this.contextManager.changeImpactAnalysis.analyze(changeInput);
-          console.log(`[AgentLoop] Change Impact: ${changeImpactReport.directImpactFiles.length} direct + ${changeImpactReport.indirectImpactFiles.length} indirect files, confidence=${Math.round(changeImpactReport.confidence * 100)}%`);
-        } catch (err) {
-          console.warn('[AgentLoop] Change impact analysis failed:', err);
-        }
-      }
-
-      // ── PLAN ─────────────────────────────────────────────────────────────
-      const plan = this.planner.create(currentTask, `loop-${Date.now()}`, discoveryReport, taskUnderstanding, architectureReview, changeImpactReport, complexityEstimate);
-      const context = plan.context;
-
-      // 若 Discovery 已构建 contextPackage，直接复用
-      if (discoveryReport?.contextPackage) {
-        context.contextPackage = discoveryReport.contextPackage;
-      }
-
-      // Execute planner steps (context building)
-      for (const step of plan.steps) {
-        await this.planner.executeStep(step, currentTask, `loop-${Date.now()}`, context, plan.searchTerms, discoveryReport);
-      }
+      const { discoveryReport, taskUnderstanding, selectedSkills, complexityEstimate, architectureReview, changeImpactReport, plan, context } = pipelineResult;
 
       // ── EXECUTE ──────────────────────────────────────────────────────────
       const { output, toolCalls, modifiedFiles, iterations, terminatedCorrectly } = await this.runExecutionLoop(

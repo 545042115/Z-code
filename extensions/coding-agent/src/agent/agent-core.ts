@@ -9,6 +9,8 @@ import { Planner, ExecutionPlan, IncrementalContext } from '../planner/planner';
 import { DiscoveryReport } from '../discovery/discovery';
 import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
 import { BudgetManager } from '../context/context-budget';
+import { AgentPipeline } from './agent-pipeline';
+import { EditTransactionManager } from '../edit/edit-transaction-manager';
 import { ChangeImpactReport, ChangePlanInput } from '../change-impact/change-impact-analysis';
 import { ComplexityEstimate } from '../complexity/complexity-estimator';
 import { SelectedSkill } from '../skills/skill-types';
@@ -296,6 +298,8 @@ export class AgentCore {
   private pendingSubTaskForReflect: string | null = null;
   private agentLoop?: AgentLoop;
   private toolUsageAnalyzer?: ToolUsageAnalyzer;
+  private pipeline: AgentPipeline;
+  private editTxnManager: EditTransactionManager;
 
   getAgentLoop(): AgentLoop | undefined {
     return this.agentLoop;
@@ -303,6 +307,9 @@ export class AgentCore {
 
   getToolUsageAnalyzer(): ToolUsageAnalyzer | undefined {
     return this.toolUsageAnalyzer;
+  }
+  getEditTransactionManager(): EditTransactionManager {
+    return this.editTxnManager;
   }
   private compactMode: boolean = false;
   private deferEditApplication: boolean = false;
@@ -343,6 +350,8 @@ export class AgentCore {
     this.diffEngine = new DiffEngine();
     this.verifier = new Verifier();
     this.toolUsageAnalyzer = new ToolUsageAnalyzer(this.tools);
+    this.pipeline = new AgentPipeline(this.contextManager);
+    this.editTxnManager = new EditTransactionManager(this.diffEngine);
     this.agentLoop = new AgentLoop(
       this.llm,
       this.contextManager.planner,
@@ -383,121 +392,29 @@ export class AgentCore {
 
     try {
       const sessionId = sessionIdOverride || this.getSessionId();
-      const planner = this.contextManager.planner;
-      const memoryManager = this.contextManager.memoryManager;
       const editorCtx = await this.contextManager.gatherContext();
 
-      // Discovery Phase：在 Plan 之前执行深度发现
-      let discoveryReport: DiscoveryReport | undefined;
-      if (this.contextManager.discoveryPhase) {
-        try {
-          onStream('🔍 正在分析代码库...\n');
-          const intent = this.contextManager.planner.classifyIntent(userMessage);
-          const contextPackage = await this.contextManager.contextBuilder.build(userMessage, editorCtx.currentFile);
-          discoveryReport = await this.contextManager.discoveryPhase.run(userMessage, contextPackage, intent);
-          if (discoveryReport) {
-            onStream(`📊 ${discoveryReport.summary}\n\n`);
-          }
-        } catch (err) {
-          console.warn('[Discovery] Phase failed:', err);
-        }
-      }
+      // ── Unified Pre-Analysis Pipeline ────────────────────────────────
+      // All pre-analysis stages (Discovery → TaskUnderstanding → SkillSelection
+      // → ComplexityEstimation → ArchitectureReview → ChangeImpactAnalysis
+      // → Planner → ContextSetup) are handled by AgentPipeline.
+      onStream('🔍 正在分析代码库...\n');
+      const pipelineResult = await this.pipeline.run({
+        userRequest: userMessage,
+        sessionId,
+        editorContext: editorCtx,
+        onProgress: onStream,
+      });
 
-      // Task Understanding Phase：分类用户请求
-      let taskUnderstanding = this.contextManager.taskUnderstanding?.analyze(userMessage, discoveryReport);
-      if (taskUnderstanding) {
-        onStream(`🎯 任务类型: ${taskUnderstanding.taskType} (${Math.round(taskUnderstanding.confidence * 100)}% 置信度)\n`);
-        if (taskUnderstanding.constraints.requireNewFile) {
-          onStream('📄 约束: 需要新建文件\n');
-        }
-        onStream('\n');
-      }
+      const { discoveryReport, taskUnderstanding, selectedSkills, complexityEstimate, architectureReview, changeImpactReport, plan, context } = pipelineResult;
 
-      // Skill Selection Phase：在 TaskUnderstanding 之后执行，传入 taskType
-      let selectedSkills: SelectedSkill[] = [];
-      if (this.contextManager.skillManager) {
-        selectedSkills = this.contextManager.skillManager.select({
-          userRequest: userMessage,
-          taskType: taskUnderstanding?.taskType,
-          currentFile: editorCtx.currentFile,
-          openFiles: editorCtx.openFiles,
-          discoveryReport: discoveryReport ? { involvedFiles: discoveryReport.involvedFiles, relatedSymbols: discoveryReport.relatedSymbols } : undefined,
-          topK: 3,
-        });
-        if (selectedSkills.length > 0) {
-          onStream(this.contextManager.skillManager.formatSummary(selectedSkills));
-        }
-      }
-
-      // Complexity Estimation Phase：评估任务复杂度，选择 Fast Path 或 Full Path
-      let complexityEstimate: ComplexityEstimate | undefined;
-      if (this.contextManager.complexityEstimator && taskUnderstanding) {
-        complexityEstimate = this.contextManager.complexityEstimator.estimate(userMessage, taskUnderstanding);
-        onStream(`${this.contextManager.complexityEstimator.format(complexityEstimate)}\n`);
-        if (complexityEstimate.fastPathEligible) {
-          onStream('⚡ 使用 Fast Path：跳过 Architecture Review 和 Change Impact Analysis\n\n');
-        } else {
-          onStream('🔍 使用 Full Path：执行完整分析流程\n\n');
-        }
-      }
-
-      // Architecture Review Phase（Full Path only）：分析是否需要结构变更
-      let architectureReview: ArchitectureReviewReport | undefined;
-      if (!complexityEstimate?.fastPathEligible && this.contextManager.architectureReview && discoveryReport && taskUnderstanding) {
-        try {
-          architectureReview = this.contextManager.architectureReview.review(discoveryReport, taskUnderstanding);
-          if (architectureReview.suggestions.length > 0) {
-            onStream(`🏗️ 架构建议: ${architectureReview.suggestions.length} 条\n`);
-            for (const s of architectureReview.suggestions.slice(0, 3)) {
-              onStream(`   ${s.priority === 'high' ? '🔴' : s.priority === 'medium' ? '🟡' : '🟢'} ${s.description}\n`);
-            }
-            onStream('\n');
-          }
-        } catch (err) {
-          console.warn('[ArchitectureReview] Phase failed:', err);
-        }
-      }
-
-      // Change Impact Analysis Phase（Full Path only）：分析修改影响范围
-      let changeImpactReport: ChangeImpactReport | undefined;
-      if (!complexityEstimate?.fastPathEligible && this.contextManager.changeImpactAnalysis && discoveryReport && taskUnderstanding) {
-        try {
-          const changeInput: ChangePlanInput = {
-            userRequest: userMessage,
-            taskType: taskUnderstanding.taskType,
-            taskUnderstanding,
-            architectureReview: architectureReview || { shouldSplitFunction: false, shouldExtractClass: false, shouldAddNewFile: false, shouldUpdateReferences: false, violatesSingleResponsibility: false, suggestions: [], recommendedFiles: [], rationale: 'no review' },
-            discoveryReport,
-          };
-          changeImpactReport = this.contextManager.changeImpactAnalysis.analyze(changeInput);
-          onStream(`📊 影响分析: ${changeImpactReport.directImpactFiles.length} 个直接文件, ${changeImpactReport.indirectImpactFiles.length} 个间接文件\n`);
-          onStream(`   置信度: ${Math.round(changeImpactReport.confidence * 100)}%`);
-          if (changeImpactReport.entryPointRisk) {
-            onStream(' | ⚠️ 触及入口点');
-          }
-          onStream('\n');
-          if (changeImpactReport.testCoverageGap.length > 0) {
-            onStream(`   测试缺口: ${changeImpactReport.testCoverageGap.length} 个文件无测试覆盖\n`);
-          }
-          onStream('\n');
-        } catch (err) {
-          console.warn('[ChangeImpact] Phase failed:', err);
-        }
-      }
-
-      const plan = planner.create(userMessage, sessionId, discoveryReport, taskUnderstanding, architectureReview, changeImpactReport, complexityEstimate);
+      // Search Terms generation (AgentCore-specific, requires LLM call)
       plan.searchTerms = await this.generateSearchTerms(userMessage, plan.intent);
       console.log(`[QueryRewrite] Final searchTerms: ${JSON.stringify(plan.searchTerms)}`);
       this.activeIntent = plan.intent;
       this.activeUserMessage = userMessage;
-      const context = plan.context;
-      context.currentFile = editorCtx.currentFile;
 
-      // 若 Discovery 已构建 contextPackage，直接复用，避免重复构建
-      if (discoveryReport?.contextPackage) {
-        context.contextPackage = discoveryReport.contextPackage;
-      }
-
+      // Execution Route Decision (AgentCore-specific, requires LLM call)
       const route = await this.decideExecutionRoute(userMessage, plan.intent, editorCtx, sessionId, discoveryReport);
       this.currentExecutionMode = route.mode;
       this.compactMode = route.mode === 'compact';
@@ -507,12 +424,7 @@ export class AgentCore {
       let contextMessage = '';
       if (route.mode === 'full') {
         onStream('正在准备上下文...\n');
-        for (const step of plan.steps) {
-          const result = await planner.executeStep(step, userMessage, sessionId, context, plan.searchTerms, discoveryReport);
-          if (result.status !== 'completed') {
-            console.warn(`Planner step failed: ${step.description}`);
-          }
-        }
+        // Planner steps already executed by AgentPipeline
         contextMessage = await this.buildPipelinePrompt(userMessage, plan, context, editorCtx);
       } else {
         contextMessage = this.buildCompactPrompt(userMessage, plan.intent, editorCtx, plan.taskType, plan.architectureReview);
@@ -538,9 +450,9 @@ export class AgentCore {
           onStream('\n');
         }
         this.messageHistory.push({ role: 'assistant', content: answer });
-        memoryManager.addEntry(sessionId, 'user', userMessage, plan.intent);
-        memoryManager.addEntry(sessionId, 'assistant', answer, plan.intent);
-        memoryManager.addEntry(sessionId, 'context', plan.summary, plan.intent);
+        this.contextManager.memoryManager.addEntry(sessionId, 'user', userMessage, plan.intent);
+        this.contextManager.memoryManager.addEntry(sessionId, 'assistant', answer, plan.intent);
+        this.contextManager.memoryManager.addEntry(sessionId, 'context', plan.summary, plan.intent);
         return;
       }
 
@@ -606,15 +518,15 @@ export class AgentCore {
       }
 
       // 保存记忆
-      memoryManager.addEntry(sessionId, 'user', userMessage, plan.intent);
+      this.contextManager.memoryManager.addEntry(sessionId, 'user', userMessage, plan.intent);
       const finalAssistantMessage = this.messageHistory
         .slice()
         .reverse()
         .find(m => m.role === 'assistant' && m.content && m.content !== 'undefined');
       if (finalAssistantMessage?.content) {
-        memoryManager.addEntry(sessionId, 'assistant', finalAssistantMessage.content, plan.intent);
+        this.contextManager.memoryManager.addEntry(sessionId, 'assistant', finalAssistantMessage.content, plan.intent);
       }
-      memoryManager.addEntry(sessionId, 'context', plan.summary, plan.intent);
+      this.contextManager.memoryManager.addEntry(sessionId, 'context', plan.summary, plan.intent);
     } catch (err) {
       throw err;
     } finally {
