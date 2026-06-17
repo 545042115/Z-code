@@ -15,6 +15,16 @@ import { VerificationDebugger } from './debug/verification-debugger';
 import { AgentLoopDebugger } from './debug/agent-loop-debugger';
 import { ToolUsageAnalyzer } from './debug/tool-usage-analyzer';
 import { SkillValidator } from './skills/skill-validator';
+import { TraceManager } from './trace';
+import { createFileStore } from './infra/storage';
+import { TracePanel } from './trace-ui/trace-panel';
+import { AgentRegistry } from './multi-agent/agent-registry';
+import { Orchestrator, registerExampleAgents, PromptedAgent } from './multi-agent';
+import { AgentLoopAdapter } from './multi-agent/agent-loop-adapter';
+import { BudgetGuard } from './infra/cost/budget';
+import { loadConfig } from './infra/config/config-center';
+import { EvolutionPanel } from './evolution/evolution-panel';
+import { EvaluationsPanel } from './evaluation/evaluations-panel';
 
 /**
  * Coding Agent 扩展入口
@@ -35,6 +45,7 @@ let chatViewProvider: ChatViewProvider | undefined;
 export async function activate(context: vscode.ExtensionContext) {
   try {
     console.log('Coding Agent extension activating...');
+    _extensionContext = context;
 
     // 初始化配置管理器
     ConfigManager.init(context);
@@ -121,6 +132,113 @@ async function initializeCodeIndex(context: vscode.ExtensionContext) {
   }
 }
 
+/** V2 — shared TraceManager + Store (lazy-init on first use). */
+let traceManager: TraceManager | undefined;
+let traceStore: Awaited<ReturnType<typeof createFileStore>> | undefined;
+
+async function getTraceManager(): Promise<TraceManager> {
+  if (traceManager && traceStore) return traceManager;
+  const ctx = await getExtensionContext();
+  const storageDir = ctx.globalStorageUri.fsPath;
+  const dataDir = require('path').join(storageDir, 'v2');
+  const tracesDir = require('path').join(dataDir, 'traces');
+  await require('fs/promises').mkdir(tracesDir, { recursive: true });
+  traceStore = await createFileStore({ rootDir: dataDir });
+  traceManager = new TraceManager({ store: traceStore, tracesDir });
+  return traceManager;
+}
+
+// Cache the extension context; populated on activate.
+let _extensionContext: vscode.ExtensionContext | undefined;
+function getExtensionContext(): vscode.ExtensionContext {
+  if (!_extensionContext) {
+    throw new Error('extension not yet activated');
+  }
+  return _extensionContext!;
+}
+
+/**
+ * V2 Multi-Agent quick start.
+ * Prompts the user for a task, sets up the Orchestrator with the
+ * example agents + an AgentLoopAdapter wrapping the current AgentCore,
+ * then opens the Trace UI to show the result.
+ */
+async function runMultiAgentFlow(): Promise<void> {
+  const task = await vscode.window.showInputBox({
+    prompt: 'Describe the multi-agent task',
+    placeHolder: 'e.g. 研究并实现一个最小 CLI 工具',
+  });
+  if (!task) return;
+
+  const modePick = await vscode.window.showQuickPick(
+    [
+      { label: 'Sequential', description: 'Agents run in dependency order' },
+      { label: 'Parallel', description: 'Agents run concurrently' },
+      { label: 'DAG', description: 'Topo-sorted waves' },
+    ],
+    { placeHolder: 'Select execution mode' },
+  );
+  if (!modePick) return;
+  const mode = modePick.label.toLowerCase() as 'sequential' | 'parallel' | 'dag';
+
+  const tm = await getTraceManager();
+  const { DEFAULT_CONFIG } = await import('./contracts');
+  let cfg: typeof DEFAULT_CONFIG = DEFAULT_CONFIG;
+  try {
+    cfg = await loadConfig();
+  } catch (e) {
+    // V2 not fully configured yet; use safe defaults so the smoke
+    // flow still works in dev.
+  }
+  // Use first available model from config; fall back to a free default
+  const firstModel = Object.values((cfg as { models?: Record<string, { provider: string; name: string }> }).models ?? {})[0];
+  const modelSpec: { provider: string; name: string } = firstModel ?? { provider: 'sglang', name: 'default' };
+  const sessionId = `ma-${Date.now()}`;
+  const tracker = await tm.startRun({ task, model: modelSpec, sessionId, userId: 'local' });
+
+  // Registry: example agents (researcher / coder / reviewer) wrapped
+  // in `PromptedAgent` so the *active* PromptVariant from Phase 5 A/B
+  // testing is injected at execution time. If no candidate is yet
+  // registered, the wrapper is a transparent pass-through.
+  const registry = new AgentRegistry();
+  registerExampleAgents(registry);
+  const queryService = tm.getQueryService();
+  for (const name of registry.list().map((a) => a.name)) {
+    const base = registry.get(name);
+    registry.unregister(name);
+    registry.register(new PromptedAgent({ base, query: queryService }));
+  }
+  // TODO Phase 2.6: wrap the live AgentCore as an IAgent via
+  // AgentLoopAdapter. Deferred because AgentCore doesn't yet expose
+  // a stable `executeTask(task)` entry point. The example trio is
+  // sufficient for an end-to-end smoke test.
+
+  // Budget from config (sane defaults if config not loaded)
+  const budget = cfg.budget as { perRunTokens?: number; perRunUsd?: number; perDayUsd?: number } | undefined;
+  const policy = {
+    perRunTokens: budget?.perRunTokens ?? 1_000_000,
+    perRunUsd: budget?.perRunUsd ?? 5,
+    perDayUsd: budget?.perDayUsd ?? 50,
+  };
+  const guard = new BudgetGuard(policy);
+
+  const orch = new Orchestrator({
+    tracker, registry, task, model: modelSpec, sessionId,
+    mode, budgetGuard: guard, maxAgentCalls: 8,
+  });
+
+  vscode.window.showInformationMessage(`[Z] Running ${mode} multi-agent…`);
+  const result = await orch.run();
+  await tracker.flush();
+  await tracker.finish();
+
+  vscode.window.showInformationMessage(
+    `[Z] ${result.status} (${result.outputs.length} agents)`,
+  );
+  // Open the Trace UI on the just-finished run
+  TracePanel.createOrShow(getExtensionContext().extensionUri, tm, tracker.id);
+}
+
 /**
  * 注册所有命令（在 try-catch 外部，确保尽可能注册）
  */
@@ -144,6 +262,45 @@ function registerCommands(context: vscode.ExtensionContext) {
     // 打开 Composer 面板
     vscode.commands.registerCommand('codingAgent.openComposer', () => {
       ComposerPanel.createOrShow(context.extensionUri, agent);
+    }),
+
+    // V2 — Trace UI
+    vscode.commands.registerCommand('codingAgent.openTrace', async () => {
+      try {
+        const m = await getTraceManager();
+        TracePanel.createOrShow(context.extensionUri, m);
+      } catch (e) {
+        vscode.window.showErrorMessage(`[Z Trace] ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }),
+
+    // V2 — Multi-Agent Orchestrator
+    vscode.commands.registerCommand('codingAgent.runMultiAgent', async () => {
+      try {
+        await runMultiAgentFlow();
+      } catch (e) {
+        vscode.window.showErrorMessage(`[Z Multi-Agent] ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }),
+
+    // V2 — Evaluation Dashboard
+    vscode.commands.registerCommand('codingAgent.openEvaluations', async () => {
+      try {
+        const m = await getTraceManager();
+        EvaluationsPanel.createOrShow(context.extensionUri, m);
+      } catch (e) {
+        vscode.window.showErrorMessage(`[Z Evals] ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }),
+
+    // V2 — Evolution
+    vscode.commands.registerCommand('codingAgent.openEvolution', async () => {
+      try {
+        const m = await getTraceManager();
+        EvolutionPanel.createOrShow(context.extensionUri, m);
+      } catch (e) {
+        vscode.window.showErrorMessage(`[Z Evolution] ${e instanceof Error ? e.message : String(e)}`);
+      }
     }),
 
     // 行内编辑（带输入框）
