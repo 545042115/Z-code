@@ -8,10 +8,10 @@
 // so that the pre-analysis logic exists in exactly one place.
 
 import { DiscoveryReport } from '../discovery/discovery';
-import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
-import { ChangeImpactReport as ChangeImpactReportType } from '../change-impact/change-impact-analysis';
-import { ComplexityEstimate as ComplexityEstimateType } from '../complexity/complexity-estimator';
-import { TaskUnderstandingResult as TaskUnderstandingResultType } from '../task-understanding/task-understanding';
+import { ArchitectureReviewReport } from '../analysis/architecture-review/architecture-review';
+import { ChangeImpactReport as ChangeImpactReportType } from '../analysis/change-impact/change-impact-analysis';
+import { ComplexityEstimate as ComplexityEstimateType } from '../analysis/complexity/complexity-estimator';
+import { TaskUnderstandingResult as TaskUnderstandingResultType } from '../analysis/task-understanding/task-understanding';
 import { ExecutionPlan, IncrementalContext } from '../planner/planner';
 import { SelectedSkill } from '../skills/skill-types';
 import { AgentContext } from './agent-core';

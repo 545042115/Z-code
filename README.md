@@ -1,4 +1,4 @@
-# Z Code
+# Z Code / Z Assistant
 
 > **项目定位 / Project Positioning**
 > 本项目是一个**面向学习的 Agent 流程实现**，核心目标是逐步构建和理解 Coding Agent 的完整工作流。从 v0.3.0 到最新版本，每个版本的迭代都对应一个可学习的里程碑，适合**按版本顺序逐步阅读代码、理解演进过程**。
@@ -8,10 +8,19 @@
 > - 目前**缺少 MCP (Model Context Protocol) 类型的外部工具调用**，所有工具均为内置实现
 > - 不以生产级稳定性为目标，而以**可理解、可扩展、可教学**为优先
 >
-> AI 编程助手集合，当前核心项目为 VS Code 扩展 `coding-agent`，支持多后端 LLM、Repo 级上下文与结构化执行流。  
+> AI 编程助手集合，**当前核心项目为 VS Code 扩展 `coding-agent`（V1）**，支持多后端 LLM、Repo 级上下文与结构化执行流。  
 > AI coding assistant collection, currently centered on the `coding-agent` VS Code extension with multi-backend LLM support, repo-aware context, and a structured execution flow.
 >
-> **当前版本 / Current Version: v1.2.0**
+> **当前版本 / Current Versions**
+> - V1（VSCode 扩展）：v1.2.0
+> - V2（Assistant Runtime）：v2.0.0-alpha.1（**Phase 6A 已落地** ✅）
+
+> **V2 演进 / V2 Direction (Phase 6A landed)**
+> 仓库根目录已按 [ADR-001](docs/ADR-001-Architecture-Refactor-Revised.md) 与 [ADR-0007](docs/ADRS/0007-runtime-decoupling.md) 完成 Phase 6A 重构，正式进入 **Z Assistant 双轨结构**：
+> - **V1 = `extensions/coding-agent/`**：保留的 VSCode Coding Agent 扩展（v1.2.0 继续可发版）。
+> - **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**。所有 V2 包已落地（`@z-assistant/contracts` / `@z-assistant/infra-*` / `@z-assistant/trace` / `@z-assistant/runtime` / `@z-assistant/agent-coding`），CLI / VSCode Connector 入口可启动，161 个测试全部通过。
+> - VSCode 在 V2 中降级为 `apps/vscode-connector/` 桥接 V1，V1 ↔ V2 通过 shim 文件双向兼容。
+> - 后续 Phase 7~14（Memory / Workflow / Knowledge Hub / Agent Ecosystem / Connectors / Full Observability / Evaluation 2.0 / Evolution 2.0）的占位已建好。
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
@@ -229,6 +238,129 @@ npm run compile
 
 ---
 
+## Z Assistant V2 — Assistant Runtime 平台 (Phase 6A landed)
+
+> 本节描述 V2。配套设计：[ADR-001 §3.1 目标目录结构](docs/ADR-001-Architecture-Refactor-Revised.md)、[ADR-0007 §一 目标 Monorepo 目录结构](docs/ADRS/0007-runtime-decoupling.md)、[ROADMAP_V2_ASSISTANT_RUNTIME.md](docs/ROADMAP_V2_ASSISTANT_RUNTIME.md)、[V2_VISION.md](docs/V2_VISION.md)。
+
+### V2 定位
+
+Z Assistant 是一个**跨 Agent 复用的运行时平台**：trace / storage / cost / errors / permission / config / budget / orchestrator / planning / reflection / context / skills / evaluation / evolution 一套机制，让未来的 Coding / Research / Office / Browser Agent 在同一 Runtime 上跑。
+
+V1 VSCode 扩展（`extensions/coding-agent`）保留并继续发版；V2 不会替换 V1，而是给 V1 加一层 **Adapter**，并为未来非 Coding 的 Agent（Browser / Research / Office）铺好 Runtime。
+
+### V2 包清单
+
+| 包 / Package | 版本 | 职责 / Responsibility | 状态 |
+|---|---|---|---|
+| `@z-assistant/contracts` | 0.1.0 | 跨包类型 / 接口（`IAgent` / `IPlanner` / `IReflectionEngine` / `IContextProvider` / `ISkillRegistry` / `IToolRegistry` / `IVerifier` / `ILLMProvider` / `IBudgetGuard` / `AgentRun` / `Span` …） | ✅ |
+| `@z-assistant/infra-errors` | 0.1.0 | 错误码 + 分类器（`3001-3999` 通用错误） | ✅ |
+| `@z-assistant/infra-cost` | 0.1.0 | pricing + budget（多模型 token 计价 + 预算控制） | ✅ |
+| `@z-assistant/infra-storage` | 0.1.0 | JSONL Store（runs / spans / evaluations / candidates） | ✅ |
+| `@z-assistant/infra-permission` | 0.1.0 | fs-guard / net-guard / tool-guard | ✅ |
+| `@z-assistant/infra-config` | 0.1.0 | 配置中心 + secrets | ✅ |
+| `@z-assistant/trace` | 0.1.0 | Span 生命周期 / RunTracker / TraceManager / Projections / Instrumenter | ✅ |
+| `@z-assistant/runtime` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution + workflow/memory 占位 | ✅ |
+| `@z-assistant/agent-coding` | 0.1.0 | Coding Agent V2 适配层（不重复 Coding 业务，只把 V1 接入 V2 Runtime） | ✅ |
+| `@z-assistant/agent-research` | 0.1.0 | 占位 | ✅ |
+| `@z-assistant/agent-office` | 0.1.0 | 占位 | ✅ |
+| `@z-assistant/agent-browser` | 0.1.0 | 占位 | ✅ |
+| `@z-assistant/app-cli` | 0.1.0 | V2 CLI 入口（`z run <task>` / `z trace ls|show` / `z version`） | ✅ |
+| `@z-assistant/app-vscode-connector` | 0.1.0 | V2 ↔ V1 桥接（`VSCodeConnector` + `AssistantRuntime` stub） | ✅ |
+| `@z-assistant/app-desktop` | 0.1.0 | 占位 | ✅ |
+
+### V2 特性 / Features
+
+| 特性 / Feature | 说明 / Description |
+|---|---|
+| 🏗️ **Monorepo 布局** | npm workspaces + TypeScript project references，每个 V2 包独立 `package.json` + `tsconfig.json` + barrel `index.ts` |
+| 🧩 **统一接口** | `IAgent` / `IPlanner` / `IReflectionEngine` / `IContextProvider` / `ISkillRegistry` / `IToolRegistry` / `IVerifier` / `ILLMProvider` / `IBudgetGuard` 在 `contracts` 内集中定义 |
+| 🛠️ **infra 工具包族** | errors / cost / storage / permission / config 拆为 5 个独立包，互相不依赖，可被任意 V2 包或 V1 通过 shim 引用 |
+| 📊 **Trace 独立包** | `@z-assistant/trace` 涵盖 Span 生命周期、RunTracker、TraceManager 持久化协调、纯函数 Projections（listRunSummaries / listSpanNodes / projectVariantStats / …）、duck-typed Instrumenter（wrapLLM / wrapTool / wrapPipeline） |
+| 🎯 **Orchestrator** | 通用多 Agent 协调：agent-registry（按 capability 评分）/ shared-state（pub/sub + 版本追踪）/ orchestrator（sequential / parallel / dag 三种模式 + fail-fast + maxAgentCalls + artifact namespace） |
+| 🪜 **框架层** | planning（DAG / sequential 调度器）/ reflection / context（budget + provider registry）/ skills（loader/selector/validator）/ evaluation（benchmark-runner / candidate-adapter / rubric / sandbox）/ evolution |
+| 🔌 **Adapter 模式** | `@z-assistant/agent-coding` 不重写 Coding 业务，只把 V1 `src/agent/`、`src/planner/`、`src/reflection/`、`src/context/` 等包装成 V2 接口 |
+| 🌉 **V2 ↔ V1 桥接** | `apps/vscode-connector` 暴露 `VSCodeConnector`，V1 在 `activate()` 期间实例化一次；V1 不直接 import `@z-assistant/runtime` 做副作用（teardown-safe） |
+| 📦 **CLI 入口** | `apps/cli` 已有 `argv` 解析和子命令分发；`z run <task>` 可触发 `VSCodeConnector.runTask` 走通端到端路径（runtime 当前是 stub，R7 替换） |
+| 🧪 **测试基线** | 161 个测试全部通过（`@z-assistant/contracts` / `@z-assistant/trace` / `@z-assistant/runtime` 全部 + V1 既有 infra/multi-agent）；`npm test --workspaces --if-present` 一键全跑 |
+
+### V1 ↔ V2 桥接
+
+V1 ↔ V2 通过 **shim 文件**双向兼容，迁移期不破坏 V1 旧 import 路径：
+
+```typescript
+// V1 旧 import 路径：extensions/coding-agent/src/contracts/index.ts
+export * from '@z-assistant/contracts';
+
+// V1 旧 import 路径：extensions/coding-agent/src/trace/index.ts
+export { Span, TraceManager, RunTracker, ... } from '@z-assistant/trace';
+export { TraceInstrumentation, ... } from './trace-adapter';   // V1 类型适配
+
+// V1 旧 import 路径：extensions/coding-agent/src/infra/storage/index.ts
+export * from '@z-assistant/infra-storage';
+// ... errors / cost / permission / config 同理
+```
+
+V1 `package.json` 显式声明 8 个 `@z-assistant/*` 依赖；`tsconfig.json` 通过 `references` 声明增量构建。**未来 R10 整改**：CI 加 lint 禁止 V1 旧路径 import，必须走 `@z-assistant/*`。
+
+### V2 依赖图（单向，往下）
+
+```
+                  apps/desktop
+                  apps/vscode-connector     ← V2 桥接 V1
+                  apps/cli
+                        │
+        ┌───────────────┼───────────────┐
+        ▼               ▼               ▼
+  @z-assistant     @z-assistant   @z-assistant
+    /runtime        /agent-coding  /agents/{research,office,browser}
+        │                               │
+        │   ┌─────────┐  ┌─────────┐    │
+        ├──►│ workflow│  │ memory  │◄───┤  (占位)
+        │   └────┬────┘  └────┬────┘    │
+        │        │            │          │
+        │   ┌────▼────┐  ┌────▼────┐    │
+        ├──►│ trace   │  │planning │    │
+        │   └────┬────┘  │ skills  │    │
+        │        │       │ context │    │
+        │   ┌────▼────┐  │reflectn │    │
+        ├──►│evaluatn │  └────┬────┘    │
+        │   └────┬────┘       │          │
+        │   ┌────▼────┐       │          │
+        └──►│evolution│       │          │
+            └────┬────┘       │          │
+                 │            │          │
+                 ▼            ▼          ▼
+            ┌──────────────────────────┐
+            │ @z-assistant/infra/*     │
+            │  + @z-assistant/contracts│  (叶子)
+            └──────────────────────────┘
+```
+
+依赖规则（强制）：
+- `contracts` 是叶子，任何包可依赖
+- `infra/*` 互相不依赖
+- `trace` 不依赖 `runtime` 框架子包
+- `runtime` 依赖 `trace` + `infra/*` + `contracts`
+- `agents/coding` 依赖 `runtime` + `contracts`
+- `apps/*` 可依赖任何 `packages/*`
+- ❌ `packages/*` → `apps/*` 禁止
+- ❌ `packages/*` → `vscode` 禁止（CI grep 验证）
+
+### V2 后续路线 / Roadmap
+
+| 阶段 | 内容 | 衔接 |
+|---|---|---|
+| **Phase 7** Unified Memory | `packages/memory/`（独立顶级包）+ `packages/runtime/src/memory/` 落实 | V1 `src/memory/` 重做（替换 vscode.Memento） |
+| **Phase 8** Workflow Engine | `packages/runtime/src/workflow/` 落实 + `packages/workflow/` 顶级包 | DSL（YAML/JSON）+ checkpoint + resume |
+| **Phase 9** Knowledge Hub | `packages/connectors/filesystem/` | `IConnector` interface |
+| **Phase 10** Agent Ecosystem | `packages/agents/coding/` 已完整 | `@z-assistant/agents` 主包统一 `IAgent` 注册 |
+| **Phase 11** Connectors | terminal / browser / git / filesystem | `apps/vscode-connector` 是首个范例 |
+| **Phase 12** Full Observability | `SpanType` 扩 `'memory' / 'skill' / 'workflow' / 'connector'` | `@z-assistant/trace` 已具备扩展点 |
+| **Phase 13** Evaluation 2.0 | `Evaluation` interface 强化 + `EvalSubject` enum | `@z-assistant/runtime/evaluation` 已就位 |
+| **Phase 14** Evolution 2.0 | `EvolutionEngine.generate({ scope: ... })` 扩展点 | `@z-assistant/runtime/evolution` 已就位 |
+
+---
+
 ## 测试与对比 / Tests & Comparisons
 
 - **Trae vs Z Code 图像拼接代码生成对比**：[coding-test/image-stitching-comparison.md](coding-test/image-stitching-comparison.md) — 分析相同 Prompt 下不同 Agent 的代码生成质量、正确性与可运行性差异
@@ -243,21 +375,84 @@ npm run compile
 - VS Code 1.85+
 - TypeScript 5.3+
 
-### 构建与打包 / Build & Package
+### V1 扩展构建 / Build V1 Extension
 
 ```bash
-# 构建 / Build
+# 方式 1：开发者模式 / Dev mode
 cd extensions/coding-agent
 npm install
 npm run compile
+# 按 F5 启动调试 / Press F5 to start debugging
 
-# 打包 / Package
+# 方式 2：发布包 / Package for distribution
 # 或使用 / Or use: .\tools\update.ps1
 ```
+
+### V2 Monorepo 构建 / Build V2 Monorepo
+
+```bash
+# 在仓库根 / Run from repo root
+npm install                              # 装全部 workspace 依赖
+npm run typecheck                        # 全部 V1 + V2 包 typecheck（0 错误）
+npm test                                 # 全部 V1 + V2 包测试（当前 161/161 通过）
+npm run build --workspaces --if-present  # 全部 V1 + V2 包构建
+npm run clean --workspaces --if-present  # 清理 out/ dist/
+
+# 单包操作 / Per-package
+npm test --workspace=@z-assistant/trace
+npm run build --workspace=@z-assistant/runtime
+```
+
+### V2 CLI 使用 / Use V2 CLI
+
+```bash
+# 构建后 / After build
+node apps/cli/out/index.js version
+# → @z-assistant/runtime v0.1.0
+
+node apps/cli/out/index.js run "fix the failing test"
+# → runId=run-...  （runtime 当前 stub，R7 替换为真实 AssistantRuntime）
+
+node apps/cli/out/index.js trace ls
+# → (stub) z trace ls: not implemented in Phase 6A
+```
+
+### 已知遗留 / Known Legacy
+
+- `apps/vscode-connector` 的 `AssistantRuntime.boot()` 当前是 stub（返回 no-op runtime + 错误码 `3001`），R7 替换为真实实现。
+- V1 旧 import 路径（`from '../trace'` / `from '../contracts'` / `from '../infra/*'`）仍被允许；R10 起加 CI lint 强制走 `@z-assistant/*`。
+- `extensions/coding-agent/src/multi-agent/` 内的 `prompted-agent.ts` 等仍为遗留；R10 全部迁出到 `packages/agents/`。
 
 ---
 
 ## 更新日志 / Changelog
+
+### v2.0.0-alpha.1 — 2026-06-18
+
+Z Assistant V2 — Assistant Runtime 平台（Phase 6A 落地）/ Assistant Runtime Platform (Phase 6A landed)
+
+#### ✨ 版本摘要 / Highlights
+
+- **Monorepo 重组**：仓库根升级为 npm workspaces，顶层目录变为 `extensions/coding-agent/`（V1）+ `packages/{contracts, infra/*, trace, runtime, agents/*}/`（V2）+ `apps/{cli, desktop, vscode-connector}/`。
+- **15 个 V2 包全部落地**：
+  - `@z-assistant/contracts`（跨包类型 / 接口）
+  - `@z-assistant/infra-{errors, cost, storage, permission, config}`（5 个工具包）
+  - `@z-assistant/trace`（Span / RunTracker / Projections / Instrumenter）
+  - `@z-assistant/runtime`（orchestrator + planning / reflection / context / skills / evaluation / evolution + workflow/memory 占位）
+  - `@z-assistant/agent-{coding, research, office, browser}`（4 个 Agent 包，coding 完整 + 3 个占位）
+  - `@z-assistant/app-{cli, vscode-connector, desktop}`（3 个宿主入口，cli 与 vscode-connector 完整 + desktop 占位）
+- **V1 ↔ V2 桥接（shim 兼容）**：V1 端 5 个 `infra/*` + `contracts` + `trace` 全部留下单行 shim 文件 `export * from '@z-assistant/...'`；V1 旧 import 路径全部继续工作，零破坏。
+- **TypeScript Project References**：V1 `tsconfig.json` 通过 `references` 声明对 8 个 V2 包的依赖；增量构建与类型检查一致。
+- **测试基线**：161 个测试全部通过（V1 既有 infra/storage/errors/cost/permission/config + multi-agent 加上 V2 全部）；`npm test --workspaces --if-present` 一键全跑。
+- **Orchestrator 框架**：通用多 Agent 协调（agent-registry 按 capability 评分 / shared-state pub/sub + 版本追踪 / orchestrator sequential/parallel/dag 三种模式 + fail-fast + maxAgentCalls + artifact namespace）。
+- **CLI 入口**：`apps/cli` 已有 argv 解析与子命令分发（`z run` / `z trace` / `z version` / `z help`）。
+- **VSCode Connector**：`apps/vscode-connector` 提供 `VSCodeConnector` 类（含事件订阅、runTask、isReady、trace、store 接口），V1 在 `activate()` 期间实例化一次，teardown-safe。
+
+#### 📚 详细说明 / Full Notes
+
+- 完整设计：[ADR-001 §十一 当前实现状态与已落地项](docs/ADR-001-Architecture-Refactor-Revised.md)
+- 配套细节：[ADR-0007 Runtime 解耦](docs/ADRS/0007-runtime-decoupling.md)
+- 路线图：[ROADMAP_V2_ASSISTANT_RUNTIME.md](docs/ROADMAP_V2_ASSISTANT_RUNTIME.md)
 
 ### v1.2.0 — 2026-06-15
 

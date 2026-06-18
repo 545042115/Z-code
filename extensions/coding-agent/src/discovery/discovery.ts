@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import { ContextPackage } from '../context/contextBuilder';
-import { RepoGraph } from '../context/repoGraph';
-import { DependencyGraph } from '../context/dependencyGraph';
-import { WorkspaceScanner, WorkspaceFile } from '../context/workspaceScanner';
-import { RepoKnowledge, RepoKnowledgeBase } from '../memory/repoKnowledgeBase';
+import { ContextPackage } from '../context/context-builder';
+import { RepoGraph } from '../context/repo-graph';
+import { DependencyGraph } from '../context/dependency-graph';
+import { WorkspaceScanner, WorkspaceFile } from '../context/workspace-scanner';
+import { RepoKnowledge, RepoKnowledgeBase } from '../memory/repo-knowledge-base';
 
 export interface RelatedSymbol {
   name: string;

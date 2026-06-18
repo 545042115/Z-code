@@ -1,7 +1,7 @@
-import { EmbeddingManager, EmbeddingResult } from '../embedding/embeddingManager';
-import { RepoGraph } from './repoGraph';
-import { DependencyGraph } from './dependencyGraph';
-import { SymbolIndex } from './symbolIndex';
+import { EmbeddingManager, EmbeddingResult } from '../embedding/embedding-manager';
+import { RepoGraph } from './repo-graph';
+import { DependencyGraph } from './dependency-graph';
+import { SymbolIndex } from './symbol-index';
 import { Reranker, CandidateData, RetrievalIntent } from './reranker';
 
 export interface HybridSearchOptions {

@@ -1,66 +1,113 @@
 {
   "version": "1.0",
   "generatedAt": 1780899536107,
-  "updatedAt": 1780976407483,
+  "updatedAt": 1781775574221,
   "architecture": {
-    "summary": "44 个源码文件，other(35)，ui(5)，core(3)",
+    "summary": "225 source files, other(147), entry(49), config(13)",
     "layers": [
       {
         "name": "other",
         "files": [
-          "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py",
-          "d:\\mycode\\Z Code\\coding-test\\Trae\\image_stitcher_trae.py",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embeddingManager.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\task-understanding\\task-understanding.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflection-agent.ts"
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\instrumentation.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\run-tracker.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\projections.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\span.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\trace.test.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\projections.test.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\instrumentation.test.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\__tests__\\jsonl-store.test.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\__tests__\\classifier.test.ts"
         ],
-        "fileCount": 35,
-        "description": "其他支持文件"
+        "fileCount": 147,
+        "description": "Other supporting files"
       },
       {
-        "name": "ui",
+        "name": "entry",
         "files": [
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\architecture-review\\architecture-review.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextBuilder.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-panel.ts"
+          "d:\\mycode\\Z Code\\apps\\vscode-connector\\src\\index.ts",
+          "d:\\mycode\\Z Code\\apps\\desktop\\src\\index.ts",
+          "d:\\mycode\\Z Code\\apps\\cli\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\trace\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.js",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\workflow\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.js",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\trace\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\contracts\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\storage\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.js",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\index.ts",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\reflection\\index.ts"
         ],
-        "fileCount": 5,
-        "description": "用户界面组件与页面层"
-      },
-      {
-        "name": "core",
-        "files": [
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts",
-          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts"
-        ],
-        "fileCount": 3,
-        "description": "核心业务逻辑与通用工具层"
+        "fileCount": 49,
+        "description": "entry module"
       },
       {
         "name": "config",
         "files": [
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\__tests__\\config-center.test.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.d.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.ts",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.js",
+          "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.d.ts",
+          "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.ts",
+          "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.js",
+          "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.d.ts",
+          "d:\\mycode\\Z Code\\packages\\contracts\\src\\config.ts",
           "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts"
         ],
-        "fileCount": 1,
-        "description": "配置文件与环境变量层"
+        "fileCount": 13,
+        "description": "Configuration and environment variable layer"
+      },
+      {
+        "name": "ui",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-builder.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\evolution-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evaluation\\evaluations-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\analysis\\architecture-review\\architecture-review.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\query-service.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\trace-panel.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\__tests__\\query-service.test.ts"
+        ],
+        "fileCount": 10,
+        "description": "UI component and page layer"
+      },
+      {
+        "name": "core",
+        "files": [
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
+          "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repo-knowledge-base.ts",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\__tests__\\shared-state.test.ts",
+          "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\shared-state.ts",
+          "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\agent-core.ts"
+        ],
+        "fileCount": 6,
+        "description": "Core business logic and utility layer"
       }
     ]
   },
@@ -68,19 +115,35 @@
     "languages": [
       {
         "name": "TypeScript",
-        "percentage": 95,
+        "percentage": 89,
         "extensions": [
           ".ts"
         ],
-        "fileCount": 42
+        "fileCount": 201
+      },
+      {
+        "name": "JavaScript",
+        "percentage": 9,
+        "extensions": [
+          ".js"
+        ],
+        "fileCount": 20
       },
       {
         "name": "Python",
-        "percentage": 5,
+        "percentage": 1,
         "extensions": [
           ".py"
         ],
-        "fileCount": 2
+        "fileCount": 3
+      },
+      {
+        "name": "MJS",
+        "percentage": 0,
+        "extensions": [
+          ".mjs"
+        ],
+        "fileCount": 1
       }
     ],
     "frameworks": [],
@@ -90,17 +153,68 @@
     "testFrameworks": [],
     "packageManager": "npm"
   },
-  "entryPoints": [],
+  "entryPoints": [
+    {
+      "path": "d:\\mycode\\Z Code\\apps\\vscode-connector\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\apps\\desktop\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\apps\\cli\\src\\index.ts",
+      "type": "cli",
+      "description": "cli entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\trace\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.js",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.js",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.ts",
+      "type": "server",
+      "description": "server entry point"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.js",
+      "type": "server",
+      "description": "server entry point"
+    }
+  ],
   "coreModules": [
     {
       "name": "context",
-      "fileCount": 13,
+      "fileCount": 14,
       "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impactAnalyzer.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impact-analyzer.ts",
         "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextExpansion.ts",
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextBuilder.ts"
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependency-graph.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-expansion.ts"
       ],
       "topExports": [
         "ImpactResult",
@@ -114,7 +228,241 @@
         "SimpleBM25",
         "HybridRetrieval"
       ],
-      "description": "13 个文件，1840 个符号"
+      "description": "14 files, 1859 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 13,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\verifier.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\tool.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\skill.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\run.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\reflection.ts"
+      ],
+      "topExports": [
+        "VerifierDiagnostic",
+        "VerifierOutput",
+        "IVerifier",
+        "ToolInvocation",
+        "ToolResult",
+        "ITool",
+        "IToolRegistry",
+        "SkillSpec",
+        "SkillSelectionReason",
+        "SelectedSkill"
+      ],
+      "description": "13 files, 541 symbols"
+    },
+    {
+      "name": "__tests__",
+      "fileCount": 12,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.js",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.d.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\eval.test.ts",
+        "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\eval.test.js"
+      ],
+      "topExports": [
+        "test('computeDuration: returns undefined when endTime is missing') callback",
+        "test('computeDuration: returns positive ms when finished') callback",
+        "test('computeDuration: clamps negative to zero (clock skew safety)') callback",
+        "test('computeDuration: handles same ms') callback",
+        "test('isRunFinished: running is not finished') callback",
+        "test('isRunFinished: success/failed/cancelled are finished') callback",
+        "test('isSpanFinished: ok/error/cancelled are finished') callback",
+        "test('combineScores: weighted average') callback",
+        "test('combineScores: ignores dimensions with weight 0') callback",
+        "test('combineScores: empty results => 0') callback"
+      ],
+      "description": "12 files, 357 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 12,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.js",
+        "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\fs-guard.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\fs-guard.js"
+      ],
+      "topExports": [
+        "FsPolicy",
+        "FsDeniedError",
+        "resolveInWorkspace",
+        "isInside",
+        "isSystemPath",
+        "checkPath",
+        "assertPathSafe",
+        "FsDeniedError",
+        "resolveInWorkspace",
+        "isInside"
+      ],
+      "description": "12 files, 234 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 9,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.js",
+        "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.js"
+      ],
+      "topExports": [
+        "SecretNotFoundError",
+        "loadSecret",
+        "tryLoadSecret",
+        "SecretNotFoundError",
+        "loadSecret",
+        "tryLoadSecret",
+        "SecretNotFoundError",
+        "loadSecret",
+        "tryLoadSecret",
+        "ConfigLoadOptions"
+      ],
+      "description": "9 files, 132 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 9,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.js",
+        "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\pricing.ts"
+      ],
+      "topExports": [
+        "BudgetExceededError",
+        "BudgetGuard",
+        "nextMidnight",
+        "BudgetExceededError",
+        "BudgetGuard",
+        "nextMidnight",
+        "BudgetExceededError",
+        "BudgetGuard",
+        "ModelPrice",
+        "lookupPrice"
+      ],
+      "description": "9 files, 153 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 9,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.js",
+        "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.js"
+      ],
+      "topExports": [
+        "ListQuery",
+        "RunQuery",
+        "RunRepo",
+        "SpanQuery",
+        "SpanRepo",
+        "EvalQuery",
+        "EvalRepo",
+        "BenchmarkQuery",
+        "BenchmarkRepo",
+        "BaselineQuery"
+      ],
+      "description": "9 files, 664 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 9,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.js",
+        "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.d.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\error-codes.ts",
+        "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\error-codes.js"
+      ],
+      "topExports": [
+        "describeErrorCode",
+        "describeErrorCode",
+        "describeErrorCode",
+        "ClassifiedError",
+        "classify",
+        "finalize",
+        "toErrorRef",
+        "classify",
+        "finalize",
+        "toErrorRef"
+      ],
+      "description": "9 files, 270 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 9,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\verifier.ts",
+        "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\tools.ts",
+        "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\skills.ts",
+        "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\reflection.ts",
+        "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\planner.ts"
+      ],
+      "topExports": [
+        "CodingVerifierOptions",
+        "CodingVerifier",
+        "CodingToolOptions",
+        "CodingToolRegistry",
+        "CodingSkillOptions",
+        "CodingSkillRegistry",
+        "CodingReflectionOptions",
+        "CodingReflectionEngine",
+        "CodingPlannerOptions",
+        "CodingPlanner"
+      ],
+      "description": "9 files, 139 symbols"
+    },
+    {
+      "name": "skills",
+      "fileCount": 6,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-validator.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-types.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-selector.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-manager.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-loader.ts"
+      ],
+      "topExports": [
+        "SkillValidator",
+        "SkillSelector",
+        "SkillManager",
+        "SkillLoader"
+      ],
+      "description": "6 files, 344 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 5,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\instrumentation.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\run-tracker.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\projections.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\span.ts"
+      ],
+      "topExports": [
+        "InstrumenterOptions",
+        "InstrumentableLLM",
+        "InstrumentableTool",
+        "InstrumentablePipeline",
+        "Instrumenter",
+        "RunStartOptions",
+        "RunFinishOptions",
+        "RunTracker",
+        "TraceManagerOptions",
+        "TraceManager"
+      ],
+      "description": "5 files, 434 symbols"
     },
     {
       "name": "debug",
@@ -136,29 +484,163 @@
         "GitContextDebugger",
         "AgentLoopDebugger"
       ],
-      "description": "5 个文件，295 个符号"
+      "description": "5 files, 295 symbols"
     },
     {
       "name": "agent",
-      "fileCount": 3,
+      "fileCount": 5,
       "representativeFiles": [
         "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\pipeline-types.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-pipeline.ts",
         "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts",
         "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts"
       ],
       "topExports": [
-        "LoopMetrics",
-        "ToolIteration",
-        "LoopAttempt",
-        "LoopResult",
-        "ToolCall",
-        "AgentAction",
-        "AgentLoop",
-        "SubTask",
-        "AgentContext",
-        "StateResponse"
+        "TypeCheckResult",
+        "LintResult",
+        "TestResult",
+        "VerifierOutput",
+        "Verifier",
+        "PipelineInput",
+        "PipelineOutput",
+        "PipelineStageResult",
+        "AgentPipeline",
+        "LoopMetrics"
       ],
-      "description": "3 个文件，1180 个符号"
+      "description": "5 files, 1455 symbols"
+    },
+    {
+      "name": "orchestrator",
+      "fileCount": 5,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\shared-state.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\orchestrator.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\example-agents.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\agent-registry.ts"
+      ],
+      "topExports": [
+        "Entry",
+        "SharedStateOptions",
+        "SharedState",
+        "deepClone",
+        "OrchestratorOptions",
+        "OrchestratorResult",
+        "Orchestrator",
+        "registerExampleAgents",
+        "AgentConflictError",
+        "AgentNotFoundError"
+      ],
+      "description": "5 files, 321 symbols"
+    },
+    {
+      "name": "evaluation",
+      "fileCount": 5,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\index.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\sandbox.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\candidate-adapter.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\rubric.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\benchmark-runner.ts"
+      ],
+      "topExports": [
+        "SandboxMount",
+        "SandboxSpec",
+        "SandboxResult",
+        "SandboxExecutor",
+        "LocalSandbox",
+        "StubSandbox",
+        "CandidateOptions",
+        "EvaluateOptions",
+        "CandidateAdapter",
+        "RubricSpec"
+      ],
+      "description": "5 files, 274 symbols"
+    },
+    {
+      "name": "__tests__",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\trace.test.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\projections.test.ts",
+        "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\instrumentation.test.ts"
+      ],
+      "topExports": [
+        "withManager",
+        "test('startRun: creates a Run with traceId') callback",
+        "test('finish: records endTime / duration / status') callback",
+        "test('finish: error => status failed') callback",
+        "test('startSpan: persists span and is queryable') callback",
+        "test('Span: addEvent appends to events[]') callback",
+        "test('Span: addTokens updates run-level counters') callback",
+        "test('addUsage: increments Run-level totals') callback",
+        "test('Span: fail sets status=error and error ref') callback",
+        "test('nested spans: parentSpanId links children') callback"
+      ],
+      "description": "3 files, 553 symbols"
+    },
+    {
+      "name": "skills",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\skills.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\skill-parser.ts",
+        "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\index.ts"
+      ],
+      "topExports": [
+        "SkillTriggers",
+        "SkillVerification",
+        "SkillFrontmatter",
+        "SkillSections",
+        "Skill",
+        "SkillSelectionReason",
+        "SelectedSkill",
+        "SkillIndex",
+        "SkillSelectionInput",
+        "SkillValidationIssue"
+      ],
+      "description": "3 files, 247 symbols"
+    },
+    {
+      "name": "src",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\types-shims.d.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\contracts.ts"
+      ],
+      "topExports": [
+        "activate",
+        "initializeCodeIndex",
+        "getTraceManager",
+        "getExtensionContext",
+        "runMultiAgentFlow",
+        "registerCommands",
+        "initializeConfig",
+        "deactivate"
+      ],
+      "description": "3 files, 196 symbols"
+    },
+    {
+      "name": "evolution",
+      "fileCount": 3,
+      "representativeFiles": [
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\evolution-panel.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\index.ts",
+        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\evolution.ts"
+      ],
+      "topExports": [
+        "ProposalRecord",
+        "ToolRow",
+        "SkillRow",
+        "CandidateRow",
+        "EvolutionPanel",
+        "summarizeSuggestion",
+        "RenderArgs",
+        "renderHtml"
+      ],
+      "description": "3 files, 165 symbols"
     },
     {
       "name": "panels",
@@ -179,504 +661,610 @@
         "ChatViewProvider",
         "ChatPanel"
       ],
-      "description": "3 个文件，584 个符号"
-    },
-    {
-      "name": "reflection",
-      "fileCount": 2,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts",
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflection-agent.ts"
-      ],
-      "topExports": [
-        "FailureAnalysis",
-        "RepairAction",
-        "RepairPlan",
-        "ReflectionMemory",
-        "ReflectionReport",
-        "ReflectionProgress",
-        "ReflectionEngine",
-        "ToolResult",
-        "ReflectionRecord",
-        "ReflectionInput"
-      ],
-      "description": "2 个文件，222 个符号"
-    },
-    {
-      "name": "memory",
-      "fileCount": 2,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts",
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memoryManager.ts"
-      ],
-      "topExports": [
-        "RepoKnowledgeLayer",
-        "RepoKnowledgeArchitecture",
-        "RepoKnowledgeLanguage",
-        "RepoKnowledgeTechStack",
-        "RepoKnowledgeEntryPoint",
-        "RepoKnowledgeCoreModule",
-        "RepoKnowledgeCodingPatterns",
-        "RepoKnowledgeCriticalFile",
-        "RepoKnowledge",
-        "RepoKnowledgeBase"
-      ],
-      "description": "2 个文件，371 个符号"
-    },
-    {
-      "name": "Z-Code",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py"
-      ],
-      "topExports": [],
-      "description": "1 个文件，0 个符号"
-    },
-    {
-      "name": "Trae",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\coding-test\\Trae\\image_stitcher_trae.py"
-      ],
-      "topExports": [],
-      "description": "1 个文件，0 个符号"
-    },
-    {
-      "name": "architecture-review",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\architecture-review\\architecture-review.ts"
-      ],
-      "topExports": [],
-      "description": "1 个文件，0 个符号"
-    },
-    {
-      "name": "llm",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts"
-      ],
-      "topExports": [
-        "Message",
-        "GenerateRequest",
-        "FIMRequest",
-        "LLMConfig",
-        "LLMProvider",
-        "SGLangProvider",
-        "OpenAIProvider",
-        "LLMProviderFactory"
-      ],
-      "description": "1 个文件，166 个符号"
-    },
-    {
-      "name": "inline",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts"
-      ],
-      "topExports": [
-        "InlineCompletionProvider",
-        "InlineEditProvider"
-      ],
-      "description": "1 个文件，56 个符号"
-    },
-    {
-      "name": "verifier",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts"
-      ],
-      "topExports": [
-        "VerificationDiagnostic",
-        "VerificationResult",
-        "ProjectConfig",
-        "RuntimeVerifier"
-      ],
-      "description": "1 个文件，177 个符号"
-    },
-    {
-      "name": "git",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts"
-      ],
-      "topExports": [
-        "CommitInfo",
-        "FileHistoryEntry",
-        "BlameLine",
-        "GitDiffFile",
-        "GitDiff",
-        "ChangedFile",
-        "GitAnalyzer"
-      ],
-      "description": "1 个文件，155 个符号"
-    },
-    {
-      "name": "src",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts"
-      ],
-      "topExports": [
-        "activate",
-        "initializeCodeIndex",
-        "registerCommands",
-        "initializeConfig",
-        "deactivate"
-      ],
-      "description": "1 个文件，79 个符号"
-    },
-    {
-      "name": "utils",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts"
-      ],
-      "topExports": [
-        "DiffEngine",
-        "DiffPreview",
-        "DiffHunk"
-      ],
-      "description": "1 个文件，81 个符号"
-    },
-    {
-      "name": "embedding",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embeddingManager.ts"
-      ],
-      "topExports": [
-        "EmbeddingVector",
-        "EmbeddingResult",
-        "EmbeddingManager"
-      ],
-      "description": "1 个文件，130 个符号"
-    },
-    {
-      "name": "discovery",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts"
-      ],
-      "topExports": [
-        "RelatedSymbol",
-        "DiscoveredModule",
-        "DiscoveredFile",
-        "ImpactSurface",
-        "RiskItem",
-        "RiskAnalysis",
-        "ScopeEstimate",
-        "DiscoveryReport",
-        "DiscoveryPhase"
-      ],
-      "description": "1 个文件，284 个符号"
-    },
-    {
-      "name": "tools",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts"
-      ],
-      "topExports": [
-        "ToolParameter",
-        "Tool",
-        "ToolRegistry"
-      ],
-      "description": "1 个文件，701 个符号"
-    },
-    {
-      "name": "task-understanding",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\task-understanding\\task-understanding.ts"
-      ],
-      "topExports": [
-        "TaskConstraints",
-        "TaskUnderstandingResult",
-        "TaskUnderstanding"
-      ],
-      "description": "1 个文件，106 个符号"
-    },
-    {
-      "name": "planner",
-      "fileCount": 1,
-      "representativeFiles": [
-        "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\planner\\planner.ts"
-      ],
-      "topExports": [
-        "PlanStep",
-        "ExecutionPlan",
-        "IncrementalContext",
-        "Planner"
-      ],
-      "description": "1 个文件，403 个符号"
+      "description": "3 files, 584 symbols"
     }
   ],
   "codingPatterns": {
     "namingConventions": [
-      "函数/变量使用 camelCase"
+      "function/variable use camelCase"
     ],
-    "fileOrganization": "按目录/功能分层组织",
+    "fileOrganization": "Organized by directory/function layers",
     "commonImports": [
       {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbol-index.ts",
         "count": 13
       },
       {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+        "module": "d:\\mycode\\Z Code\\packages\\contracts\\src\\agent.ts",
         "count": 11
       },
       {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspace-scanner.ts",
         "count": 11
       },
       {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependency-graph.ts",
+        "count": 11
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
+        "count": 9
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\contracts.ts",
+        "count": 9
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\packages\\contracts\\src\\run.ts",
+        "count": 8
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
+        "count": 8
+      },
+      {
+        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repo-graph.ts",
         "count": 8
       },
       {
         "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts",
-        "count": 7
-      },
-      {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
-        "count": 7
-      },
-      {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\architecture-review\\architecture-review.ts",
-        "count": 5
-      },
-      {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
-        "count": 5
-      },
-      {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
-        "count": 5
-      },
-      {
-        "module": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
-        "count": 5
+        "count": 8
       }
     ],
     "designPatterns": []
   },
   "criticalFiles": [
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts",
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbol-index.ts",
       "dependentCount": 13,
-      "reason": "被 13 个文件依赖"
+      "reason": "depended by 13 files"
     },
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts",
+      "path": "d:\\mycode\\Z Code\\packages\\contracts\\src\\agent.ts",
       "dependentCount": 11,
-      "reason": "被 11 个文件依赖"
+      "reason": "depended by 11 files"
     },
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts",
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependency-graph.ts",
       "dependentCount": 11,
-      "reason": "被 11 个文件依赖"
+      "reason": "depended by 11 files"
     },
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts",
-      "dependentCount": 8,
-      "reason": "被 8 个文件依赖"
-    },
-    {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts",
-      "dependentCount": 7,
-      "reason": "被 7 个文件依赖"
-    },
-    {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
-      "dependentCount": 7,
-      "reason": "被 7 个文件依赖"
-    },
-    {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\architecture-review\\architecture-review.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspace-scanner.ts",
+      "dependentCount": 11,
+      "reason": "depended by 11 files"
     },
     {
       "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "dependentCount": 9,
+      "reason": "depended by 9 files"
     },
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\contracts.ts",
+      "dependentCount": 9,
+      "reason": "depended by 9 files"
     },
     {
-      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts",
-      "dependentCount": 5,
-      "reason": "被 5 个文件依赖"
+      "path": "d:\\mycode\\Z Code\\packages\\contracts\\src\\run.ts",
+      "dependentCount": 8,
+      "reason": "depended by 8 files"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts",
+      "dependentCount": 8,
+      "reason": "depended by 8 files"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repo-graph.ts",
+      "dependentCount": 8,
+      "reason": "depended by 8 files"
+    },
+    {
+      "path": "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts",
+      "dependentCount": 8,
+      "reason": "depended by 8 files"
     }
   ],
   "fileFingerprints": {
+    "d:\\mycode\\Z Code\\apps\\vscode-connector\\src\\index.ts": {
+      "mtime": 1781774138111,
+      "size": 9682
+    },
+    "d:\\mycode\\Z Code\\apps\\desktop\\src\\index.ts": {
+      "mtime": 1781760427324,
+      "size": 153
+    },
+    "d:\\mycode\\Z Code\\apps\\cli\\src\\index.ts": {
+      "mtime": 1781761474496,
+      "size": 6084
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\instrumentation.ts": {
+      "mtime": 1781760433375,
+      "size": 9692
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\index.ts": {
+      "mtime": 1781760433358,
+      "size": 1651
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\run-tracker.ts": {
+      "mtime": 1781760433409,
+      "size": 8538
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\projections.ts": {
+      "mtime": 1781760433392,
+      "size": 11323
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\span.ts": {
+      "mtime": 1781760433430,
+      "size": 4398
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\trace.test.ts": {
+      "mtime": 1781760433333,
+      "size": 7179
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\projections.test.ts": {
+      "mtime": 1781760433319,
+      "size": 11659
+    },
+    "d:\\mycode\\Z Code\\packages\\trace\\src\\__tests__\\instrumentation.test.ts": {
+      "mtime": 1781760433293,
+      "size": 7715
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\__tests__\\config-center.test.ts": {
+      "mtime": 1781760431682,
+      "size": 3579
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.ts": {
+      "mtime": 1781760431758,
+      "size": 979
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.js": {
+      "mtime": 1781750705481,
+      "size": 1197
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\secrets.d.ts": {
+      "mtime": 1781750705483,
+      "size": 408
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.ts": {
+      "mtime": 1781760431711,
+      "size": 204
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.js": {
+      "mtime": 1781750705433,
+      "size": 1029
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\index.d.ts": {
+      "mtime": 1781750705435,
+      "size": 95
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.ts": {
+      "mtime": 1781760431706,
+      "size": 5498
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.js": {
+      "mtime": 1781750705429,
+      "size": 6841
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\config\\src\\config-center.d.ts": {
+      "mtime": 1781750705432,
+      "size": 667
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\__tests__\\jsonl-store.test.ts": {
+      "mtime": 1781760432297,
+      "size": 17911
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.d.ts": {
+      "mtime": 1781750705471,
+      "size": 88
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.ts": {
+      "mtime": 1781760431857,
+      "size": 3369
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.js": {
+      "mtime": 1781750705470,
+      "size": 3632
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.ts": {
+      "mtime": 1781760432363,
+      "size": 7188
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\budget.d.ts": {
+      "mtime": 1781750705471,
+      "size": 1298
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.js": {
+      "mtime": 1781750705486,
+      "size": 684
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\types.d.ts": {
+      "mtime": 1781750705491,
+      "size": 5297
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.ts": {
+      "mtime": 1781760432347,
+      "size": 19618
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.js": {
+      "mtime": 1781750705509,
+      "size": 17173
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\jsonl-store.d.ts": {
+      "mtime": 1781750705510,
+      "size": 1485
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.ts": {
+      "mtime": 1781760432316,
+      "size": 479
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.js": {
+      "mtime": 1781750705491,
+      "size": 1415
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\storage\\src\\index.d.ts": {
+      "mtime": 1781750705493,
+      "size": 144
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\__tests__\\classifier.test.ts": {
+      "mtime": 1781760431973,
+      "size": 3788
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.ts": {
+      "mtime": 1781760432047,
+      "size": 392
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.js": {
+      "mtime": 1781750705440,
+      "size": 1217
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\index.d.ts": {
+      "mtime": 1781750705440,
+      "size": 96
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\error-codes.ts": {
+      "mtime": 1781760432006,
+      "size": 3138
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\error-codes.js": {
+      "mtime": 1781750705437,
+      "size": 2983
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\error-codes.d.ts": {
+      "mtime": 1781750705440,
+      "size": 2552
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\classifier.ts": {
+      "mtime": 1781760431986,
+      "size": 3980
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\classifier.js": {
+      "mtime": 1781750705474,
+      "size": 3836
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\errors\\src\\classifier.d.ts": {
+      "mtime": 1781750705478,
+      "size": 675
+    },
+    "d:\\mycode\\Z Code\\coding-test\\Z-Code\\my_ransac.py": {
+      "mtime": 1780982055776,
+      "size": 2172
+    },
     "d:\\mycode\\Z Code\\coding-test\\Z-Code\\image_stitcher.py": {
-      "mtime": 1780903309038,
-      "size": 8443
+      "mtime": 1780982495438,
+      "size": 7978
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\workflow\\index.ts": {
+      "mtime": 1781760433242,
+      "size": 137
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\__tests__\\cost.test.ts": {
+      "mtime": 1781760431824,
+      "size": 2704
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\pricing.ts": {
+      "mtime": 1781760431897,
+      "size": 1920
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\pricing.js": {
+      "mtime": 1781750705486,
+      "size": 1743
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\pricing.d.ts": {
+      "mtime": 1781750705486,
+      "size": 870
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.ts": {
+      "mtime": 1781760431879,
+      "size": 183
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\cost\\src\\index.js": {
+      "mtime": 1781750705471,
+      "size": 1008
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\trace\\index.ts": {
+      "mtime": 1781760433218,
+      "size": 128
     },
     "d:\\mycode\\Z Code\\coding-test\\Trae\\image_stitcher_trae.py": {
       "mtime": 1780904321949,
       "size": 22601
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\architecture-review\\architecture-review.ts": {
-      "mtime": 1780972652849,
-      "size": 10337
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.ts": {
+      "mtime": 1781749035076,
+      "size": 1354
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts": {
-      "mtime": 1780566828873,
-      "size": 8284
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.js": {
+      "mtime": 1781749175306,
+      "size": 1835
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts": {
-      "mtime": 1780974377920,
-      "size": 30451
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\run.test.d.ts": {
+      "mtime": 1781749175307,
+      "size": 49
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts": {
-      "mtime": 1780974718621,
-      "size": 116162
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\eval.test.ts": {
+      "mtime": 1781749025788,
+      "size": 4873
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts": {
-      "mtime": 1780563366392,
-      "size": 11137
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\eval.test.js": {
+      "mtime": 1781749175302,
+      "size": 5837
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts": {
-      "mtime": 1780393681918,
-      "size": 6936
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\eval.test.d.ts": {
+      "mtime": 1781749175303,
+      "size": 50
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts": {
-      "mtime": 1780642122652,
-      "size": 13050
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.ts": {
+      "mtime": 1781749006193,
+      "size": 3627
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts": {
-      "mtime": 1780642122517,
-      "size": 11730
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.js": {
+      "mtime": 1781749175289,
+      "size": 4513
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\config.test.d.ts": {
+      "mtime": 1781749175292,
+      "size": 52
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\agent.test.ts": {
+      "mtime": 1781748991119,
+      "size": 1212
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\agent.test.js": {
+      "mtime": 1781749175281,
+      "size": 1611
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\__tests__\\agent.test.d.ts": {
+      "mtime": 1781749175284,
+      "size": 51
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\verifier.ts": {
+      "mtime": 1781762098146,
+      "size": 2001
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\tool.ts": {
+      "mtime": 1781762198759,
+      "size": 3281
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\skill.ts": {
+      "mtime": 1781762151774,
+      "size": 2468
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\run.ts": {
+      "mtime": 1781760431534,
+      "size": 6502
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\reflection.ts": {
+      "mtime": 1781762128134,
+      "size": 1698
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\planner.ts": {
+      "mtime": 1781762068684,
+      "size": 3135
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\llm.ts": {
+      "mtime": 1781762118665,
+      "size": 3814
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\index.ts": {
+      "mtime": 1781762170403,
+      "size": 685
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\eval.ts": {
+      "mtime": 1781760431500,
+      "size": 12146
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\context.ts": {
+      "mtime": 1781762140500,
+      "size": 2012
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\config.ts": {
+      "mtime": 1781760431452,
+      "size": 9053
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\budget.ts": {
+      "mtime": 1781762163009,
+      "size": 1999
+    },
+    "d:\\mycode\\Z Code\\packages\\contracts\\src\\agent.ts": {
+      "mtime": 1781762057636,
+      "size": 7679
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\storage\\index.ts": {
+      "mtime": 1781760433206,
+      "size": 100
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.ts": {
+      "mtime": 1781760432174,
+      "size": 249
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.js": {
+      "mtime": 1781750705446,
+      "size": 1092
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\index.d.ts": {
+      "mtime": 1781750705449,
+      "size": 122
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\fs-guard.ts": {
+      "mtime": 1781760432147,
+      "size": 4113
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\fs-guard.js": {
+      "mtime": 1781750705455,
+      "size": 4316
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\fs-guard.d.ts": {
+      "mtime": 1781750705457,
+      "size": 1328
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\net-guard.ts": {
+      "mtime": 1781760432206,
+      "size": 2291
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\net-guard.js": {
+      "mtime": 1781750705450,
+      "size": 2312
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\net-guard.d.ts": {
+      "mtime": 1781750705451,
+      "size": 691
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\tool-guard.js": {
+      "mtime": 1781750705444,
+      "size": 2367
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\tool-guard.d.ts": {
+      "mtime": 1781750705446,
+      "size": 744
+    },
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\tool-guard.ts": {
+      "mtime": 1781760432218,
+      "size": 2273
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\skills.ts": {
+      "mtime": 1781760971907,
+      "size": 7800
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\skill-parser.ts": {
+      "mtime": 1781774138102,
+      "size": 10152
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\skills\\index.ts": {
+      "mtime": 1781774138102,
+      "size": 1164
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\extension.ts": {
-      "mtime": 1780911431552,
-      "size": 12986
+      "mtime": 1781774138082,
+      "size": 22629
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts": {
-      "mtime": 1780566829230,
-      "size": 8355
+    "d:\\mycode\\Z Code\\packages\\infra\\permission\\src\\__tests__\\guards.test.ts": {
+      "mtime": 1781760432135,
+      "size": 6892
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embeddingManager.ts": {
-      "mtime": 1780642122492,
-      "size": 11954
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\verifier\\runtime-verifier.ts": {
+      "mtime": 1781246252681,
+      "size": 15623
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts": {
-      "mtime": 1780904669031,
-      "size": 18369
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\reflection\\reflection.ts": {
+      "mtime": 1781760919505,
+      "size": 8967
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts": {
-      "mtime": 1780911431729,
-      "size": 55527
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\reflection\\index.ts": {
+      "mtime": 1781761059972,
+      "size": 1279
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\task-understanding\\task-understanding.ts": {
-      "mtime": 1780972887423,
-      "size": 10255
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\scripts\\postcompile.mjs": {
+      "mtime": 1781775436456,
+      "size": 4399
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts": {
-      "mtime": 1780642122464,
-      "size": 5500
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts": {
-      "mtime": 1780642122457,
-      "size": 12516
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts": {
-      "mtime": 1780643484576,
-      "size": 8480
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts": {
-      "mtime": 1780642122400,
-      "size": 6334
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts": {
-      "mtime": 1780642122377,
-      "size": 5871
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflectionEngine.ts": {
-      "mtime": 1780890245259,
-      "size": 14486
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflection-agent.ts": {
-      "mtime": 1780973436997,
-      "size": 7148
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\planner\\planner.ts": {
-      "mtime": 1780974799193,
-      "size": 30593
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\change-impact\\change-impact-analysis.ts": {
-      "mtime": 1780974757721,
-      "size": 16859
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impactAnalyzer.ts": {
-      "mtime": 1780451548740,
-      "size": 6405
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\impact-analyzer.ts": {
+      "mtime": 1781768131684,
+      "size": 6408
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\hybrid-retrieval.ts": {
-      "mtime": 1780644397389,
-      "size": 21868
+      "mtime": 1781768776119,
+      "size": 22503
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependencyGraph.ts": {
-      "mtime": 1780909800983,
-      "size": 10760
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextExpansion.ts": {
-      "mtime": 1780885518316,
-      "size": 18850
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\contextBuilder.ts": {
-      "mtime": 1780911431526,
-      "size": 23363
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\dependency-graph.ts": {
+      "mtime": 1781768776099,
+      "size": 10473
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-manager.ts": {
-      "mtime": 1780974807902,
-      "size": 12922
+      "mtime": 1781774138088,
+      "size": 13296
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspaceScanner.ts": {
-      "mtime": 1780909686263,
-      "size": 6830
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-expansion.ts": {
+      "mtime": 1781774138269,
+      "size": 17795
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolRetrieval.ts": {
-      "mtime": 1780885401081,
-      "size": 4684
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-builder.ts": {
+      "mtime": 1781774138114,
+      "size": 23932
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbolIndex.ts": {
-      "mtime": 1780394103574,
-      "size": 7246
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\context-budget.ts": {
+      "mtime": 1781760630313,
+      "size": 469
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\retrieval.ts": {
-      "mtime": 1780393681778,
-      "size": 4598
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts": {
-      "mtime": 1780393681435,
-      "size": 13534
+      "mtime": 1781768776154,
+      "size": 4739
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\reranker.ts": {
       "mtime": 1780642122364,
       "size": 3569
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoGraph.ts": {
-      "mtime": 1780909819008,
-      "size": 13477
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repo-map.ts": {
+      "mtime": 1781774138135,
+      "size": 8606
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repoMap.ts": {
-      "mtime": 1780393681756,
-      "size": 8589
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\repo-graph.ts": {
+      "mtime": 1781768776137,
+      "size": 13495
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbol-retrieval.ts": {
+      "mtime": 1781768131714,
+      "size": 4685
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\symbol-index.ts": {
+      "mtime": 1780394103574,
+      "size": 7246
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\context\\workspace-scanner.ts": {
+      "mtime": 1780909686263,
+      "size": 6830
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\evolution-panel.ts": {
+      "mtime": 1781760428814,
+      "size": 18329
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\index.ts": {
+      "mtime": 1781760610239,
+      "size": 869
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evolution\\evolution.ts": {
+      "mtime": 1781760599214,
+      "size": 729
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\research-agent\\src\\index.ts": {
+      "mtime": 1781760431262,
+      "size": 144
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\analysis\\task-understanding\\task-understanding.ts": {
+      "mtime": 1781774138088,
+      "size": 10257
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\edit\\edit-transaction.ts": {
+      "mtime": 1781665421139,
+      "size": 4330
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\edit\\edit-transaction-manager.ts": {
+      "mtime": 1781665421131,
+      "size": 13172
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\composer-panel.ts": {
       "mtime": 1780393682104,
       "size": 18759
-    },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repoKnowledgeBase.ts": {
-      "mtime": 1780904669092,
-      "size": 20521
     },
     "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\panels\\chat-view-provider.ts": {
       "mtime": 1780969077942,
@@ -686,9 +1274,397 @@
       "mtime": 1780393682026,
       "size": 5553
     },
-    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memoryManager.ts": {
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\evaluation\\evaluations-panel.ts": {
+      "mtime": 1781760428765,
+      "size": 18645
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\analysis\\complexity\\complexity-estimator.ts": {
+      "mtime": 1781774138102,
+      "size": 5796
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\planning\\__tests__\\executors.test.ts": {
+      "mtime": 1781760433077,
+      "size": 5221
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\planning\\sequential-executor.ts": {
+      "mtime": 1781760433149,
+      "size": 2144
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\planning\\index.ts": {
+      "mtime": 1781760433121,
+      "size": 720
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\planning\\dag-executor.ts": {
+      "mtime": 1781760433108,
+      "size": 3441
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\utils\\diff-engine.ts": {
+      "mtime": 1780566829230,
+      "size": 8355
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\types-shims.d.ts": {
+      "mtime": 1781760430705,
+      "size": 408
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\discovery\\discovery.ts": {
+      "mtime": 1781768776219,
+      "size": 18999
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\embedding\\embedding-manager.ts": {
+      "mtime": 1781774138086,
+      "size": 12178
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\analysis\\change-impact\\change-impact-analysis.ts": {
+      "mtime": 1781774138081,
+      "size": 16872
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\permission\\index.ts": {
+      "mtime": 1781760433044,
+      "size": 116
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\verification-debugger.ts": {
+      "mtime": 1780642122464,
+      "size": 5500
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\verifier.ts": {
+      "mtime": 1780566828873,
+      "size": 8284
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\tool-usage-analyzer.ts": {
+      "mtime": 1780642122457,
+      "size": 12516
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\pipeline-types.ts": {
+      "mtime": 1781774138102,
+      "size": 3299
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\retrieval-debugger.ts": {
+      "mtime": 1780643484576,
+      "size": 8480
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-pipeline.ts": {
+      "mtime": 1781774138114,
+      "size": 11918
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-loop.ts": {
+      "mtime": 1781768775980,
+      "size": 28099
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\agent\\agent-core.ts": {
+      "mtime": 1781774138114,
+      "size": 114946
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\git-context-debugger.ts": {
+      "mtime": 1780642122400,
+      "size": 6334
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\debug\\agent-loop-debugger.ts": {
+      "mtime": 1780642122377,
+      "size": 5871
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\config\\config-manager.ts": {
+      "mtime": 1780393681435,
+      "size": 13534
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\contracts.ts": {
+      "mtime": 1781774138113,
+      "size": 156
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\multi-agent\\__tests__\\prompted-agent.test.ts": {
+      "mtime": 1781760430298,
+      "size": 4918
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\multi-agent\\prompted-agent.ts": {
+      "mtime": 1781760430359,
+      "size": 4894
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\multi-agent\\index.ts": {
+      "mtime": 1781760430336,
+      "size": 1019
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\multi-agent\\agent-loop-adapter.ts": {
+      "mtime": 1781760430308,
+      "size": 5443
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\office-agent\\src\\index.ts": {
+      "mtime": 1781760431177,
+      "size": 140
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\analysis\\architecture-review\\architecture-review.ts": {
+      "mtime": 1781774138081,
+      "size": 10340
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\llm\\llm-provider.ts": {
+      "mtime": 1781246252680,
+      "size": 13533
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\repo-knowledge-base.ts": {
+      "mtime": 1781774138088,
+      "size": 19550
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\memory\\memory-manager.ts": {
       "mtime": 1780451524919,
       "size": 5626
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\git\\git-analyzer.ts": {
+      "mtime": 1780642122517,
+      "size": 11730
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\harness\\index.ts": {
+      "mtime": 1781760621597,
+      "size": 1014
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\inline\\inline-completion.ts": {
+      "mtime": 1780393681918,
+      "size": 6936
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\__tests__\\shared-state.test.ts": {
+      "mtime": 1781760432928,
+      "size": 3080
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\__tests__\\orchestrator.test.ts": {
+      "mtime": 1781760432916,
+      "size": 11386
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\__tests__\\agent-registry.test.ts": {
+      "mtime": 1781760432892,
+      "size": 4375
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\shared-state.ts": {
+      "mtime": 1781760433028,
+      "size": 5690
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\orchestrator.ts": {
+      "mtime": 1781760433010,
+      "size": 11386
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\index.ts": {
+      "mtime": 1781760432996,
+      "size": 992
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\example-agents.ts": {
+      "mtime": 1781760432977,
+      "size": 5215
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\orchestrator\\agent-registry.ts": {
+      "mtime": 1781760432951,
+      "size": 5431
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflection-engine.ts": {
+      "mtime": 1780890245259,
+      "size": 14486
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\reflection-agent.ts": {
+      "mtime": 1781768776465,
+      "size": 7386
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\reflection\\index.ts": {
+      "mtime": 1781774138088,
+      "size": 714
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\memory\\index.ts": {
+      "mtime": 1781760432871,
+      "size": 136
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\index.ts": {
+      "mtime": 1781760432857,
+      "size": 1781
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\planner\\planner.ts": {
+      "mtime": 1781774138088,
+      "size": 30821
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace\\trace-adapter.ts": {
+      "mtime": 1781760430541,
+      "size": 2199
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace\\index.ts": {
+      "mtime": 1781760430512,
+      "size": 794
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\query-service.ts": {
+      "mtime": 1781760430448,
+      "size": 13179
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\index.ts": {
+      "mtime": 1781760430412,
+      "size": 296
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\trace-panel.ts": {
+      "mtime": 1781760430480,
+      "size": 21253
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\__tests__\\index.test.ts": {
+      "mtime": 1781762413285,
+      "size": 5967
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\tools\\tool-registry.ts": {
+      "mtime": 1781768776582,
+      "size": 58244
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\trace-ui\\__tests__\\query-service.test.ts": {
+      "mtime": 1781760430408,
+      "size": 15419
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\infra\\storage\\index.ts": {
+      "mtime": 1781760430170,
+      "size": 164
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-validator.ts": {
+      "mtime": 1781665423155,
+      "size": 7802
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-types.ts": {
+      "mtime": 1781761030999,
+      "size": 547
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-selector.ts": {
+      "mtime": 1781665422966,
+      "size": 11966
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-manager.ts": {
+      "mtime": 1781665421432,
+      "size": 9892
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\skill-loader.ts": {
+      "mtime": 1781774138088,
+      "size": 2435
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\skills\\index.ts": {
+      "mtime": 1781774138081,
+      "size": 1076
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\verifier.ts": {
+      "mtime": 1781762232126,
+      "size": 1117
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\tools.ts": {
+      "mtime": 1781762241567,
+      "size": 1521
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\skills.ts": {
+      "mtime": 1781762251093,
+      "size": 1528
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\reflection.ts": {
+      "mtime": 1781762268962,
+      "size": 1435
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\planner.ts": {
+      "mtime": 1781762278106,
+      "size": 1430
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\index.ts": {
+      "mtime": 1781762330111,
+      "size": 3537
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\context.ts": {
+      "mtime": 1781762260508,
+      "size": 1322
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\agent-loop-adapter.ts": {
+      "mtime": 1781762317712,
+      "size": 2922
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\coding-agent\\src\\agent-core.ts": {
+      "mtime": 1781762294462,
+      "size": 2452
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evolution\\__tests__\\evolution.test.ts": {
+      "mtime": 1781760432786,
+      "size": 5975
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evolution\\__tests__\\evolution-e2e.test.ts": {
+      "mtime": 1781760432762,
+      "size": 5652
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evolution\\index.ts": {
+      "mtime": 1781760432817,
+      "size": 931
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evolution\\evolution.ts": {
+      "mtime": 1781760432805,
+      "size": 9141
+    },
+    "d:\\mycode\\Z Code\\packages\\agents\\browser-agent\\src\\index.ts": {
+      "mtime": 1781760430844,
+      "size": 142
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\context\\index.ts": {
+      "mtime": 1781760432521,
+      "size": 448
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\context\\context-budget.ts": {
+      "mtime": 1781760432492,
+      "size": 11819
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\budget\\index.ts": {
+      "mtime": 1781760432450,
+      "size": 89
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\config\\index.ts": {
+      "mtime": 1781760432478,
+      "size": 90
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\index.ts": {
+      "mtime": 1781760432701,
+      "size": 1359
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\sandbox.ts": {
+      "mtime": 1781760432750,
+      "size": 6667
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\candidate-adapter.ts": {
+      "mtime": 1781760432675,
+      "size": 3775
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\rubric.ts": {
+      "mtime": 1781760432716,
+      "size": 4435
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\benchmark-runner.ts": {
+      "mtime": 1781760432655,
+      "size": 5406
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\contracts\\index.ts": {
+      "mtime": 1781760428731,
+      "size": 392
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\infra\\permission\\index.ts": {
+      "mtime": 1781760430029,
+      "size": 170
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\infra\\cost\\index.ts": {
+      "mtime": 1781760429698,
+      "size": 158
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\cost\\index.ts": {
+      "mtime": 1781760432533,
+      "size": 91
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\infra\\errors\\index.ts": {
+      "mtime": 1781760429955,
+      "size": 162
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\__tests__\\candidate-adapter.test.ts": {
+      "mtime": 1781760432612,
+      "size": 2220
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\__tests__\\benchmark-runner.test.ts": {
+      "mtime": 1781760432573,
+      "size": 4248
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\evaluation\\__tests__\\rubric.test.ts": {
+      "mtime": 1781760432625,
+      "size": 5035
+    },
+    "d:\\mycode\\Z Code\\extensions\\coding-agent\\src\\infra\\config\\index.ts": {
+      "mtime": 1781760429423,
+      "size": 162
+    },
+    "d:\\mycode\\Z Code\\packages\\runtime\\src\\errors\\index.ts": {
+      "mtime": 1781760432554,
+      "size": 97
     }
   }
 }

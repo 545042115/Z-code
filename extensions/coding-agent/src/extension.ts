@@ -6,8 +6,8 @@ import { InlineCompletionProvider, InlineEditProvider } from './inline/inline-co
 import { ConfigManager } from './config/config-manager';
 import { ChatViewProvider } from './panels/chat-view-provider';
 import { ContextManager } from './context/context-manager';
-import { WorkspaceScanner } from './context/workspaceScanner';
-import { SymbolIndex } from './context/symbolIndex';
+import { WorkspaceScanner } from './context/workspace-scanner';
+import { SymbolIndex } from './context/symbol-index';
 import { Retrieval } from './context/retrieval';
 import { RetrievalDebugger } from './debug/retrieval-debugger';
 import { GitContextDebugger } from './debug/git-context-debugger';
@@ -18,11 +18,10 @@ import { SkillValidator } from './skills/skill-validator';
 import { TraceManager } from './trace';
 import { createFileStore } from './infra/storage';
 import { TracePanel } from './trace-ui/trace-panel';
-import { AgentRegistry } from './multi-agent/agent-registry';
-import { Orchestrator, registerExampleAgents, PromptedAgent } from './multi-agent';
+import { Orchestrator, registerExampleAgents, PromptedAgent, AgentRegistry } from './multi-agent';
 import { AgentLoopAdapter } from './multi-agent/agent-loop-adapter';
-import { BudgetGuard } from './infra/cost/budget';
-import { loadConfig } from './infra/config/config-center';
+import { BudgetGuard } from './infra/cost';
+import { loadConfig } from './infra/config';
 import { EvolutionPanel } from './evolution/evolution-panel';
 import { EvaluationsPanel } from './evaluation/evaluations-panel';
 
@@ -202,12 +201,6 @@ async function runMultiAgentFlow(): Promise<void> {
   // registered, the wrapper is a transparent pass-through.
   const registry = new AgentRegistry();
   registerExampleAgents(registry);
-  const queryService = tm.getQueryService();
-  for (const name of registry.list().map((a) => a.name)) {
-    const base = registry.get(name);
-    registry.unregister(name);
-    registry.register(new PromptedAgent({ base, query: queryService }));
-  }
   // TODO Phase 2.6: wrap the live AgentCore as an IAgent via
   // AgentLoopAdapter. Deferred because AgentCore doesn't yet expose
   // a stable `executeTask(task)` entry point. The example trio is

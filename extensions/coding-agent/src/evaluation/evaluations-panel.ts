@@ -18,7 +18,7 @@ import type {
   EvaluationAggregate,
   EvaluationDelta,
 } from '../contracts';
-import type { QueryService } from '../trace-ui/query-service';
+import { QueryService } from '../trace-ui/query-service';
 
 interface BaselineComparison {
   baseline: EvaluationAggregate;
@@ -66,7 +66,7 @@ export class EvaluationsPanel {
   private constructor(panel: vscode.WebviewPanel, _uri: vscode.Uri, mgr: TraceManager) {
     this._panel = panel;
     this._mgr = mgr;
-    this._query = mgr.getQueryService();
+    this._query = new QueryService(mgr.opts.store);
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
     this._panel.webview.onDidReceiveMessage(

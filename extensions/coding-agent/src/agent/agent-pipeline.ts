@@ -16,10 +16,10 @@ import {
   PipelineStageName,
 } from './pipeline-types';
 import { DiscoveryReport } from '../discovery/discovery';
-import { ArchitectureReviewReport } from '../architecture-review/architecture-review';
-import { ChangeImpactReport, ChangePlanInput } from '../change-impact/change-impact-analysis';
-import { ComplexityEstimate } from '../complexity/complexity-estimator';
-import { TaskUnderstandingResult } from '../task-understanding/task-understanding';
+import { ArchitectureReviewReport } from '../analysis/architecture-review/architecture-review';
+import { ChangeImpactReport, ChangePlanInput } from '../analysis/change-impact/change-impact-analysis';
+import { ComplexityEstimate } from '../analysis/complexity/complexity-estimator';
+import { TaskUnderstandingResult } from '../analysis/task-understanding/task-understanding';
 import { SelectedSkill } from '../skills/skill-types';
 import { ExecutionPlan, IncrementalContext } from '../planner/planner';
 

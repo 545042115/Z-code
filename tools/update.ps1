@@ -137,6 +137,11 @@ if (Test-Path $outPath) {
     Remove-Item -Recurse -Force $outPath
     Write-Host "      Deleted out/ directory" -ForegroundColor Green
 }
+$tsBuildInfo = Join-Path $extensionPath "tsconfig.tsbuildinfo"
+if (Test-Path $tsBuildInfo) {
+    Remove-Item $tsBuildInfo -Force
+    Write-Host "      Deleted tsbuildinfo cache" -ForegroundColor Green
+}
 
 $oldVsix = Get-ChildItem -Path $extensionPath -Filter "*.vsix"
 if ($oldVsix) {
@@ -248,6 +253,13 @@ if ($vsixFile) {
     if ($autoInstall -eq "y" -or $autoInstall -eq "Y") {
         $codeCmd = Get-Command "code" -ErrorAction SilentlyContinue
         if ($codeCmd) {
+            # Uninstall old marketplace version if present
+            $oldId = "545042115.coding-agent"
+            $installed = & code --list-extensions 2>&1
+            if ($installed -match [regex]::Escape($oldId)) {
+                Write-Host "      Uninstalling old version ($oldId)..." -ForegroundColor Yellow
+                & code --uninstall-extension $oldId 2>&1 | Out-Null
+            }
             $installResult = & code --install-extension $vsixFile.FullName --force 2>&1
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "      Installed to VS Code" -ForegroundColor Green

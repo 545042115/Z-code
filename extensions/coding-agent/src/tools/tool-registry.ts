@@ -775,7 +775,7 @@ export class ToolRegistry {
           return 'Code index not yet initialized.';
         }
         const depth = params.depth || 3;
-        let result: import('../context/impactAnalyzer').ImpactResult | null = null;
+        let result: import('../context/impact-analyzer').ImpactResult | null = null;
 
         if (params.filePath) {
           result = this.contextManager.impactAnalyzer.analyze(params.filePath, depth);

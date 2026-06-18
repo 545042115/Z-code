@@ -1,18 +1,18 @@
 // Planner module - builds and executes multi-step execution plans for the coding agent.
 // Uses memory, embedding search, repo graph, and git analysis to gather context.
 
-import { MemoryManager, MemoryEntry } from '../memory/memoryManager';
-import { RepoGraph } from '../context/repoGraph';
-import { ContextBuilder, ContextPackage } from '../context/contextBuilder';
+import { MemoryManager, MemoryEntry } from '../memory/memory-manager';
+import { RepoGraph } from '../context/repo-graph';
+import { ContextBuilder, ContextPackage } from '../context/context-builder';
 import { HybridRetrieval, HybridSearchResult } from '../context/hybrid-retrieval';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { DiscoveryReport } from '../discovery/discovery';
-import { TaskType, TaskUnderstandingResult } from '../task-understanding/task-understanding';
-import { ArchitectureReview, ArchitectureReviewReport } from '../architecture-review/architecture-review';
-import { ChangeImpactReport, ChangeImpactAnalysis } from '../change-impact/change-impact-analysis';
-import { ComplexityEstimate } from '../complexity/complexity-estimator';
-import { SymbolIndex } from '../context/symbolIndex';
-import { DependencyGraph } from '../context/dependencyGraph';
+import { TaskType, TaskUnderstandingResult } from '../analysis/task-understanding/task-understanding';
+import { ArchitectureReview, ArchitectureReviewReport } from '../analysis/architecture-review/architecture-review';
+import { ChangeImpactReport, ChangeImpactAnalysis } from '../analysis/change-impact/change-impact-analysis';
+import { ComplexityEstimate } from '../analysis/complexity/complexity-estimator';
+import { SymbolIndex } from '../context/symbol-index';
+import { DependencyGraph } from '../context/dependency-graph';
 
 export type IntentType = 'project_understanding' | 'bug_fix' | 'feature_add' | 'refactor' | 'testing' | 'documentation' | 'removal' | 'other';
 

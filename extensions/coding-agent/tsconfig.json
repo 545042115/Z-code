@@ -10,7 +10,46 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "incremental": true,
+    "baseUrl": ".",
+    "paths": {
+      "@z-assistant/contracts": ["../../packages/contracts/src"],
+      "@z-assistant/contracts/*": ["../../packages/contracts/src/*"],
+      "@z-assistant/runtime": ["../../packages/runtime/src"],
+      "@z-assistant/runtime/*": ["../../packages/runtime/src/*"],
+      "@z-assistant/infra-errors": ["../../packages/infra/errors/src"],
+      "@z-assistant/infra-errors/*": ["../../packages/infra/errors/src/*"],
+      "@z-assistant/infra-cost": ["../../packages/infra/cost/src"],
+      "@z-assistant/infra-cost/*": ["../../packages/infra/cost/src/*"],
+      "@z-assistant/infra-storage": ["../../packages/infra/storage/src"],
+      "@z-assistant/infra-storage/*": ["../../packages/infra/storage/src/*"],
+      "@z-assistant/infra-permission": ["../../packages/infra/permission/src"],
+      "@z-assistant/infra-permission/*": ["../../packages/infra/permission/src/*"],
+      "@z-assistant/infra-config": ["../../packages/infra/config/src"],
+      "@z-assistant/infra-config/*": ["../../packages/infra/config/src/*"],
+      "@z-assistant/trace": ["../../packages/trace/src"],
+      "@z-assistant/trace/*": ["../../packages/trace/src/*"],
+      "@z-assistant/agent-coding": ["../../packages/agents/coding-agent/src"],
+      "@z-assistant/agent-coding/*": ["../../packages/agents/coding-agent/src/*"],
+      "@z-assistant/app-vscode-connector": ["../../apps/vscode-connector/src"],
+      "@z-assistant/app-vscode-connector/*": ["../../apps/vscode-connector/src/*"]
+    }
   },
-  "exclude": ["node_modules", ".vscode-test"]
+  "references": [
+    { "path": "../../packages/contracts" },
+    { "path": "../../packages/infra/errors" },
+    { "path": "../../packages/infra/cost" },
+    { "path": "../../packages/infra/storage" },
+    { "path": "../../packages/infra/permission" },
+    { "path": "../../packages/infra/config" },
+    { "path": "../../packages/trace" },
+    { "path": "../../packages/runtime" },
+    { "path": "../../packages/agents/coding-agent" },
+    { "path": "../../apps/vscode-connector" }
+  ],
+  "exclude": ["node_modules", ".vscode-test", "out"]
 }

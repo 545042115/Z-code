@@ -1,0 +1,15 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "out",
+    "composite": true,
+    "tsBuildInfoFile": "./out/.tsbuildinfo"
+  },
+  "include": ["src/**/*", "__tests__/**/*"],
+  "exclude": ["out", "node_modules"],
+  "references": [
+    { "path": "../../contracts" },
+    { "path": "../../runtime" }
+  ]
+}

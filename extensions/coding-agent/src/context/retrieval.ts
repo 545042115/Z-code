@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { WorkspaceScanner, WorkspaceFile } from './workspaceScanner';
-import { SymbolIndex, SymbolEntry } from './symbolIndex';
+import { WorkspaceScanner, WorkspaceFile } from './workspace-scanner';
+import { SymbolIndex, SymbolEntry } from './symbol-index';
 
 export interface RelevantResult {
   type: 'symbol' | 'file' | 'directory';

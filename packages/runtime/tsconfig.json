@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "out",
+    "composite": true,
+    "tsBuildInfoFile": "./out/.tsbuildinfo"
+  },
+  "include": ["src/**/*"],
+  "exclude": ["out", "node_modules"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../infra/errors" },
+    { "path": "../infra/cost" },
+    { "path": "../infra/storage" },
+    { "path": "../trace" }
+  ]
+}

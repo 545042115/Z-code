@@ -1,0 +1,13 @@
+node_modules/**
+src/**
+**/*.ts
+**/*.tsbuildinfo
+**/__tests__/**
+.gitignore
+**/*.map
+tsconfig.json
+tsconfig.tsbuildinfo
+scripts/**
+temp-check/**
+package-vsix.ps1
+.vscode/**

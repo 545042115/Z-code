@@ -10,7 +10,7 @@ import {
   FailureAnalysis,
   RepairPlan,
   ReflectionMemory,
-} from './reflectionEngine';
+} from './reflection-engine';
 
 /**
  * Simplified record of a tool call result for reflection input.

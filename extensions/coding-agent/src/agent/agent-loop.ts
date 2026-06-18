@@ -6,7 +6,7 @@ import { ContextManager } from '../context/context-manager';
 import { AgentPipeline } from './agent-pipeline';
 import { GitAnalyzer } from '../git/git-analyzer';
 import { ToolUsageAnalyzer } from '../debug/tool-usage-analyzer';
-import { ReflectionEngine, ReflectionReport } from '../reflection/reflectionEngine';
+import { ReflectionEngine, ReflectionReport } from '../reflection/reflection-engine';
 import { ReflectionAgent, ReflectionRecord, ToolResult, ReflectionOutput, ReflectionInput } from '../reflection/reflection-agent';
 import { SelectedSkill } from '../skills/skill-types';
 

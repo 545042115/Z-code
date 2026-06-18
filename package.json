@@ -1,0 +1,27 @@
+{
+  "name": "z-assistant",
+  "version": "2.0.0-alpha.1",
+  "private": true,
+  "description": "Z Assistant V2 — Assistant Runtime monorepo root. Houses V2 packages (contracts, runtime, agents) and apps (cli, desktop, vscode-connector). V1 (VSCode Coding Agent extension) lives under extensions/coding-agent/.",
+  "workspaces": [
+    "packages/*",
+    "packages/agents/*",
+    "packages/infra/*",
+    "packages/trace",
+    "apps/*",
+    "extensions/coding-agent"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present && npm run compile -w extensions/coding-agent",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "@types/node": "18.x"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

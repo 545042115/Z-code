@@ -345,11 +345,11 @@ test('candidates: variantStats returns per-variant aggregates', async () => {
 
 test('toolUsage: aggregates per-tool stats from spans', async () => {
   await withService(async (svc, store) => {
-    const r = mkRun({ id: 'r1' });
+    const r = mkRun({ id: 'r1', startTime: Date.now() - 1000 });  // recent
     await store.runs.insert(r);
-    await store.spans.insert(mkSpan(r.id, { id: 's1', type: 'tool', name: 'fs', status: 'ok', duration: 100 }));
-    await store.spans.insert(mkSpan(r.id, { id: 's2', type: 'tool', name: 'fs', status: 'ok', duration: 200 }));
-    await store.spans.insert(mkSpan(r.id, { id: 's3', type: 'tool', name: 'net', status: 'error', duration: 50 }));
+    await store.spans.insert(mkSpan(r.id, { id: 's1', startTime: Date.now() - 1000, type: 'tool', name: 'fs', status: 'ok', duration: 100 }));
+    await store.spans.insert(mkSpan(r.id, { id: 's2', startTime: Date.now() - 1000, type: 'tool', name: 'fs', status: 'ok', duration: 200 }));
+    await store.spans.insert(mkSpan(r.id, { id: 's3', startTime: Date.now() - 1000, type: 'tool', name: 'net', status: 'error', duration: 50 }));
     const rows = await svc.toolUsage();
     const fs = rows.find((t) => t.name === 'fs');
     const net = rows.find((t) => t.name === 'net');
@@ -364,10 +364,10 @@ test('toolUsage: aggregates per-tool stats from spans', async () => {
 
 test('skillUsage: aggregates per-skill hit + success', async () => {
   await withService(async (svc, store) => {
-    const r = mkRun({ id: 'r1' });
+    const r = mkRun({ id: 'r1', startTime: Date.now() - 1000 });  // recent
     await store.runs.insert(r);
-    await store.spans.insert(mkSpan(r.id, { id: 's1', type: 'skill', name: 'refactor', status: 'ok' }));
-    await store.spans.insert(mkSpan(r.id, { id: 's2', type: 'skill', name: 'refactor', status: 'error' }));
+    await store.spans.insert(mkSpan(r.id, { id: 's1', startTime: Date.now() - 1000, type: 'skill', name: 'refactor', status: 'ok' }));
+    await store.spans.insert(mkSpan(r.id, { id: 's2', startTime: Date.now() - 1000, type: 'skill', name: 'refactor', status: 'error' }));
     const rows = await svc.skillUsage();
     const refactor = rows.find((s) => s.name === 'refactor');
     assert.ok(refactor);

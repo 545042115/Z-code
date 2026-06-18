@@ -24,6 +24,7 @@ if (-not (Test-Path "node_modules\typescript")) {
 
 # Compile
 if (Test-Path "node_modules\typescript\bin\tsc") {
+    & "npx" tsc -b --clean
     & "npx" tsc -p ./
 } else {
     Write-Host "tsc not found after install" -ForegroundColor Red

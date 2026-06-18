@@ -1,0 +1,20 @@
+{
+  "name": "@z-assistant/app-vscode-connector",
+  "version": "0.1.0",
+  "private": true,
+  "description": "V2 VSCode Connector — bridges V1 VSCode extension to V2 Assistant Runtime. V1 extension keeps ownership of activation / panels / commands; this connector is the only bridge point.",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "clean": "rm -rf out dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@z-assistant/contracts": "0.1.0",
+    "@z-assistant/runtime": "0.1.0",
+    "@z-assistant/trace": "0.1.0",
+    "@z-assistant/infra-storage": "0.1.0",
+    "@z-assistant/infra-cost": "0.1.0"
+  }
+}

@@ -1,4 +1,4 @@
-// QueryService — caching query layer for the Trace UI.
+// QueryService — V1 caching query layer for the Trace UI.
 //
 // Wraps a Store with a simple in-memory cache that invalidates when
 // mutations are observed. The UI subscribes to invalidation events
@@ -7,72 +7,40 @@
 // Why a service and not direct Store calls:
 //   - UI needs aggregated queries (run summary, span stats) not in Store
 //   - Avoid re-reading JSONL on every keystroke
-//   - Centralize projection logic (e.g. timeline buckets)
+//   - Centralize projection logic (now in V2 @z-assistant/trace/projections)
+//
+// Phase 6 refactor: the projection logic has been moved to
+// `@z-assistant/trace/projections`. This file is now a thin caching
+// + invalidation wrapper over those V2 functions.
 
 import type { Store, RunQuery, SpanQuery } from '../infra/storage';
 import type {
   AgentRun,
   AgentSpan,
-  RunStatus,
-  SpanStatus,
-  SpanType,
   Evaluation,
-  Benchmark,
   Baseline,
-  EvaluationAggregate,
-  EvaluationDelta,
   PromptCandidate,
   PromptVariant,
   VariantStats,
+  EvaluationAggregate,
+  EvaluationDelta,
 } from '../contracts';
 import {
-  aggregateEvaluations,
-  diffAggregates,
-} from '../contracts';
+  listRunSummaries as v2ListRunSummaries,
+  listSpanNodes as v2ListSpanNodes,
+  readRunEvents as v2ReadRunEvents,
+  computeScoreTrend as v2ComputeScoreTrend,
+  buildBaseline as v2BuildBaseline,
+  diffBaseline as v2DiffBaseline,
+  projectVariantStats as v2ProjectVariantStats,
+  listToolUsage as v2ListToolUsage,
+  listSkillUsage as v2ListSkillUsage,
+  type RunSummary,
+  type SpanNode,
+  type SpanEventLite,
+} from '@z-assistant/trace';
 
-export interface RunSummary {
-  id: string;
-  traceId: string;
-  task: string;
-  model: { provider: string; name: string };
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  status: RunStatus;
-  totalTokensIn: number;
-  totalTokensOut: number;
-  totalCostUsd: number;
-  spanCount: number;
-  errorSpanCount: number;
-  tags: string[];
-}
-
-export interface SpanNode {
-  id: string;
-  parentSpanId?: string;
-  name: string;
-  type: SpanType;
-  startTime: number;
-  endTime?: number;
-  duration?: number;
-  status: SpanStatus;
-  agent?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  costUsd?: number;
-  hasError: boolean;
-  errorCode?: string;
-  /** Number of events on the Span */
-  eventCount: number;
-  /** Number of child Spans */
-  childCount: number;
-}
-
-export interface SpanEventLite {
-  ts: number;
-  name: string;
-  attributes?: Record<string, string | number | boolean | null>;
-}
+export type { RunSummary, SpanNode, SpanEventLite };
 
 /** Listener invoked on cache invalidation. */
 export type InvalidationListener = (key: string) => void;
@@ -104,35 +72,14 @@ export class QueryService {
     for (const fn of this._listeners) fn('*');
   }
 
-  // ── Queries (cached) ────────────────────────────────────────────────
+  // ── Queries (cached, delegated to V2 projections) ──────────────────
 
   /** List Runs as lightweight summaries. */
   async listRuns(q: RunQuery = {}): Promise<RunSummary[]> {
     const key = `runs:${JSON.stringify(q)}`;
     const hit = this._cache.get(key) as RunSummary[] | undefined;
     if (hit) return hit;
-    const runs = await this.store.runs.list(q);
-    const out: RunSummary[] = await Promise.all(
-      runs.map(async (r) => {
-        const spans = await this.store.spans.listByRun(r.id);
-        return {
-          id: r.id,
-          traceId: r.traceId,
-          task: r.task,
-          model: r.model,
-          startTime: r.startTime,
-          endTime: r.endTime,
-          duration: r.duration,
-          status: r.status,
-          totalTokensIn: r.totalTokensIn,
-          totalTokensOut: r.totalTokensOut,
-          totalCostUsd: r.totalCostUsd,
-          spanCount: spans.length,
-          errorSpanCount: spans.filter((s) => s.status === 'error').length,
-          tags: r.tags,
-        };
-      })
-    );
+    const out = await v2ListRunSummaries(this.store, q);
     this._cache.set(key, out);
     return out;
   }
@@ -152,31 +99,7 @@ export class QueryService {
     const key = `spans:${runId}`;
     const hit = this._cache.get(key) as SpanNode[] | undefined;
     if (hit) return hit;
-    const spans = await this.store.spans.listByRun(runId);
-    const childCount = new Map<string, number>();
-    for (const s of spans) {
-      if (s.parentSpanId) {
-        childCount.set(s.parentSpanId, (childCount.get(s.parentSpanId) ?? 0) + 1);
-      }
-    }
-    const out: SpanNode[] = spans.map((s) => ({
-      id: s.id,
-      parentSpanId: s.parentSpanId,
-      name: s.name,
-      type: s.type,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      duration: s.duration,
-      status: s.status,
-      agent: s.agent,
-      tokensIn: s.tokensIn,
-      tokensOut: s.tokensOut,
-      costUsd: s.costUsd,
-      hasError: s.status === 'error',
-      errorCode: s.error?.code,
-      eventCount: s.events?.length ?? 0,
-      childCount: childCount.get(s.id) ?? 0,
-    }));
+    const out = await v2ListSpanNodes(this.store, runId);
     this._cache.set(key, out);
     return out;
   }
@@ -191,10 +114,7 @@ export class QueryService {
     const key = `events:${runId}`;
     const hit = this._cache.get(key) as SpanEventLite[] | undefined;
     if (hit) return hit;
-    const out: SpanEventLite[] = [];
-    for await (const ev of this.store.traceStream(runId)) {
-      out.push({ ts: ev.ts, name: ev.name, attributes: ev.attributes });
-    }
+    const out = await v2ReadRunEvents(this.store, runId);
     this._cache.set(key, out);
     return out;
   }
@@ -217,10 +137,10 @@ export class QueryService {
     benchmarkId?: string;
     pass?: boolean;
     limit?: number;
-  } = {}): Promise<import('../contracts').Evaluation[]> {
+  } = {}): Promise<Evaluation[]> {
     const key = `evals:${q.benchmarkId ?? '*'}:${q.pass ?? '*'}:${q.limit ?? 200}`;
     const cached = this._cache.get(key);
-    if (cached) return cached as import('../contracts').Evaluation[];
+    if (cached) return cached as Evaluation[];
     const out = await this.store.evals.list({
       benchmarkId: q.benchmarkId,
       pass: q.pass,
@@ -251,16 +171,15 @@ export class QueryService {
   /**
    * Compute the score trend over the last N evaluations.
    * Returns an ordered array of {timestamp, total, pass}.
+   * The `limit` is applied to the store query; the V2 function returns
+   * the full sorted trend; callers may slice for display.
    */
   async scoreTrend(limit = 50): Promise<Array<{ timestamp: number; total: number; pass: boolean }>> {
     const key = `trend:${limit}`;
     const cached = this._cache.get(key);
     if (cached) return cached as Array<{ timestamp: number; total: number; pass: boolean }>;
     const evals = await this.store.evals.list({ limit });
-    const out = evals
-      .filter((e: import('../contracts').Evaluation) => e.timestamp != null)
-      .sort((a: import('../contracts').Evaluation, b: import('../contracts').Evaluation) => (a.timestamp! - b.timestamp!))
-      .map((e: import('../contracts').Evaluation) => ({ timestamp: e.timestamp!, total: e.total ?? 0, pass: !!e.pass }));
+    const out = v2ComputeScoreTrend(evals);
     this._cache.set(key, out);
     return out;
   }
@@ -301,17 +220,14 @@ export class QueryService {
     description?: string;
   }): Promise<Baseline> {
     const evals = await this.store.evals.list({ benchmarkId: args.benchmarkId });
-    const id = `${args.benchmarkId}:${args.name}`;
-    const baseline: Baseline = {
-      id,
+    const baseline = v2BuildBaseline({
       benchmarkId: args.benchmarkId,
       name: args.name,
-      evaluations: evals,
       description: args.description,
-      createdAt: Date.now(),
-    };
+      evaluations: evals,
+    });
     await this.store.baselines.upsert(baseline);
-    this.invalidate(`baselines:${args.benchmarkId}`, `baseline:${id}`);
+    this.invalidate(`baselines:${args.benchmarkId}`, `baseline:${baseline.id}`);
     return baseline;
   }
 
@@ -334,25 +250,15 @@ export class QueryService {
   }> {
     const baselineRec = await this.getBaseline(args.baselineId);
     if (!baselineRec) {
-      return {
-        baseline: aggregateEvaluations([]),
-        current: aggregateEvaluations([]),
-        deltas: [],
-      };
+      return v2DiffBaseline({ baseline: undefined, currentList: [] });
     }
-    const baseline = aggregateEvaluations(baselineRec.evaluations);
     const since = baselineRec.createdAt;
     const currentList = await this.store.evals.list({
       benchmarkId: baselineRec.benchmarkId,
       fromTs: since,
       limit: args.recentLimit ?? 200,
     });
-    const current = aggregateEvaluations(currentList);
-    return {
-      baseline,
-      current,
-      deltas: diffAggregates(baseline, current),
-    };
+    return v2DiffBaseline({ baseline: baselineRec, currentList });
   }
 
   onBaselineChanged(): void {
@@ -419,104 +325,47 @@ export class QueryService {
   async variantStats(candidateId: string): Promise<VariantStats[]> {
     const c = await this.getCandidate(candidateId);
     if (!c) return [];
-    const out: VariantStats[] = [];
-    for (const v of c.variants) {
-      const tag = `variant:${v.id}`;
-      const runs = await this.store.runs.list({ tagsAny: [tag], limit: 500 });
-      const n = runs.length;
-      const successCount = runs.filter((r) => r.status === 'success').length;
-      const passRate = n ? successCount / n : 0;
-      const avgScore = n
-        ? runs.reduce((s, r) => {
-            // crude: use total cost as a proxy if no other field; this is
-            // a placeholder for the real Eval-level score. Real impl
-            // should join Evaluations by runId.
-            return s + r.totalCostUsd;
-          }, 0) / n
-        : 0;
-      const avgCost = n ? runs.reduce((s, r) => s + r.totalCostUsd, 0) / n : 0;
-      const avgDur = n
-        ? runs.reduce((s, r) => s + (r.duration ?? (r.endTime ? r.endTime - r.startTime : 0)), 0) / n
-        : 0;
-      const lastSeen = n
-        ? Math.max(...runs.map((r) => r.endTime ?? r.startTime))
-        : 0;
-      out.push({
-        variantId: v.id,
-        label: v.label,
-        runCount: n,
-        passRate,
-        avgScore,
-        avgCostUsd: avgCost,
-        avgDurationMs: avgDur,
-        lastSeen,
-      });
-    }
-    return out;
+    const [bm, agent] = c.id.split(':');
+    // Best-effort: load runs matching any variant tag. The V2 projection
+    // computes per-variant aggregates from this list.
+    const variantTagPrefix = 'variant:';
+    const tagFilter = c.variants.map((v) => `${variantTagPrefix}${v.id}`);
+    const runs = tagFilter.length
+      ? await this.store.runs.list({ tagsAny: tagFilter, limit: 2000 })
+      : [];
+    void bm; void agent;
+    return v2ProjectVariantStats({ candidate: c, runs });
   }
 
   // ── Optimizer stats (Phase 5) ──────────────────────────────────────
 
   /**
    * Per-tool usage + success rate. Reads all spans of `type=tool`.
-   * Used by the "Tool Optimizer" section of the Evolution panel
-   * (per PHASE5_EVOLUTION.md: "统计 Tool Usage + Success Rate").
+   * Used by the "Tool Optimizer" section of the Evolution panel.
    */
   async toolUsage(windowMs = 7 * 24 * 60 * 60 * 1000): Promise<
     Array<{ name: string; calls: number; ok: number; error: number; successRate: number; avgDurationMs: number }>
   > {
-    const fromTs = Date.now() - windowMs;
-    const runs = await this.store.runs.list({ fromTs, limit: 1000 });
-    const byName = new Map<string, { calls: number; ok: number; error: number; durSum: number; durN: number }>();
-    for (const r of runs) {
-      const spans = await this.store.spans.listByRun(r.id, { type: 'tool' });
-      for (const s of spans) {
-        let e = byName.get(s.name);
-        if (!e) { e = { calls: 0, ok: 0, error: 0, durSum: 0, durN: 0 }; byName.set(s.name, e); }
-        e.calls++;
-        if (s.status === 'ok') e.ok++;
-        else if (s.status === 'error') e.error++;
-        if (s.duration !== undefined) { e.durSum += s.duration; e.durN++; }
-      }
-    }
-    return [...byName.entries()]
-      .map(([name, e]) => ({
-        name,
-        calls: e.calls,
-        ok: e.ok,
-        error: e.error,
-        successRate: e.calls ? e.ok / e.calls : 0,
-        avgDurationMs: e.durN ? e.durSum / e.durN : 0,
-      }))
-      .sort((a, b) => b.calls - a.calls);
+    const key = `toolUsage:${windowMs}`;
+    const cached = this._cache.get(key);
+    if (cached) return cached as Array<{ name: string; calls: number; ok: number; error: number; successRate: number; avgDurationMs: number }>;
+    const out = await v2ListToolUsage(this.store, windowMs);
+    this._cache.set(key, out);
+    return out;
   }
 
   /**
    * Per-skill hit rate and success rate. Reads spans of `type=skill`.
-   * Used by the "Skill Optimizer" section (per PHASE5_EVOLUTION.md:
-   * "Skill Hit Rate + Success Rate").
+   * Used by the "Skill Optimizer" section.
    */
   async skillUsage(windowMs = 7 * 24 * 60 * 60 * 1000): Promise<
     Array<{ name: string; hits: number; successRate: number }>
   > {
-    const fromTs = Date.now() - windowMs;
-    const runs = await this.store.runs.list({ fromTs, limit: 1000 });
-    const byName = new Map<string, { hits: number; ok: number }>();
-    for (const r of runs) {
-      const spans = await this.store.spans.listByRun(r.id, { type: 'skill' });
-      for (const s of spans) {
-        let e = byName.get(s.name);
-        if (!e) { e = { hits: 0, ok: 0 }; byName.set(s.name, e); }
-        e.hits++;
-        if (s.status === 'ok') e.ok++;
-      }
-    }
-    return [...byName.entries()]
-      .map(([name, e]) => ({
-        name,
-        hits: e.hits,
-        successRate: e.hits ? e.ok / e.hits : 0,
-      }))
-      .sort((a, b) => b.hits - a.hits);
+    const key = `skillUsage:${windowMs}`;
+    const cached = this._cache.get(key);
+    if (cached) return cached as Array<{ name: string; hits: number; successRate: number }>;
+    const out = await v2ListSkillUsage(this.store, windowMs);
+    this._cache.set(key, out);
+    return out;
   }
 }

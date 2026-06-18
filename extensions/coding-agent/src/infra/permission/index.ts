@@ -1,3 +1,3 @@
-export * from './fs-guard';
-export * from './net-guard';
-export * from './tool-guard';
+// Shim: V1 extension → @z-assistant/infra-permission
+// Migration re-export. See ADR 0007 (Phase 6 Runtime decoupling).
+export * from '@z-assistant/infra-permission';

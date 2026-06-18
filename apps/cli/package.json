@@ -1,0 +1,21 @@
+{
+  "name": "@z-assistant/app-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "V2 CLI — independent program entry point. NOT a VSCode extension. Boots V2 Assistant Runtime for terminal use.",
+  "main": "src/index.ts",
+  "bin": {
+    "z": "src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "start": "node out/index.js",
+    "clean": "rm -rf out dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@z-assistant/app-vscode-connector": "0.1.0",
+    "@z-assistant/contracts": "0.1.0",
+    "@z-assistant/runtime": "0.1.0"
+  }
+}

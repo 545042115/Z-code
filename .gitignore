@@ -29,3 +29,15 @@ Thumbs.db
 Z-code_agent_improvement_plan.md
 PROJECT_ROADMAP.md
 SKILL_SYSTEM_PLAN.md
+
+# V2 monorepo 增量
+packages/*/out/
+packages/*/dist/
+packages/*/node_modules/
+apps/*/out/
+apps/*/dist/
+apps/*/node_modules/
+extensions/coding-agent/out/
+extensions/coding-agent/dist/
+extensions/coding-agent/node_modules/
+*.tsbuildinfo

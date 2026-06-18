@@ -1,6 +1,13 @@
 // Harness module — single import surface.
 //
-//   import { BenchmarkRunner, LocalSandbox, scoreSandboxResult } from '../harness';
+// Phase 6A: this is now a thin shim over the V2 Evaluation framework
+// (`@z-assistant/runtime` re-exports the `evaluation` subpackage).
+// All public symbols live there.
+//
+// V1 callers that previously did:
+//   import { BenchmarkRunner, LocalSandbox, ... } from '../harness';
+// keep working unchanged because the V2 framework re-exports the
+// same public surface with identical signatures.
 
 export {
   LocalSandbox,
@@ -9,8 +16,6 @@ export {
   type SandboxSpec,
   type SandboxResult,
   type SandboxMount,
-} from './sandbox';
-export {
   scoreSandboxResult,
   makeEvaluation,
   exitCodeZero,
@@ -23,17 +28,13 @@ export {
   allOf,
   type RubricCheck,
   type RubricSpec,
-} from './rubric';
-export {
   BenchmarkRunner,
   suiteFromCases,
   type BenchmarkCaseSpec,
   type BenchmarkSuiteSpec,
   type BenchmarkRunOptions,
   type BenchmarkRunSummary,
-} from './benchmark-runner';
-export {
   CandidateAdapter,
   type CandidateOptions,
   type EvaluateOptions,
-} from './candidate-adapter';
+} from '@z-assistant/runtime';

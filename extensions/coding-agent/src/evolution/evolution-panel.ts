@@ -18,7 +18,7 @@ import {
 import type { PromptCandidate, VariantStats } from '../contracts';
 import { writeFile, mkdir, readdir, readFile, unlink } from 'fs/promises';
 import { join } from 'path';
-import type { QueryService } from '../trace-ui/query-service';
+import { QueryService } from '../trace-ui/query-service';
 
 interface ProposalRecord {
   filename: string;
@@ -80,7 +80,7 @@ export class EvolutionPanel {
   private constructor(panel: vscode.WebviewPanel, _uri: vscode.Uri, mgr: TraceManager) {
     this._panel = panel;
     this._mgr = mgr;
-    this._query = mgr.getQueryService();
+    this._query = new QueryService(mgr.opts.store);
     this._engine = new EvolutionEngine(
       (mgr as unknown as { opts: { store: import('../infra/storage').Store } }).opts.store,
       mgr,

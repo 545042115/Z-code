@@ -3,7 +3,7 @@
     "displayName": "Coding Agent",
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
     "version": "1.2.0",
-    "publisher": "545042115",
+    "publisher": "z-code-local",
     "repository": {
         "type": "git",
         "url": "https://github.com/545042115/coding-agent"
@@ -247,16 +247,22 @@
     },
     "scripts": {
         "vscode:prepublish": "npm run compile",
-        "compile": "tsc -p ./",
+        "compile": "tsc -p ./ && node scripts/postcompile.mjs",
         "watch": "tsc -watch -p ./",
-        "test": "tsc -p ./ && node --test contracts/__tests__/ infra/storage/__tests__/ infra/errors/__tests__/ infra/cost/__tests__/ infra/permission/__tests__/ infra/config/__tests__/ trace/__tests__/ trace-ui/__tests__/ multi-agent/ harness/ evolution/",
-        "test:contracts": "tsc -p ./ && node --test contracts/__tests__/",
-        "test:storage": "tsc -p ./ && node --test infra/storage/__tests__/",
-        "test:trace": "tsc -p ./ && node --test trace/__tests__/",
-        "test:trace-ui": "tsc -p ./ && node --test trace-ui/__tests__/",
-        "test:multi-agent": "tsc -p ./ && node --test multi-agent/",
-        "test:harness": "tsc -p ./ && node --test harness/",
-        "test:evolution": "tsc -p ./ && node --test evolution/"
+        "test": "tsc -p ./ && node --test out/trace-ui/__tests__/*.test.js out/multi-agent/__tests__/*.test.js",
+        "test:trace-ui": "tsc -p ./ && node --test out/trace-ui/__tests__/*.test.js",
+        "test:multi-agent": "tsc -p ./ && node --test out/multi-agent/__tests__/*.test.js"
+    },
+    "dependencies": {
+        "@z-assistant/contracts": "0.1.0",
+        "@z-assistant/infra-errors": "0.1.0",
+        "@z-assistant/infra-cost": "0.1.0",
+        "@z-assistant/infra-storage": "0.1.0",
+        "@z-assistant/infra-permission": "0.1.0",
+        "@z-assistant/infra-config": "0.1.0",
+        "@z-assistant/trace": "0.1.0",
+        "@z-assistant/runtime": "0.1.0",
+        "@z-assistant/app-vscode-connector": "0.1.0"
     },
     "devDependencies": {
         "@types/node": "18.x",
