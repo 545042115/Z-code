@@ -1,10 +1,10 @@
 import { type ToolPolicy } from '@z-assistant/contracts';
 export declare class ToolDeniedError extends Error {
-    readonly code: "2002";
+    readonly code: any;
     constructor(message: string);
 }
 export declare class DangerousCommandError extends Error {
-    readonly code: "2006";
+    readonly code: any;
     constructor(message: string);
 }
 export interface ToolGuardOptions {

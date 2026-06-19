@@ -12,9 +12,14 @@
   },
   "dependencies": {
     "@z-assistant/contracts": "0.1.0",
+    "@z-assistant/infra-cost": "0.1.0",
+    "@z-assistant/infra-storage": "0.1.0",
     "@z-assistant/runtime": "0.1.0",
     "@z-assistant/trace": "0.1.0",
-    "@z-assistant/infra-storage": "0.1.0",
-    "@z-assistant/infra-cost": "0.1.0"
+    "wechatferry": "^0.0.26",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

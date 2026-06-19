@@ -18,8 +18,9 @@
     "clean": "npm run clean --workspaces --if-present"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
-    "@types/node": "18.x"
+    "@types/node": "18.x",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -1,0 +1,71 @@
+{
+  "appId": "com.z-assistant.desktop",
+  "productName": "Z Assistant",
+  "electronVersion": "30.5.1",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "out/**/*",
+    "node_modules/**/*",
+    "!node_modules/electron/**"
+  ],
+  "asarUnpack": [
+    "node_modules/wechatferry/**",
+    "node_modules/@wechatferry/**",
+    "node_modules/@rustup/**",
+    "node_modules/koffi/**"
+  ],
+  "fileAssociations": [
+    {
+      "ext": "zap",
+      "name": "Z Assistant Prompt",
+      "description": "Z Assistant Prompt File",
+      "role": "Editor"
+    },
+    {
+      "ext": "zconfig",
+      "name": "Z Assistant Config",
+      "description": "Z Assistant Configuration File",
+      "role": "Editor"
+    },
+    {
+      "ext": "zlog",
+      "name": "Z Assistant Trace Log",
+      "description": "Z Assistant Agent Trace Log",
+      "role": "Editor"
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "icon": "build/icon.icns",
+    "artifactName": "${productName}-${version}-mac-${arch}.${ext}",
+    "target": [
+      { "target": "dmg", "arch": ["x64", "arm64"] }
+    ],
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false
+  },
+  "win": {
+    "icon": "build/icon.ico",
+    "artifactName": "${productName}-${version}-win-${arch}.${ext}",
+    "target": ["nsis"]
+  },
+  "linux": {
+    "icon": "build/icon.png",
+    "target": ["AppImage"],
+    "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+    "category": "Development"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "publish": {
+    "provider": "generic",
+    "url": "https://update.z-assistant.app"
+  }
+}

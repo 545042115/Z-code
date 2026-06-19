@@ -1,0 +1,43 @@
+// @z-assistant/app-desktop — constants
+
+export const APP_NAME = 'Z Assistant';
+
+export const IPC_CHANNELS = {
+  RUN_TASK: 'z:run-task',
+  LIST_RUNS: 'z:list-runs',
+  GET_SPANS: 'z:get-spans',
+  GET_RUN: 'z:get-run',
+  GET_SETTINGS: 'z:get-settings',
+  SET_SETTINGS: 'z:set-settings',
+  RECALL_MEMORY: 'z:recall-memory',
+  ON_RUN_EVENT: 'z:on-run-event',
+  SELECT_DIRECTORY: 'z:select-directory',
+  // Session management
+  LIST_SESSIONS: 'z:list-sessions',
+  GET_SESSION: 'z:get-session',
+  CREATE_SESSION: 'z:create-session',
+  APPEND_MESSAGE: 'z:append-message',
+  DELETE_SESSION: 'z:delete-session',
+  // WeChat Hook (WeChatFerry DLL injection)
+  START_WECHAT_HOOK: 'z:start-wechat-hook',
+  STOP_WECHAT_HOOK: 'z:stop-wechat-hook',
+  GET_WECHAT_HOOK_STATUS: 'z:get-wechat-hook-status',
+  ON_WECHAT_HOOK_STATUS: 'z:on-wechat-hook-status',
+  // QQ Bot (official Tencent Bot API)
+  START_QQ: 'z:start-qq',
+  STOP_QQ: 'z:stop-qq',
+  GET_QQ_STATUS: 'z:get-qq-status',
+  ON_QQ_STATUS: 'z:on-qq-status',
+  // Chat profile
+  GET_PROFILE: 'z:get-profile',
+  REBUILD_PROFILE: 'z:rebuild-profile',
+  SET_PROFILE_ENABLED: 'z:set-profile-enabled',
+  CLEAR_CHAT_PROFILE: 'z:clear-chat-profile',
+} as const;
+
+export const WINDOW_SIZES = {
+  main: { width: 1200, height: 800 },
+  chat: { width: 900, height: 700 },
+  trace: { width: 1200, height: 800 },
+  settings: { width: 800, height: 600 },
+} as const;

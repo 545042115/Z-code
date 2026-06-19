@@ -13,14 +13,14 @@
 >
 > **当前版本 / Current Versions**
 > - V1（VSCode 扩展）：v1.2.0
-> - V2（Assistant Runtime）：v2.0.0-alpha.1（**Phase 6A 已落地** ✅）
+> - V2（Assistant Runtime）：v2.0.0-alpha.2（**Phase 7-9 — P0 三重能力已落地** ✅）
 
-> **V2 演进 / V2 Direction (Phase 6A landed)**
+> **V2 演进 / V2 Direction (P0 三件套已落地)**
 > 仓库根目录已按 [ADR-001](docs/ADR-001-Architecture-Refactor-Revised.md) 与 [ADR-0007](docs/ADRS/0007-runtime-decoupling.md) 完成 Phase 6A 重构，正式进入 **Z Assistant 双轨结构**：
 > - **V1 = `extensions/coding-agent/`**：保留的 VSCode Coding Agent 扩展（v1.2.0 继续可发版）。
-> - **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**。所有 V2 包已落地（`@z-assistant/contracts` / `@z-assistant/infra-*` / `@z-assistant/trace` / `@z-assistant/runtime` / `@z-assistant/agent-coding`），CLI / VSCode Connector 入口可启动，161 个测试全部通过。
-> - VSCode 在 V2 中降级为 `apps/vscode-connector/` 桥接 V1，V1 ↔ V2 通过 shim 文件双向兼容。
-> - 后续 Phase 7~14（Memory / Workflow / Knowledge Hub / Agent Ecosystem / Connectors / Full Observability / Evaluation 2.0 / Evolution 2.0）的占位已建好。
+> - **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**。
+> - **P0 三件套全部落地**：📖 Long-Term Memory（6 种记忆子系统 + Knowledge 知识层） / 🖥️ Desktop 独立应用（Electron + Chat/Trace/Settings 面板） / 🤖 Computer Use（Browser Agent + GUI 自动化 + Screen 感知 + 安全策略）。
+> - 后续 P1 路线已就绪：多模态感知 / Human-in-the-Loop UI / Skill Auto-Discovery。
 
 支持 **SGLang**（本地推理）、**OpenAI**、**Azure OpenAI**、**Deepseek**、**小米 MiMo** 等多种模型后端，提供接近 Cursor / Trae / Claude Code 风格的编程体验。  
 Supports **SGLang** (local inference), **OpenAI**, **Azure OpenAI**, **Deepseek**, **Xiaomi MiMo**, and more, delivering a workflow inspired by Cursor / Trae / Claude Code.
@@ -259,14 +259,30 @@ V1 VSCode 扩展（`extensions/coding-agent`）保留并继续发版；V2 不会
 | `@z-assistant/infra-permission` | 0.1.0 | fs-guard / net-guard / tool-guard | ✅ |
 | `@z-assistant/infra-config` | 0.1.0 | 配置中心 + secrets | ✅ |
 | `@z-assistant/trace` | 0.1.0 | Span 生命周期 / RunTracker / TraceManager / Projections / Instrumenter | ✅ |
-| `@z-assistant/runtime` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution + workflow/memory 占位 | ✅ |
+| `@z-assistant/runtime` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution / **memory（6 种记忆子系统）** / **knowledge（project/user/document 知识层）** / **action（GUI 自动化）** / **perception（screen 感知）** / **permission/computer-use（安全策略）** | ✅ |
 | `@z-assistant/agent-coding` | 0.1.0 | Coding Agent V2 适配层（不重复 Coding 业务，只把 V1 接入 V2 Runtime） | ✅ |
 | `@z-assistant/agent-research` | 0.1.0 | 占位 | ✅ |
 | `@z-assistant/agent-office` | 0.1.0 | 占位 | ✅ |
-| `@z-assistant/agent-browser` | 0.1.0 | 占位 | ✅ |
+| `@z-assistant/agent-browser` | 0.1.0 | Browser Agent（Playwright 后端 / DOM 解析 / Session 持久化 / 元素高亮 / 决策引擎 / 跨标签页操作） | ✅ |
 | `@z-assistant/app-cli` | 0.1.0 | V2 CLI 入口（`z run <task>` / `z trace ls|show` / `z version`） | ✅ |
-| `@z-assistant/app-vscode-connector` | 0.1.0 | V2 ↔ V1 桥接（`VSCodeConnector` + `AssistantRuntime` stub） | ✅ |
-| `@z-assistant/app-desktop` | 0.1.0 | 占位 | ✅ |
+| `@z-assistant/app-vscode-connector` | 0.1.0 | V2 ↔ V1 桥接（`VSCodeConnector` + `AssistantRuntime` stub + **WeChatFerry / Computer-Use 微信/QQ 服务**） | ✅ |
+| `@z-assistant/app-desktop` | 0.1.0 | Electron 桌面应用（Chat / Trace / Settings 面板 / System Tray / Global Hotkey / Auto Update / License Service / **WeChatFerry 微信自动回复** / **Computer Use AI 操控微信/QQ**） | ✅ |
+
+### V2 包详细结构 / V2 Package Structure
+
+```
+apps/vscode-connector/
+├── src/
+│   ├── index.ts                   VSCodeConnector 桥接类
+│   ├── llm-provider.ts            LLM 提供商封装
+│   ├── chat-agent.ts              聊天 Agent
+│   ├── chat-profile.ts            聊天风格分析
+│   ├── wechat-hook-service.ts     WeChatFerry 微信 Hook（DLL 注入捕获全部消息）
+│   ├── qq-onebot-service.ts       QQ OneBot 服务（NapCat + OneBot v11 WebSocket）
+│   ├── computer-use-service.ts    Computer Use 桌面自动化引擎（截图/OCR/鼠标/键盘/窗口检测）
+│   ├── computer-use-wechat.ts     Computer Use 微信服务（截图+模拟操控）
+│   └── computer-use-qq.ts         Computer Use QQ 服务（截图+模拟操控）
+```
 
 ### V2 特性 / Features
 
@@ -281,7 +297,14 @@ V1 VSCode 扩展（`extensions/coding-agent`）保留并继续发版；V2 不会
 | 🔌 **Adapter 模式** | `@z-assistant/agent-coding` 不重写 Coding 业务，只把 V1 `src/agent/`、`src/planner/`、`src/reflection/`、`src/context/` 等包装成 V2 接口 |
 | 🌉 **V2 ↔ V1 桥接** | `apps/vscode-connector` 暴露 `VSCodeConnector`，V1 在 `activate()` 期间实例化一次；V1 不直接 import `@z-assistant/runtime` 做副作用（teardown-safe） |
 | 📦 **CLI 入口** | `apps/cli` 已有 `argv` 解析和子命令分发；`z run <task>` 可触发 `VSCodeConnector.runTask` 走通端到端路径（runtime 当前是 stub，R7 替换） |
-| 🧪 **测试基线** | 161 个测试全部通过（`@z-assistant/contracts` / `@z-assistant/trace` / `@z-assistant/runtime` 全部 + V1 既有 infra/multi-agent）；`npm test --workspaces --if-present` 一键全跑 |
+| 🧪 **测试基线** | 130+ 个 V2 测试全部通过（`@z-assistant/runtime` / `@z-assistant/agent-browser` / `@z-assistant/app-desktop` 全部）；`npm test --workspaces --if-present` 一键全跑 |
+| | **P0 新增能力 — 2026-06-18** |
+| 📖 **Long-Term Memory** | 6 种记忆子系统（短期/长期/情景/语义/程序/偏好）+ Knowledge 知识层（Project/User/Document）+ 隐私遗忘（GDPR） + 向量存储 + 混合检索 + 跨 Agent 共享 |
+| 🖥️ **Desktop 独立应用** | Electron 桌面端：Chat / Trace / Settings 三面板 + System Tray + Global Hotkey（`Ctrl+Shift+Z`）+ Auto Update + License Service + File Association |
+| 🤖 **Computer Use** | Browser Agent（Playwright 后端 / DOM 解析 / 决策引擎 / Session 持久化 / 跨标签页 / 元素高亮）+ GUI 自动化（鼠标/键盘/剪贴板）+ Screen 截图 + 安全策略（危险 URL 拦截/动作分级） |
+| 💚 **WeChatFerry 微信自动回复** | 通过 DLL 注入微信 Windows 客户端，自动回复好友私聊和群聊 @消息，支持风格模仿 |
+| 💙 **QQ 自动回复（NapCat + OneBot）** | 通过 NapCat + OneBot v11 WebSocket 协议，自动回复 QQ 好友私聊和群聊 @消息，支持风格模仿 |
+| 🖥️ **Computer Use 微信/QQ 操控** | 通过截图 + OCR + 鼠标键盘模拟操控微信/QQ 窗口，零封号风险，无需 DLL 注入 |
 
 ### V1 ↔ V2 桥接
 
@@ -350,14 +373,12 @@ V1 `package.json` 显式声明 8 个 `@z-assistant/*` 依赖；`tsconfig.json` �
 
 | 阶段 | 内容 | 衔接 |
 |---|---|---|
-| **Phase 7** Unified Memory | `packages/memory/`（独立顶级包）+ `packages/runtime/src/memory/` 落实 | V1 `src/memory/` 重做（替换 vscode.Memento） |
-| **Phase 8** Workflow Engine | `packages/runtime/src/workflow/` 落实 + `packages/workflow/` 顶级包 | DSL（YAML/JSON）+ checkpoint + resume |
-| **Phase 9** Knowledge Hub | `packages/connectors/filesystem/` | `IConnector` interface |
-| **Phase 10** Agent Ecosystem | `packages/agents/coding/` 已完整 | `@z-assistant/agents` 主包统一 `IAgent` 注册 |
-| **Phase 11** Connectors | terminal / browser / git / filesystem | `apps/vscode-connector` 是首个范例 |
-| **Phase 12** Full Observability | `SpanType` 扩 `'memory' / 'skill' / 'workflow' / 'connector'` | `@z-assistant/trace` 已具备扩展点 |
-| **Phase 13** Evaluation 2.0 | `Evaluation` interface 强化 + `EvalSubject` enum | `@z-assistant/runtime/evaluation` 已就位 |
-| **Phase 14** Evolution 2.0 | `EvolutionEngine.generate({ scope: ... })` 扩展点 | `@z-assistant/runtime/evolution` 已就位 |
+| **P0-1 ✅ Long-Term Memory** | 6 种记忆子系统 + Knowledge 知识层（Project/User/Document）+ 隐私/GDPR + 向量存储 + 混合检索 | `packages/runtime/src/memory/` + `packages/runtime/src/knowledge/` |
+| **P0-2 ✅ Desktop 独立应用** | Electron + Chat/Trace/Settings + Tray + Hotkey + Auto Update + License + File Association | `apps/desktop/` |
+| **P0-3 ✅ Computer Use** | Browser Agent (Playwright) + GUI 自动化 + Screen 截图 + 安全策略 | `packages/agents/browser-agent/` + `packages/runtime/src/{action,perception,permission}/` |
+| **P1-1** 多模态感知 | Voice / Image／Video 输入 + LLM 多模态理解 | `packages/runtime/src/perception/{audio,image,video}.ts` |
+| **P1-2** Human-in-the-Loop UI | 安全确认弹窗 / 操作审批 / 实时监控 | `apps/desktop/src/renderer/approval.ts` + Electron 原生对话框 |
+| **P1-3** Skill Auto-Discovery | Memory → Skill 自动转化 / Skill 推荐 | `packages/runtime/src/memory/procedural.ts` → Skill 注册 |
 
 ---
 
@@ -394,13 +415,13 @@ npm run compile
 # 在仓库根 / Run from repo root
 npm install                              # 装全部 workspace 依赖
 npm run typecheck                        # 全部 V1 + V2 包 typecheck（0 错误）
-npm test                                 # 全部 V1 + V2 包测试（当前 161/161 通过）
+npm test                                 # 全部 V1 + V2 包测试
 npm run build --workspaces --if-present  # 全部 V1 + V2 包构建
 npm run clean --workspaces --if-present  # 清理 out/ dist/
 
 # 单包操作 / Per-package
-npm test --workspace=@z-assistant/trace
-npm run build --workspace=@z-assistant/runtime
+npm test --workspace=@z-assistant/runtime
+npm run build --workspace=@z-assistant/agent-browser
 ```
 
 ### V2 CLI 使用 / Use V2 CLI
@@ -419,13 +440,88 @@ node apps/cli/out/index.js trace ls
 
 ### 已知遗留 / Known Legacy
 
-- `apps/vscode-connector` 的 `AssistantRuntime.boot()` 当前是 stub（返回 no-op runtime + 错误码 `3001`），R7 替换为真实实现。
-- V1 旧 import 路径（`from '../trace'` / `from '../contracts'` / `from '../infra/*'`）仍被允许；R10 起加 CI lint 强制走 `@z-assistant/*`。
-- `extensions/coding-agent/src/multi-agent/` 内的 `prompted-agent.ts` 等仍为遗留；R10 全部迁出到 `packages/agents/`。
+- `apps/vscode-connector` 的 `AssistantRuntime.boot()` 当前是 stub（返回 no-op runtime + 错误码 `3001`），后续替换为真实实现。
+- P0 三件套（Memory / Desktop / Computer Use）已完成；P1 多模态感知 / Human-in-the-Loop / Skill Auto-Discovery 待推进。
 
 ---
 
 ## 更新日志 / Changelog
+
+### v2.0.0-alpha.4 — 2026-06-20
+
+Z Assistant V2 — QQ OneBot 集成 + 微信/QQ 双协议自动回复 / QQ OneBot Integration + Dual-Protocol Auto-Reply
+
+#### ✨ 版本摘要 / Highlights
+
+- **💙 QQ 自动回复（NapCat + OneBot v11）**：新增 NapCat + OneBot WebSocket 协议支持，自动回复 QQ 好友私聊和群聊 @消息
+- **💚 微信 Hook DLL 注入**：从 iLink Bot API 切换为 WeChatFerry DLL 注入，直接捕获微信收发的全部消息，无需自建 Bot
+- **🎭 聊天风格模仿（ChatProfile）**：新增风格分析模块，自动收集对话双方消息，分析说话风格并注入 LLM 提示，让 AI 回复更自然
+- **⚡ 任务队列**：新增消息队列机制，避免并发消息导致 "Run already active" 冲突
+- **📊 状态推送**：完整的状态推送链路（Service → Connector → Bridge → IPC → Preload → UI），设置面板实时显示连接状态和消息数
+- **🔧 打包修复**：修复 electron-builder asar 打包导致 WeChatFerry ESM 模块加载失败的问题
+
+#### 📚 详细说明 / Full Notes
+
+- 新增文件：
+  - `apps/vscode-connector/src/qq-onebot-service.ts` — QQ OneBot WebSocket 服务
+  - `apps/vscode-connector/src/wechat-hook-service.ts` — 微信 Hook 服务（替换旧 iLink 服务）
+  - `apps/vscode-connector/src/chat-profile.ts` — 聊天风格分析
+- 移除文件（不再使用）：
+  - `apps/vscode-connector/src/wechat-ilink-service.ts` — iLink Bot API 服务
+  - `apps/vscode-connector/src/qq-bot-service.ts` — QQ Bot API 服务
+- 依赖变更：新增 `wechatferry@0.0.26`、`ws@^8.21.0`
+
+### v2.0.0-alpha.3 — 2026-06-19
+
+Z Assistant V2 — 微信/QQ 自动回复 + Computer Use 桌面操控 / WeChat/QQ Auto-Reply + Computer Use Desktop Control
+
+#### ✨ 版本摘要 / Highlights
+
+- **💬 WeChatFerry 微信自动回复**：通过 DLL 注入微信 Windows 客户端，自动回复指定联系人和群聊消息，支持 @提及过滤、联系人/群聊列表可视化勾选
+- **🖥️ Computer Use 微信/QQ 操控**：通过截图（screenshot-desktop）+ OCR（tesseract.js）+ 鼠标键盘模拟（PowerShell）操控微信/QQ 窗口，零封号风险，无需 DLL 注入或协议逆向
+- **🤖 Computer Use Service**：底层桌面自动化引擎，支持窗口检测（Win32 API）、OCR 识别（中文+英文）、鼠标/键盘模拟、截图
+- **🗑️ 移除 QQ 协议方案**：移除 icqq 和 LLOneBot 方案，QQ 统一使用 Computer Use 方式操控
+- **📋 微信联系人/群聊可视化选择**：连接微信后自动显示联系人列表和群聊列表，支持搜索、全选/取消全选，勾选自动保存
+- **🔧 依赖清理**：移除 `test-out` 测试目录，释放约 200MB 空间
+
+#### 📚 详细说明 / Full Notes
+
+- 新增文件：
+  - `apps/vscode-connector/src/computer-use-service.ts` — 桌面自动化引擎
+  - `apps/vscode-connector/src/computer-use-wechat.ts` — Computer Use 微信服务
+  - `apps/vscode-connector/src/computer-use-qq.ts` — Computer Use QQ 服务
+- 依赖变更：新增 `screenshot-desktop`、`tesseract.js`；移除 `icqq`
+
+### v2.0.0-alpha.2 — 2026-06-18
+
+Z Assistant V2 — P0 三重能力落地 / P0 Triple Capabilities Landed
+
+#### ✨ 版本摘要 / Highlights
+
+- **📖 Long-Term Memory（P0-1）**：6 种记忆子系统完整实现：
+  - Short-Term（短期对话轮次）/ Long-Term（跨 Session 事实）/ Episodic（情景任务回顾）/ Semantic（概念语义）/ Procedural（程序技能）/ Preferences（用户偏好）
+  - Knowledge 知识层：ProjectKnowledgeBase / UserKnowledgeBase / DocumentKnowledgeBase
+  - 基础设施：IMemoryProvider + InMemoryVectorStore（余弦相似度）+ 本地 n-gram embedding（零外部依赖）+ JSONL 文件持久化 + 混合检索（向量+关键词回退）
+  - 隐私遗忘：PrivacyManager 支持 GDPR 查看/删除/清除/导出
+  - 写入策略：白名单 + 重要性阈值 + 频率限制 + 去重
+  - 跨 Agent 共享：SharedMemory 发布/读取 + 冲突解决策略
+- **🖥️ Desktop 独立应用（P0-2）**：Electron 桌面端完整实现：
+  - Chat / Trace / Settings 三面板 + System Tray + Global Hotkey（`Ctrl+Shift+Z`）
+  - 进程模型：Main + Preload（contextBridge）+ Renderer（sandboxed）
+  - Auto Update：electron-updater 集成 + 自动检测/下载/重启提示
+  - License Service：Free / Pro / Enterprise 三级许可 + 功能特征控制
+  - 打包配置：electron-builder（macOS .dmg / Windows NSIS / Linux AppImage）+ File Association（.zap/.zconfig/.zlog）
+- **🤖 Computer Use（P0-3）**：让 Agent 像人一样操作电脑：
+  - Browser Agent：IBrowserBackend 抽象 + Playwright 实现 + DOM 解析（LLM 可读结构化文本）+ 决策引擎（Observe → LLM → Execute 循环）+ Session 持久化（Cookie/Storage）+ 元素高亮 + 跨标签页操作
+  - GUI 自动化：IGUIProvider 抽象 + DesktopGUIProvider（Win/macOS/Linux 三平台鼠标/键盘/剪贴板/热键）
+  - Screen 感知：IScreenProvider 抽象 + DesktopScreenProvider（OS 级截图）
+  - 安全策略：动作风险分级（safe~critical）+ 危险 URL 拦截 + 高风险操作检测
+- **测试基线**：Runtime 117 测试 + Desktop 13 测试 + Browser Agent 9 测试 = **139 个 V2 测试全部通过**
+
+#### 📚 详细说明 / Full Notes
+
+- ROADMAP：[docs/ROADMAP-V2-Capability-Gap.md](docs/ROADMAP-V2-Capability-Gap.md)
+- 完成内容审计：P0-1 100% / P0-2 100% / P0-3 100%
 
 ### v2.0.0-alpha.1 — 2026-06-18
 

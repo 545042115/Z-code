@@ -7,7 +7,7 @@ export interface NetPolicy {
     offline?: boolean;
 }
 export declare class NetDeniedError extends Error {
-    readonly code: "2002";
+    readonly code: any;
     constructor(message: string);
 }
 /** Minimal glob match for net allow-list. `*` matches one label. */

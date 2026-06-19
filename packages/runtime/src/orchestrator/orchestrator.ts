@@ -319,6 +319,17 @@ export class Orchestrator {
     }
     span.end();
 
+    // Accumulate token/cost counters from agent metrics into the Run.
+    // This ensures totalCostUsd is always computed from real token usage,
+    // even when agents don't go through the Instrumenter.
+    if (result.metrics && (result.metrics.tokensIn > 0 || result.metrics.tokensOut > 0)) {
+      try {
+        await this.opts.tracker.addUsage(result.metrics.tokensIn, result.metrics.tokensOut);
+      } catch {
+        // best-effort; never fail the agent dispatch
+      }
+    }
+
     // If the agent wrote artifacts, mirror them into SharedState with
     // namespacing so other agents can subscribe.
     if (result.artifacts) {

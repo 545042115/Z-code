@@ -2,15 +2,19 @@
   "name": "@z-assistant/agent-browser",
   "version": "0.1.0",
   "private": true,
-  "description": "V2 Browser Agent — placeholder for future phase. Per ADR §二, Phase 6A is NOT allowed to implement it.",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "description": "V2 Browser Agent — Computer Use: browser automation, DOM parsing, screen perception, decision engine.",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
   "scripts": {
     "build": "tsc -p ./",
     "typecheck": "tsc -p ./ --noEmit",
+    "test": "tsc -p ./ && node --test \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
     "@z-assistant/contracts": "0.1.0"
+  },
+  "optionalDependencies": {
+    "playwright": "^1.45.0"
   }
 }

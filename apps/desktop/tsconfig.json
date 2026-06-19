@@ -4,11 +4,15 @@
     "rootDir": "src",
     "outDir": "out",
     "composite": true,
-    "tsBuildInfoFile": "./out/.tsbuildinfo"
+    "tsBuildInfoFile": "./out/.tsbuildinfo",
+    "module": "commonjs",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"]
   },
   "include": ["src/**/*"],
-  "exclude": ["out", "node_modules", "**/__tests__/**", "**/*.test.ts"],
+  "exclude": ["out", "node_modules", "dist"],
   "references": [
+    { "path": "../vscode-connector" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/runtime" }
   ]

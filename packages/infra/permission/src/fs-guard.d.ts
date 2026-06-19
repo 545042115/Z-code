@@ -8,7 +8,7 @@ export interface FsPolicy {
 }
 export declare class FsDeniedError extends Error {
     readonly ref: ErrorRef;
-    readonly code: "2002";
+    readonly code: any;
     constructor(message: string, ref: ErrorRef);
 }
 /** Normalize and resolve `p` against the workspace root. */

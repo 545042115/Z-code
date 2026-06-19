@@ -1,5 +1,33 @@
-// @z-assistant/agent-browser
+// @z-assistant/agent-browser — Browser Agent entry point
 //
-// Placeholder for future V2 Browser Agent. Phase 6A does NOT implement it.
-// See ADR-001 §二.
-export {};
+// Exports the public API for the browser automation subsystem.
+
+export type {
+  IBrowserBackend,
+  BrowserViewport,
+  BoundingBox,
+  ElementInfo,
+  PageSnapshot,
+  BrowserAction,
+  BrowserActionType,
+  ActionResult,
+  Cookie,
+} from './backend';
+export { createPlaywrightBackend } from './backend';
+
+export {
+  buildDOMTree,
+  findElementByText,
+  findElementByTagAndText,
+  findElementByAttrs,
+  pageToText,
+} from './dom';
+export type { DOMNode } from './dom';
+
+export { BrowserAgent } from './agent';
+export type { BrowserAgentConfig, BrowserStepResult } from './agent';
+
+export { generateOverlayScript } from './overlay';
+
+export { saveSession, loadSession, listSessions, deleteSession } from './session';
+export type { BrowserSession } from './session';

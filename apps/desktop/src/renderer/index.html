@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';">
+  <title>Z Assistant</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <nav id="nav">
+      <button data-view="main">Main</button>
+      <button data-view="chat">Chat</button>
+      <button data-view="trace">Trace</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+    <main id="main"></main>
+  </div>
+  <script src="bundle.js"></script>
+</body>
+</html>

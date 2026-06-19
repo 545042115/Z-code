@@ -1,6 +1,6 @@
 // Pricing — model token price table (USD per 1k tokens).
 //
-// Source: official provider pricing pages, refreshed manually.
+// Source: official provider pricing pages, refreshed 2026-06.
 // In production this is loaded from the Config Center so users can override.
 
 import type { ModelSpec } from '@z-assistant/contracts';
@@ -16,16 +16,48 @@ export interface ModelPrice {
 
 /** Built-in default prices; override via Config Center. */
 export const DEFAULT_PRICING: Record<string, ModelPrice> = {
-  // OpenAI (sample; not for production billing)
-  'openai/gpt-4o':         { inputPer1k: 0.0025, outputPer1k: 0.01 },
+  // ── OpenAI (source: openai.com/api/pricing, March 2026) ──────────
+  'openai/gpt-5.4':        { inputPer1k: 0.0025, outputPer1k: 0.015 },
+  'openai/gpt-5.4-pro':    { inputPer1k: 0.015,  outputPer1k: 0.06 },
+  'openai/gpt-5.2':        { inputPer1k: 0.00175, outputPer1k: 0.014 },
+  'openai/gpt-5':          { inputPer1k: 0.00125, outputPer1k: 0.01 },
+  'openai/gpt-5-mini':     { inputPer1k: 0.00025, outputPer1k: 0.002 },
+  'openai/gpt-4.1':        { inputPer1k: 0.002,   outputPer1k: 0.008 },
+  'openai/gpt-4.1-mini':   { inputPer1k: 0.0004,  outputPer1k: 0.0016 },
+  'openai/gpt-4.1-nano':   { inputPer1k: 0.0001,  outputPer1k: 0.0004 },
+  'openai/gpt-4o':         { inputPer1k: 0.0025,  outputPer1k: 0.01 },
   'openai/gpt-4o-mini':    { inputPer1k: 0.00015, outputPer1k: 0.0006 },
-  'openai/o1':             { inputPer1k: 0.015,  outputPer1k: 0.06 },
-  // Deepseek
-  'deepseek/deepseek-chat':{ inputPer1k: 0.00014, outputPer1k: 0.00028 },
-  // Xiaomi MiMo
-  'mimo/mimo-v2-flash':    { inputPer1k: 0.0001,  outputPer1k: 0.0003 },
-  // SGLang local — free
-  'sglang/default':        { inputPer1k: 0,       outputPer1k: 0 },
+  'openai/o3':             { inputPer1k: 0.002,   outputPer1k: 0.008 },
+  'openai/o4-mini':        { inputPer1k: 0.0011,  outputPer1k: 0.0044 },
+  'openai/o1':             { inputPer1k: 0.015,   outputPer1k: 0.06 },
+  'openai/o3-mini':        { inputPer1k: 0.0011,  outputPer1k: 0.0044 },
+
+  // ── Anthropic (source: claude.com/pricing, June 2026) ────────────
+  'anthropic/claude-opus-4.8':      { inputPer1k: 0.005, outputPer1k: 0.025 },
+  'anthropic/claude-sonnet-4.6':    { inputPer1k: 0.003, outputPer1k: 0.015 },
+  'anthropic/claude-haiku-4.5':     { inputPer1k: 0.001, outputPer1k: 0.005 },
+  'anthropic/claude-fable-5':       { inputPer1k: 0.01,  outputPer1k: 0.05 },
+  // Legacy aliases
+  'anthropic/claude-3-5-sonnet':    { inputPer1k: 0.003, outputPer1k: 0.015 },
+  'anthropic/claude-3-5-haiku':     { inputPer1k: 0.0008, outputPer1k: 0.004 },
+  'anthropic/claude-3-opus':        { inputPer1k: 0.015, outputPer1k: 0.075 },
+
+  // ── DeepSeek (source: api-docs.deepseek.com, June 2026) ──────────
+  'deepseek/deepseek-v4-flash':     { inputPer1k: 0.00014, outputPer1k: 0.00028 },
+  'deepseek/deepseek-v4-pro':       { inputPer1k: 0.000435, outputPer1k: 0.00087 },
+  // Legacy aliases (deprecated 2026-07-24)
+  'deepseek/deepseek-chat':         { inputPer1k: 0.00014, outputPer1k: 0.00028 },
+  'deepseek/deepseek-reasoner':     { inputPer1k: 0.00055, outputPer1k: 0.00219 },
+
+  // ── Google Gemini (source: ai.google.dev, June 2026) ─────────────
+  'gemini/gemini-2.5-flash':        { inputPer1k: 0.0003,  outputPer1k: 0.0025 },
+  'gemini/gemini-2.5-pro':          { inputPer1k: 0.00125, outputPer1k: 0.01 },
+  'gemini/gemini-2.5-flash-lite':   { inputPer1k: 0.0001,  outputPer1k: 0.0004 },
+
+  // ── Local / Free ─────────────────────────────────────────────────
+  'ollama/default':                 { inputPer1k: 0, outputPer1k: 0 },
+  'sglang/default':                 { inputPer1k: 0, outputPer1k: 0 },
+  'mimo/mimo-v2-flash':             { inputPer1k: 0.0001, outputPer1k: 0.0003 },
 };
 
 /** Look up a price entry by `provider/name`; returns undefined if unknown. */

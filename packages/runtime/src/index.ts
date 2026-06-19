@@ -4,7 +4,7 @@
 //
 //   Mechanism layer (no business logic):
 //     trace        — Span / Run / Metric
-//     storage      — JSONL / SQLite
+//     storage      — JSONL / SQLite / Vector Store
 //     cost         — token cost computation
 //     errors       — error classification
 //     permission   — tool / fs / net guards
@@ -19,15 +19,14 @@
 //     skills       — loader / selector / validator
 //     evaluation   — EvalRunner + Benchmark interface
 //     evolution    — Evolution engine framework
+//     memory       — Long-Term Memory (Phase 7)
 //
 //   Placeholders (future phases):
 //     workflow     — future Workflow Engine
-//     memory       — future Long-Term Memory
 //
-// Phase 6A: the orchestrator subpackage is wired in. Other subpackages
-// (planning / reflection / context / skills / evaluation / evolution)
-// are wired in as of R5. Workflow and memory remain placeholders for
-// future phases.
+// Phase 8: Computer Use (browser agent, GUI action, screen perception,
+// computer-use permission) is wired in. Workflow remains a placeholder
+// for future phases.
 
 export const RUNTIME_VERSION = '0.1.0';
 
@@ -41,9 +40,14 @@ export const RUNTIME_VERSION = '0.1.0';
 export * from './orchestrator';
 
 // Framework layer
+export * from './action';
 export * from './context';
 export * from './evaluation';
 export * from './evolution';
+export * from './knowledge';
+export * from './memory';
+export * from './perception';
 export * from './planning';
 export * from './reflection';
 export * from './skills';
+
