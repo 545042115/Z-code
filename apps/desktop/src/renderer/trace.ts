@@ -2,6 +2,7 @@
 //
 // Shows chat sessions with both conversation history and underlying
 // run details (spans, token usage, cost, etc.).
+// Enhanced with model info, tool call details, error details, and export.
 
 declare const zApi: import('../preload').ZDesktopAPI;
 import { t } from './i18n';
@@ -67,7 +68,10 @@ async function showSessionDetail(sessionId: string): Promise<void> {
     // ── Header card ───────────────────────────────────────────────
     let html = `
       <div class="card">
-        <h3>${escapeHtml(session.title)}</h3>
+        <div class="row" style="justify-content:space-between">
+          <h3>${escapeHtml(session.title)}</h3>
+          <button class="trace-export-btn secondary" data-sessionid="${escapeHtml(session.id)}" style="font-size:0.82em">${t('trace.export')}</button>
+        </div>
         <p class="muted">${t('trace.created')}: ${new Date(session.createdAt).toLocaleString()}</p>
         <p class="muted">${t('trace.updated')}: ${new Date(session.updatedAt).toLocaleString()}</p>
         <p class="muted">${session.messages.length} ${t('trace.messages')} | ${runs.length} ${t('trace.runs')}</p>
@@ -95,14 +99,18 @@ async function showSessionDetail(sessionId: string): Promise<void> {
       for (const run of runs) {
         const statusClass = run.status === 'success' ? 'ok' : run.status === 'failed' ? 'error' : '';
         const duration = run.duration ? `${(run.duration / 1000).toFixed(1)}s` : '—';
+        const modelInfo = run.model
+          ? `${run.model.provider}/${run.model.name}`
+          : '—';
         html += `
         <div class="card run-card">
           <div class="run-header">
             <span class="status ${statusClass}">${run.status}</span>
             <span class="muted">${new Date(run.startTime).toLocaleTimeString()}</span>
             <span class="muted">${duration}</span>
+            <span class="muted" style="margin-left:auto;font-size:0.82em">${t('trace.model')}: ${escapeHtml(modelInfo)}</span>
           </div>
-          <div class="run-task muted">${escapeHtml(run.task.slice(0, 100))}</div>
+          <div class="run-task muted">${escapeHtml(run.task.slice(0, 200))}</div>
           <div class="run-metrics">
             <span>${t('trace.tokens_in')}: ${(run.totalTokensIn ?? 0).toLocaleString()}</span>
             <span>${t('trace.tokens_out')}: ${(run.totalTokensOut ?? 0).toLocaleString()}</span>
@@ -132,11 +140,37 @@ async function showSessionDetail(sessionId: string): Promise<void> {
 
     detail.innerHTML = html;
 
-    // Bind "load spans" buttons
+    // Auto-load spans for all runs
     detail.querySelectorAll('.load-spans-btn').forEach((btn) => {
+      const runId = (btn as HTMLElement).dataset.runid!;
+      // Trigger auto-load after a short delay to let UI render
+      setTimeout(() => loadSpans(runId), 100);
+      // Also keep manual click handler
       btn.addEventListener('click', async () => {
-        const runId = (btn as HTMLElement).dataset.runid!;
         await loadSpans(runId);
+      });
+    });
+
+    // Bind export button
+    detail.querySelectorAll('.trace-export-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const sid = (btn as HTMLElement).dataset.sessionid!;
+        try {
+          const content = await zApi.exportSession(sid, 'markdown');
+          const session = await zApi.getSession(sid);
+          const filename = `${session?.title ?? 'trace'}_${sid.slice(-8)}.md`;
+          const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (err: unknown) {
+          console.error('Export error:', err);
+        }
       });
     });
   } catch (err: unknown) {
@@ -147,48 +181,125 @@ async function showSessionDetail(sessionId: string): Promise<void> {
 
 // ── Load spans for a run ─────────────────────────────────────────────
 
+/** All loaded spans per runId, used for client-side filtering. */
+const spansCache = new Map<string, any[]>();
+
+function renderSpans(runId: string): void {
+  const container = document.getElementById(`spans-${runId}`);
+  if (!container) return;
+  const allSpans = spansCache.get(runId);
+  if (!allSpans || allSpans.length === 0) {
+    container.innerHTML = `<p class="muted">${t('trace.no_spans')}</p>`;
+    return;
+  }
+
+  // Read filter state
+  const filterType = (document.getElementById(`span-filter-type-${runId}`) as HTMLSelectElement)?.value || 'all';
+  const searchText = (document.getElementById(`span-search-${runId}`) as HTMLInputElement)?.value?.toLowerCase() || '';
+
+  let filtered = allSpans;
+  if (filterType !== 'all') {
+    filtered = filtered.filter((s) => s.type === filterType);
+  }
+  if (searchText) {
+    filtered = filtered.filter((s) =>
+      s.name?.toLowerCase().includes(searchText) ||
+      JSON.stringify(s.input ?? '').toLowerCase().includes(searchText) ||
+      JSON.stringify(s.output ?? '').toLowerCase().includes(searchText)
+    );
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = `<p class="muted">${t('trace.no_spans')}</p>`;
+    return;
+  }
+
+  container.innerHTML = filtered
+    .map((s) => {
+      const dur = s.duration ? `${s.duration.toFixed(0)}ms` : '—';
+      const typeIcon = s.type === 'llm' ? '🤖' : s.type === 'tool' ? '🔧' : s.type === 'planner' ? '📋' : '•';
+      const input = s.input ? JSON.stringify(s.input, null, 2).slice(0, 500) : '';
+      const output = s.output ? JSON.stringify(s.output, null, 2).slice(0, 500) : '';
+      const error = s.error ? escapeHtml(JSON.stringify(s.error, null, 2)) : '';
+      const attrs = s.attributes && Object.keys(s.attributes).length > 0
+        ? Object.entries(s.attributes).map(([k, v]) => `<span class="attr">${escapeHtml(k)}: ${escapeHtml(String(v))}</span>`).join(' ')
+        : '';
+      const events = s.events && s.events.length > 0
+        ? s.events.map((e: any) => `<span class="event">${escapeHtml(e.name)}</span>`).join(' ')
+        : '';
+      const tokens = s.tokensIn || s.tokensOut
+        ? `<span class="muted">↑${s.tokensIn ?? 0} ↓${s.tokensOut ?? 0}</span>`
+        : '';
+      const toolCallInfo = s.type === 'tool' && s.input
+        ? `<div class="span-tool-call"><span class="muted">${t('trace.tools')}: </span><code>${escapeHtml(String((s.input as any).name || s.input as any))}</code></div>`
+        : '';
+      return `<div class="span-item">
+        <div class="span-header">
+          <span class="span-type-icon">${typeIcon}</span>
+          <strong>${escapeHtml(s.name)}</strong>
+          <span class="muted">${dur}</span>
+          ${tokens}
+          <span class="span-status ${s.status === 'ok' ? 'ok' : s.status === 'error' ? 'error' : ''}">${s.status}</span>
+        </div>
+        ${toolCallInfo}
+        ${attrs ? `<div class="span-attrs">${attrs}</div>` : ''}
+        ${events ? `<div class="span-events">${events}</div>` : ''}
+        ${input ? `<details><summary>${t('trace.input')}</summary><pre class="span-output">${escapeHtml(input)}</pre></details>` : ''}
+        ${output ? `<details><summary>${t('trace.output')}</summary><pre class="span-output">${escapeHtml(output)}</pre></details>` : ''}
+        ${error ? `<details open><summary>${t('trace.error')}</summary><div class="span-error">${error}</div></details>` : ''}
+      </div>`;
+    })
+    .join('');
+}
+
 async function loadSpans(runId: string): Promise<void> {
   const container = document.getElementById(`spans-${runId}`);
   if (!container) return;
+  // Update button to show loading
+  const btn = document.querySelector(`.load-spans-btn[data-runid="${runId}"]`) as HTMLButtonElement | null;
+  if (btn) btn.textContent = t('trace.loading');
   container.innerHTML = `<p class="muted">${t('trace.loading')}</p>`;
   try {
     const spans = await zApi.getSpans(runId);
+    spansCache.set(runId, spans);
+
+    // Add filter controls above spans
+    const filterHtml = spans.length > 0
+      ? `<div class="span-filters" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;font-size:0.82em">
+          <label class="muted">${t('trace.filter')}:</label>
+          <select id="span-filter-type-${runId}" style="width:auto;font-size:0.85em">
+            <option value="all">${t('trace.all')}</option>
+            <option value="llm">LLM</option>
+            <option value="tool">${t('trace.tools')}</option>
+            <option value="planner">Planner</option>
+          </select>
+          <input id="span-search-${runId}" type="text" placeholder="${t('trace.search_spans')}" style="flex:1;max-width:200px;font-size:0.85em">
+          <span class="muted" style="font-size:0.82em">${spans.length} ${t('trace.total')}</span>
+        </div>`
+      : '';
+
+    container.innerHTML = filterHtml + '<div class="span-list"></div>';
+
     if (spans.length === 0) {
-      container.innerHTML = `<p class="muted">${t('trace.no_spans')}</p>`;
+      container.querySelector('.span-list')!.innerHTML = `<p class="muted">${t('trace.no_spans')}</p>`;
+      if (btn) btn.textContent = t('trace.no_spans');
       return;
     }
-    container.innerHTML = spans
-      .map((s) => {
-        const dur = s.duration ? `${s.duration.toFixed(0)}ms` : '—';
-        const typeIcon = s.type === 'llm' ? '🤖' : s.type === 'tool' ? '🔧' : s.type === 'planner' ? '📋' : '•';
-        const input = s.input ? JSON.stringify(s.input, null, 2).slice(0, 300) : '';
-        const output = s.output ? JSON.stringify(s.output, null, 2).slice(0, 300) : '';
-        const error = s.error ? escapeHtml(JSON.stringify(s.error)) : '';
-        const attrs = s.attributes && Object.keys(s.attributes).length > 0
-          ? Object.entries(s.attributes).map(([k, v]) => `<span class="attr">${escapeHtml(k)}: ${escapeHtml(String(v))}</span>`).join(' ')
-          : '';
-        const events = s.events && s.events.length > 0
-          ? s.events.map(e => `<span class="event">${escapeHtml(e.name)}</span>`).join(' ')
-          : '';
-        const tokens = s.tokensIn || s.tokensOut
-          ? `<span class="muted">↑${s.tokensIn ?? 0} ↓${s.tokensOut ?? 0}</span>`
-          : '';
-        return `<div class="span-item">
-          <div class="span-header">
-            <span class="span-type-icon">${typeIcon}</span>
-            <strong>${escapeHtml(s.name)}</strong>
-            <span class="muted">${dur}</span>
-            ${tokens}
-            <span class="span-status ${s.status === 'ok' ? 'ok' : s.status === 'error' ? 'error' : ''}">${s.status}</span>
-          </div>
-          ${attrs ? `<div class="span-attrs">${attrs}</div>` : ''}
-          ${events ? `<div class="span-events">${events}</div>` : ''}
-          ${input ? `<details><summary>Input</summary><pre class="span-output">${escapeHtml(input)}</pre></details>` : ''}
-          ${output ? `<details><summary>Output</summary><pre class="span-output">${escapeHtml(output)}</pre></details>` : ''}
-          ${error ? `<div class="span-error">${error}</div>` : ''}
-        </div>`;
-      })
-      .join('');
+
+    // Render spans
+    renderSpans(runId);
+
+    // Bind filter/search events
+    const filterSelect = document.getElementById(`span-filter-type-${runId}`) as HTMLSelectElement;
+    const searchInput = document.getElementById(`span-search-${runId}`) as HTMLInputElement;
+    if (filterSelect) {
+      filterSelect.addEventListener('change', () => renderSpans(runId));
+    }
+    if (searchInput) {
+      searchInput.addEventListener('input', () => renderSpans(runId));
+    }
+
+    if (btn) btn.textContent = `${t('trace.load_spans')} (${spans.length})`;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     container.innerHTML = `<p class="status error">${t('chat.error')}: ${escapeHtml(msg)}</p>`;

@@ -27,6 +27,10 @@ const TRANSLATIONS: TranslationMap = {
   'chat.sessions':      { 'zh-CN': '会话',         en: 'Sessions' },
   'chat.new':           { 'zh-CN': '新对话',       en: 'New Chat' },
   'chat.delete':        { 'zh-CN': '删除会话',     en: 'Delete Session' },
+  'chat.export':        { 'zh-CN': '导出',         en: 'Export' },
+  'chat.confirmDelete': { 'zh-CN': '确定要删除此对话吗？', en: 'Delete this conversation?' },
+  'chat.yes':           { 'zh-CN': '确定',         en: 'Yes' },
+  'chat.no':            { 'zh-CN': '取消',         en: 'No' },
 
   // Trace
   'trace.runs':         { 'zh-CN': '运行记录',     en: 'Runs' },
@@ -49,8 +53,20 @@ const TRANSLATIONS: TranslationMap = {
   'trace.load_spans':   { 'zh-CN': '查看 Span',    en: 'View Spans' },
   'trace.no_spans':     { 'zh-CN': '无 Span 数据', en: 'No span data' },
   'trace.no_runs':      { 'zh-CN': '暂无运行记录。', en: 'No run records yet.' },
+  'trace.export':       { 'zh-CN': '导出追踪',     en: 'Export Trace' },
+  'trace.model':        { 'zh-CN': '模型',         en: 'Model' },
+  'trace.status':       { 'zh-CN': '状态',         en: 'Status' },
+  'trace.duration':     { 'zh-CN': '耗时',         en: 'Duration' },
+  'trace.tools':        { 'zh-CN': '工具调用',     en: 'Tool Calls' },
+  'trace.events':       { 'zh-CN': '事件',         en: 'Events' },
+  'trace.attributes':   { 'zh-CN': '属性',         en: 'Attributes' },
+  'trace.error':        { 'zh-CN': '错误',         en: 'Error' },
+  'trace.input':        { 'zh-CN': '输入',         en: 'Input' },
+  'trace.output':       { 'zh-CN': '输出',         en: 'Output' },
+  'trace.llm_calls':    { 'zh-CN': 'LLM 调用',     en: 'LLM Calls' },
+  'trace.span_count':   { 'zh-CN': 'Span 数',      en: 'Span Count' },
 
-  // Settings
+  // Memory
   'settings.model':       { 'zh-CN': '模型',           en: 'Model' },
   'settings.provider':    { 'zh-CN': '提供商',         en: 'Provider' },
   'settings.model_name':  { 'zh-CN': '模型名称',       en: 'Model Name' },
@@ -95,6 +111,53 @@ const TRANSLATIONS: TranslationMap = {
   'provider.deepseek':  { 'zh-CN': 'DeepSeek',     en: 'DeepSeek' },
   'provider.gemini':    { 'zh-CN': 'Google Gemini', en: 'Google Gemini' },
   'provider.custom':    { 'zh-CN': '自定义 (兼容 OpenAI)', en: 'Custom (OpenAI-compatible)' },
+
+  // Memory view
+  'memory.title':       { 'zh-CN': '记忆',         en: 'Memory' },
+  'memory.refresh':     { 'zh-CN': '刷新',         en: 'Refresh' },
+  'memory.no_data':     { 'zh-CN': '暂无记忆数据。', en: 'No memory data yet.' },
+  'memory.loading':     { 'zh-CN': '加载中…',      en: 'Loading…' },
+  'memory.failed_load': { 'zh-CN': '加载失败',     en: 'Failed to load' },
+  'memory.kind':        { 'zh-CN': '类型',         en: 'Kind' },
+  'memory.content':     { 'zh-CN': '内容',         en: 'Content' },
+  'memory.time':        { 'zh-CN': '时间',         en: 'Time' },
+  'memory.all':         { 'zh-CN': '全部',         en: 'All' },
+  'memory.long_term':   { 'zh-CN': '长期记忆',     en: 'Long-term' },
+  'memory.episodic':    { 'zh-CN': '情景记忆',     en: 'Episodic' },
+  'memory.preference':  { 'zh-CN': '偏好记忆',     en: 'Preferences' },
+  'memory.semantic':    { 'zh-CN': '语义记忆',     en: 'Semantic' },
+  'memory.procedural':  { 'zh-CN': '程序记忆',     en: 'Procedural' },
+  'memory.short_term':  { 'zh-CN': '短期记忆',     en: 'Short-term' },
+  'memory.search':      { 'zh-CN': '搜索记忆',     en: 'Search Memory' },
+  'memory.search_placeholder': { 'zh-CN': '输入关键词搜索记忆…', en: 'Search memories…' },
+  'memory.delete':      { 'zh-CN': '删除',         en: 'Delete' },
+  'memory.purge':       { 'zh-CN': '清空所有',     en: 'Purge All' },
+  'memory.purge_confirm': { 'zh-CN': '确定要清空所有记忆吗？此操作不可恢复。', en: 'Purge all memories? This cannot be undone.' },
+  'memory.delete_confirm': { 'zh-CN': '确定要删除此记忆吗？', en: 'Delete this memory?' },
+  'memory.recall':      { 'zh-CN': '召回',         en: 'Recall' },
+  'memory.recall_hint': { 'zh-CN': '在对话中快速插入记忆', en: 'Quick-insert memory into chat' },
+  'memory.recall_result': { 'zh-CN': '相关记忆',   en: 'Related Memories' },
+  'memory.recall_empty': { 'zh-CN': '未找到相关记忆', en: 'No related memories found' },
+  'memory.export':      { 'zh-CN': '导出全部',     en: 'Export All' },
+  'memory.stats':       { 'zh-CN': '统计',         en: 'Stats' },
+  'memory.total':       { 'zh-CN': '总计',         en: 'Total' },
+  'memory.count':       { 'zh-CN': '条',           en: ' items' },
+  'memory.manage':      { 'zh-CN': '记忆管理',     en: 'Memory Management' },
+  'memory.manage_desc': { 'zh-CN': '查看、搜索、导出或清空记忆数据', en: 'View, search, export or clear memory data' },
+  'memory.go_to':       { 'zh-CN': '前往记忆面板', en: 'Go to Memory Panel' },
+
+  // Trace
+  'trace.auto_load':    { 'zh-CN': '自动加载 Span', en: 'Auto-load Spans' },
+  'trace.filter':       { 'zh-CN': '过滤',         en: 'Filter' },
+  'trace.all':          { 'zh-CN': '全部',         en: 'All' },
+  'trace.search_spans': { 'zh-CN': '搜索 Span…',   en: 'Search spans…' },
+  'trace.total':        { 'zh-CN': '总计',         en: 'Total' },
+
+  // File System
+  'file.save':           { 'zh-CN': '保存文件',     en: 'Save File' },
+  'file.saved':          { 'zh-CN': '文件已保存',   en: 'File saved' },
+  'file.save_failed':    { 'zh-CN': '保存失败',     en: 'Save failed' },
+  'file.select_dir':     { 'zh-CN': '选择保存目录', en: 'Select directory' },
 };
 
 let currentLang: Language = 'en';

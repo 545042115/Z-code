@@ -2,6 +2,7 @@
 
 import './chat';
 import './trace';
+import './memory';
 import './settings';
 import { t, loadLanguage } from './i18n';
 
@@ -23,10 +24,12 @@ function applyNavTranslations(): void {
   const btnMain = document.querySelector('#nav button[data-view="main"]');
   const btnChat = document.querySelector('#nav button[data-view="chat"]');
   const btnTrace = document.querySelector('#nav button[data-view="trace"]');
+  const btnMemory = document.querySelector('#nav button[data-view="memory"]');
   const btnSettings = document.querySelector('#nav button[data-view="settings"]');
   if (btnMain) btnMain.textContent = t('nav.main');
   if (btnChat) btnChat.textContent = t('nav.chat');
   if (btnTrace) btnTrace.textContent = t('nav.trace');
+  if (btnMemory) btnMemory.textContent = t('memory.title');
   if (btnSettings) btnSettings.textContent = t('nav.settings');
 }
 
@@ -38,7 +41,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadLanguage();
 
   // Create view containers
-  const views = ['main', 'chat', 'trace', 'settings'];
+  const views = ['main', 'chat', 'trace', 'memory', 'settings'];
   for (const v of views) {
     const div = document.createElement('div');
     div.id = `view-${v}`;

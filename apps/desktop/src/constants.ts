@@ -19,6 +19,13 @@ export const IPC_CHANNELS = {
   CREATE_SESSION: 'z:create-session',
   APPEND_MESSAGE: 'z:append-message',
   DELETE_SESSION: 'z:delete-session',
+  EXPORT_SESSION: 'z:export-session',
+  LIST_MEMORIES: 'z:list-memories',
+  STORE_MEMORY: 'z:store-memory',
+  DELETE_MEMORY: 'z:delete-memory',
+  PURGE_MEMORIES: 'z:purge-memories',
+  EXPORT_MEMORIES: 'z:export-memories',
+  COUNT_MEMORIES: 'z:count-memories',
   // WeChat Hook (WeChatFerry DLL injection)
   START_WECHAT_HOOK: 'z:start-wechat-hook',
   STOP_WECHAT_HOOK: 'z:stop-wechat-hook',
@@ -34,6 +41,9 @@ export const IPC_CHANNELS = {
   REBUILD_PROFILE: 'z:rebuild-profile',
   SET_PROFILE_ENABLED: 'z:set-profile-enabled',
   CLEAR_CHAT_PROFILE: 'z:clear-chat-profile',
+  // File System
+  WRITE_FILE: 'z:write-file',
+  SELECT_SAVE_DIR: 'z:select-save-dir',
 } as const;
 
 export const WINDOW_SIZES = {

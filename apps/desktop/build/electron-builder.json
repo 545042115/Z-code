@@ -16,6 +16,13 @@
     "node_modules/@rustup/**",
     "node_modules/koffi/**"
   ],
+  "extraResources": [
+    {
+      "from": "../../packages/runtime/python/dist/perception-server.exe",
+      "to": "perception-server.exe",
+      "filter": ["**/*"]
+    }
+  ],
   "fileAssociations": [
     {
       "ext": "zap",
@@ -49,7 +56,9 @@
   "win": {
     "icon": "build/icon.ico",
     "artifactName": "${productName}-${version}-win-${arch}.${ext}",
-    "target": ["nsis"]
+    "target": ["nsis"],
+    "sign": false,
+    "signDlls": false
   },
   "linux": {
     "icon": "build/icon.png",

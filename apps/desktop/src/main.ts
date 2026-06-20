@@ -7,6 +7,8 @@ import { IPC_CHANNELS, WINDOW_SIZES, APP_NAME } from './constants';
 import { RuntimeBridge } from './runtime-bridge';
 import { createTray, destroyTray } from './tray';
 import { registerGlobalHotkey, unregisterAllGlobalHotkeys, toggleWindow, DEFAULT_HOTKEY } from './hotkey';
+import { Updater } from './updater';
+import { LicenseService } from './license';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatMessage } from './session-manager';
 
@@ -33,6 +35,14 @@ const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
   debugLog('Another instance is already running, quitting.');
   app.quit();
+}
+
+// ── Custom protocol registration ──────────────────────────────────────
+if (process.defaultApp) {
+  // Dev mode: register the protocol manually
+  app.setAsDefaultProtocolClient('z-assistant', process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient('z-assistant');
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -207,6 +217,33 @@ function registerIpcHandlers(): void {
     return bridge.sessions.appendMessage(sessionId, msg);
   });
   ipcMain.handle(IPC_CHANNELS.DELETE_SESSION, (_event, id: string) => bridge.sessions.delete(id));
+  ipcMain.handle(IPC_CHANNELS.EXPORT_SESSION, async (_event, id: string, format: string) => {
+    return bridge.exportSession(id, format as 'json' | 'markdown');
+  });
+  ipcMain.handle(IPC_CHANNELS.LIST_MEMORIES, async (_event, kind?: string, limit?: number) => {
+    await bridge.start();
+    return bridge.listMemories(kind, limit);
+  });
+  ipcMain.handle(IPC_CHANNELS.STORE_MEMORY, async (_event, content: string, kind: string, scope: string) => {
+    await bridge.start();
+    return bridge.storeMemory(content, kind, scope);
+  });
+  ipcMain.handle(IPC_CHANNELS.DELETE_MEMORY, async (_event, id: string) => {
+    await bridge.start();
+    return bridge.deleteMemory(id);
+  });
+  ipcMain.handle(IPC_CHANNELS.PURGE_MEMORIES, async () => {
+    await bridge.start();
+    return bridge.purgeMemories();
+  });
+  ipcMain.handle(IPC_CHANNELS.EXPORT_MEMORIES, async () => {
+    await bridge.start();
+    return bridge.exportMemories();
+  });
+  ipcMain.handle(IPC_CHANNELS.COUNT_MEMORIES, async (_event, kind?: string) => {
+    await bridge.start();
+    return bridge.countMemories(kind);
+  });
 
   // ── WeChat Hook IPC handlers ────────────────────────────────
   ipcMain.handle(IPC_CHANNELS.START_WECHAT_HOOK, async (_event, config) => {
@@ -237,6 +274,28 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.REBUILD_PROFILE, () => bridge.rebuildProfile());
   ipcMain.handle(IPC_CHANNELS.SET_PROFILE_ENABLED, (_event, enabled: boolean) => bridge.setProfileEnabled(enabled));
   ipcMain.handle(IPC_CHANNELS.CLEAR_CHAT_PROFILE, () => bridge.clearProfile());
+
+  // ── File System IPC handlers ────────────────────────────────────
+  ipcMain.handle(IPC_CHANNELS.WRITE_FILE, async (_event, filePath: string, content: string) => {
+    try {
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(filePath, content, 'utf-8');
+      return { success: true };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: msg };
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.SELECT_SAVE_DIR, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory', 'createDirectory'],
+      title: 'Select save directory',
+    });
+    return result.canceled ? null : result.filePaths[0];
+  });
 }
 
 function forwardEventsToFocusedWindow(): void {
@@ -260,6 +319,20 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
   forwardEventsToFocusedWindow();
   mainWindow = createMainWindow();
+
+  // ── License Service ──────────────────────────────────────────
+  const license = new LicenseService();
+  debugLog(`License: ${license.state.tier} (valid: ${license.state.valid})`);
+
+  // ── Auto Updater ─────────────────────────────────────────────
+  const updater = new Updater(mainWindow);
+  // Check for updates after a short delay (don't block startup)
+  setTimeout(() => {
+    try { updater.check(); } catch (e: unknown) {
+      debugLog(`Update check error: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }, 5000);
+
   createTray({
     onShowMain: () => {
       if (mainWindow) {
@@ -298,11 +371,44 @@ app.on('before-quit', async () => {
   await bridge.stop();
 });
 
-app.on('second-instance', () => {
+app.on('second-instance', (_event, argv) => {
   const win = mainWindow ?? chatWindow;
   if (win) {
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
   }
+  // Handle file association on Windows (second instance passes file path in argv)
+  const filePath = argv.find((a) => a.endsWith('.zap') || a.endsWith('.zconfig') || a.endsWith('.zlog'));
+  if (filePath) {
+    debugLog(`File association: ${filePath}`);
+    // Open the file in the main window
+    mainWindow?.webContents.send(IPC_CHANNELS.ON_RUN_EVENT, { type: 'progress', phase: 'file', detail: filePath });
+  }
+  // Handle custom protocol URL on Windows
+  const protocolUrl = argv.find((a) => a.startsWith('z-assistant://'));
+  if (protocolUrl) {
+    debugLog(`Protocol URL: ${protocolUrl}`);
+    mainWindow?.webContents.send(IPC_CHANNELS.ON_RUN_EVENT, { type: 'progress', phase: 'protocol', detail: protocolUrl });
+  }
+});
+
+// macOS: handle open-file event
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  debugLog(`open-file: ${filePath}`);
+  const win = mainWindow ?? createMainWindow();
+  win.show();
+  win.focus();
+  win.webContents.send(IPC_CHANNELS.ON_RUN_EVENT, { type: 'progress', phase: 'file', detail: filePath });
+});
+
+// macOS: handle custom protocol URL (open-url)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  debugLog(`open-url: ${url}`);
+  const win = mainWindow ?? createMainWindow();
+  win.show();
+  win.focus();
+  win.webContents.send(IPC_CHANNELS.ON_RUN_EVENT, { type: 'progress', phase: 'protocol', detail: url });
 });

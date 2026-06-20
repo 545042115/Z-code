@@ -18,6 +18,8 @@ import {
 } from '@z-assistant/runtime';
 import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch } from './web-tools';
 import { TASK_TOOLS, readFile, writeFile, replaceText, appendText, insertText, runTerminal, searchCode, listDirectory, getProjectContext } from './task-tools';
+import { BROWSER_TOOLS, browserNavigate, browserClick, browserScroll, browserScreenshot, browserGoBack, browserGoForward, browserClose } from './browser-tools';
+import { PERCEPTION_TOOLS, ocrImage, describeImage, transcribeAudio, parseDocument } from './perception-tools';
 
 export interface ChatAgentOptions {
   llmProvider: ILLMProvider;
@@ -53,6 +55,17 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 - **search_code(pattern, filePattern?, maxResults?)** — Search for patterns across files
 - **list_directory(dirPath?, depth?)** — List directory contents
 - **get_project_context(detail?)** — Get project overview
+- **browser_navigate(url)** — Open a URL in the browser
+- **browser_click(x, y)** — Click at coordinates on the current page
+- **browser_scroll(direction, amount?)** — Scroll the page up or down
+- **browser_screenshot()** — Take a screenshot of the current page
+- **browser_go_back()** — Go back in browser history
+- **browser_go_forward()** — Go forward in browser history
+- **browser_close()** — Close the browser
+- **ocr_image(filePath)** — Extract text from an image
+- **describe_image(filePath)** — Generate a description of an image
+- **transcribe_audio(filePath)** — Transcribe audio to text
+- **parse_document(filePath)** — Extract text from PDF/DOCX/PPTX/TXT
 
 ## Guidelines
 - Be conversational, natural, and concise
@@ -61,16 +74,23 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 - Respond in the same language the user used
 - You can use web_search multiple times to find the best answer
 - When the user asks you to create or modify files, use the file tools above
-- Always read a file before editing it to understand its current content`;
+- Always read a file before editing it to understand its current content
+- **IMPORTANT: You CAN write files to the user's computer.** When the user asks you to save a file to the desktop, use write_file with the full path. The desktop path is typically: C:\\Users\\[username]\\Desktop\\filename.md
+- When the user asks you to open a website, use browser_navigate. The browser will be started automatically.`;
 
 export function createChatAgent(opts: ChatAgentOptions): IAgent {
-  let systemPrompt = opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT;
+  // Inject actual desktop path into system prompt
+  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+  const desktopPath = homeDir ? `${homeDir}\\Desktop` : 'C:\\Users\\[username]\\Desktop';
+  let systemPrompt = (opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
+    .replace('[username]', homeDir ? homeDir.split('\\').pop()! : 'username')
+    .replace('C:\\\\Users\\\\[username]\\\\Desktop', desktopPath.replace(/\\/g, '\\\\'));
   // Append style profile if available
   if (opts.profileDescription) {
     systemPrompt += `\n\n## Your Chat Style\n${opts.profileDescription}\nWhen replying to chat messages (especially via QQ/WeChat auto-reply), imitate the above style. Keep your responses natural and consistent with this tone.`;
   }
   const maxIterations = opts.maxToolIterations ?? 8;
-  const allTools = [...WEB_TOOLS, ...TASK_TOOLS];
+  const allTools = [...WEB_TOOLS, ...TASK_TOOLS, ...BROWSER_TOOLS, ...PERCEPTION_TOOLS];
   const allToolNames = new Set(allTools.map((t) => t.name));
 
   // Create MemoryManager if storageDir is provided
@@ -99,6 +119,9 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
       'web_search', 'web_fetch',
       'read_file', 'write_file', 'replace_text', 'append_text', 'insert_text',
       'run_terminal', 'search_code', 'list_directory', 'get_project_context',
+      'browser_navigate', 'browser_click', 'browser_scroll', 'browser_screenshot',
+      'browser_go_back', 'browser_go_forward', 'browser_close',
+      'ocr_image', 'describe_image', 'transcribe_audio', 'parse_document',
     ],
     dependencies: [],
 
@@ -204,10 +227,50 @@ Do NOT call any tools.`,
           totalTokensIn += response.usage.tokensIn;
           totalTokensOut += response.usage.tokensOut;
 
-          // No tool calls → final answer
+          // No tool calls → check for XML-style tool calls (fallback for models
+          // that don't fully support native OpenAI function calling)
           if (!response.message.toolCalls || response.message.toolCalls.length === 0) {
-            progress('answer', 'Generating final answer...');
             const reply = response.message.content ?? '';
+
+            // Try to parse XML tool calls from the text response
+            const xmlCalls = parseXmlToolCalls(reply);
+            if (xmlCalls && xmlCalls.length > 0) {
+              // Execute XML tool calls (same as native tool calls)
+              // Strip the XML tags from the content for display
+              const cleanReply = reply.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '').replace(/<invoke[\s\S]*?<\/invoke>/g, '').trim();
+
+              // Only keep the clean text as the assistant message
+              if (cleanReply) {
+                messages.push({ role: 'assistant', content: cleanReply });
+              } else {
+                messages.push({ role: 'assistant', content: '(executing tools...)' });
+              }
+
+              for (const tc of xmlCalls) {
+                if (!allToolNames.has(tc.name)) {
+                  messages.push({
+                    role: 'tool',
+                    content: `Unknown tool: ${tc.name}. Available tools: ${[...allToolNames].join(', ')}`,
+                    toolCallId: `xml_${tc.name}_${i}`,
+                  });
+                  continue;
+                }
+
+                toolCalls++;
+                const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
+                progress('tool', `Executing ${tc.name}...`);
+                const result = await executeTool(tc.name, tc.arguments);
+                toolSpan?.end({ result: result.slice(0, 200) });
+                messages.push({
+                  role: 'tool',
+                  content: result,
+                  toolCallId: `xml_${tc.name}_${i}`,
+                });
+              }
+              continue; // Go to next iteration
+            }
+
+            progress('answer', 'Generating final answer...');
             const durationMs = Date.now() - t0;
             const costUsd = computeCost(ctx.model, totalTokensIn, totalTokensOut);
 
@@ -352,6 +415,46 @@ Do NOT call any tools.`,
 
 // ── Tool executor ─────────────────────────────────────────────────────
 
+/**
+ * Parse XML-style tool calls from LLM text output.
+ * Some models (e.g. DeepSeek) may fall back to XML format when they
+ * don't fully support native OpenAI function calling.
+ *
+ * Supported formats:
+ *   <invoke name="tool_name"><parameter name="arg">value</parameter></invoke>
+ *   <tool_calls><invoke name="tool_name"><parameter name="arg">value</parameter></invoke></tool_calls>
+ */
+function parseXmlToolCalls(text: string): Array<{ name: string; arguments: Record<string, unknown> }> | null {
+  // Try to find <tool_calls> wrapper first, then individual <invoke> tags
+  const wrapperMatch = text.match(/<tool_calls>([\s\S]*?)<\/tool_calls>/);
+  const invokeContent = wrapperMatch ? wrapperMatch[1] : text;
+
+  // Find all <invoke name="..."> blocks
+  const invokeRegex = /<invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/invoke>/g;
+  const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = invokeRegex.exec(invokeContent)) !== null) {
+    const name = match[1];
+    const paramsText = match[2];
+
+    // Parse <parameter name="...">value</parameter>
+    const args: Record<string, unknown> = {};
+    const paramRegex = /<parameter\s+name="([^"]+)"\s*>([\s\S]*?)<\/parameter>/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = paramRegex.exec(paramsText)) !== null) {
+      let value: string | number = pm[2].trim();
+      // Try to parse as number
+      const num = Number(value);
+      if (!isNaN(num) && value !== '') value = num;
+      args[pm[1]] = value;
+    }
+    calls.push({ name, arguments: args });
+  }
+
+  return calls.length > 0 ? calls : null;
+}
+
 async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
     // Web tools
@@ -416,6 +519,36 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       return getProjectContext(
         (args.detail as 'summary' | 'full') ?? 'summary'
       );
+    // Browser tools
+    case 'browser_navigate':
+      return browserNavigate(String(args.url ?? ''));
+    case 'browser_click':
+      return browserClick(
+        typeof args.x === 'number' ? args.x : 0,
+        typeof args.y === 'number' ? args.y : 0
+      );
+    case 'browser_scroll':
+      return browserScroll(
+        String(args.direction ?? 'down'),
+        typeof args.amount === 'number' ? args.amount : 500
+      );
+    case 'browser_screenshot':
+      return browserScreenshot();
+    case 'browser_go_back':
+      return browserGoBack();
+    case 'browser_go_forward':
+      return browserGoForward();
+    case 'browser_close':
+      return browserClose();
+    // Perception tools
+    case 'ocr_image':
+      return ocrImage(String(args.filePath ?? ''));
+    case 'describe_image':
+      return describeImage(String(args.filePath ?? ''));
+    case 'transcribe_audio':
+      return transcribeAudio(String(args.filePath ?? ''));
+    case 'parse_document':
+      return parseDocument(String(args.filePath ?? ''));
     default:
       return `Unknown tool: ${name}`;
   }

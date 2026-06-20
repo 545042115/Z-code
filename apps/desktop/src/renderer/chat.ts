@@ -1,4 +1,10 @@
 // @z-assistant/app-desktop — Chat panel with session management
+//
+// Features:
+//   - Create / switch / delete sessions (with confirmation)
+//   - Export session as JSON or Markdown
+//   - Progress indicator during LLM calls
+//   - Markdown rendering for assistant messages
 
 declare const zApi: import('../preload').ZDesktopAPI;
 import { t } from './i18n';
@@ -9,7 +15,109 @@ function escapeHtml(text: string): string {
   return div.innerHTML;
 }
 
+// ── Simple Markdown renderer ──────────────────────────────────────────
+
+function renderMarkdown(text: string): string {
+  let html = escapeHtml(text);
+
+  // Code blocks (must be before inline code)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
+    return `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:0.88em;line-height:1.4;margin:6px 0"><code>${code.trim()}</code></pre>`;
+  });
+
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background:var(--bg);padding:1px 4px;border-radius:3px;font-size:0.88em">$1</code>');
+
+  // Headers
+  html = html.replace(/^### (.+)$/gm, '<h4 style="margin:8px 0 4px">$1</h4>');
+  html = html.replace(/^## (.+)$/gm, '<h3 style="margin:10px 0 4px">$1</h3>');
+  html = html.replace(/^# (.+)$/gm, '<h2 style="margin:12px 0 4px">$1</h2>');
+
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr style="margin:8px 0;border:none;border-top:1px solid var(--border-light)">');
+
+  // Tables: | col | col |
+  html = html.replace(/^\|(.+)\|$/gm, (_m, row) => {
+    const cells = row.split('|').map((c: string) => c.trim());
+    // Skip separator rows (| --- | --- |)
+    if (cells.every((c: string) => /^-+$/.test(c))) return '';
+    const cellHtml = cells.map((c: string) => `<td style="padding:2px 8px;border:1px solid var(--border-light);text-align:center">${c}</td>`).join('');
+    return `<table style="border-collapse:collapse;margin:6px 0;font-size:0.88em;width:auto"><tr>${cellHtml}</tr></table>`;
+  });
+
+  // Lists: - item or * item
+  html = html.replace(/^[*-] (.+)$/gm, '<li style="margin:2px 0">$1</li>');
+  html = html.replace(/(<li[^>]*>.*<\/li>\n?)+/g, '<ul style="margin:4px 0;padding-left:20px">$&</ul>');
+
+  // Line breaks
+  html = html.replace(/\n/g, '<br>');
+
+  return html;
+}
+
 let currentSessionId: string | null = null;
+
+// ── Confirm dialog helpers ────────────────────────────────────────────
+
+let pendingDeleteId: string | null = null;
+
+function showConfirmDialog(message: string, onConfirm: () => void): void {
+  const dialog = document.getElementById('chat-confirm-dialog')!;
+  const msgEl = dialog.querySelector('p')!;
+  const yesBtn = document.getElementById('chat-confirm-yes')!;
+  const noBtn = document.getElementById('chat-confirm-no')!;
+
+  msgEl.textContent = message;
+  dialog.style.display = 'flex';
+
+  const cleanup = () => {
+    dialog.style.display = 'none';
+    yesBtn.removeEventListener('click', handleYes);
+    noBtn.removeEventListener('click', handleNo);
+  };
+
+  const handleYes = () => {
+    cleanup();
+    onConfirm();
+  };
+  const handleNo = () => {
+    cleanup();
+  };
+
+  yesBtn.addEventListener('click', handleYes);
+  noBtn.addEventListener('click', handleNo);
+}
+
+// ── Export helpers ────────────────────────────────────────────────────
+
+async function exportSession(sessionId: string, format: 'json' | 'markdown'): Promise<void> {
+  try {
+    const content = await zApi.exportSession(sessionId, format);
+    const session = await zApi.getSession(sessionId);
+    const ext = format === 'json' ? 'json' : 'md';
+    const filename = `${session?.title ?? 'chat'}_${sessionId.slice(-8)}.${ext}`;
+
+    // Create a download via Blob
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Export error:', msg);
+  }
+}
+
+// ── Mount ─────────────────────────────────────────────────────────────
 
 export async function mountChat(container: HTMLElement): Promise<void> {
   container.innerHTML = `
@@ -17,15 +125,39 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       <div id="chat-sidebar">
         <div id="chat-sidebar-header">
           <h3>${t('chat.sessions')}</h3>
-          <button id="chat-new-btn" class="primary" style="font-size:0.85em;padding:4px 10px">+ ${t('chat.new')}</button>
+          <div class="row" style="gap:4px">
+            <button id="chat-new-btn" class="primary" style="font-size:0.78em;padding:4px 8px">+ ${t('chat.new')}</button>
+            <button id="chat-export-btn" class="secondary" style="font-size:0.78em;padding:4px 8px" title="${t('chat.export')}">${t('chat.export')}</button>
+          </div>
         </div>
         <div id="chat-session-list"></div>
       </div>
       <div id="chat-main">
         <div id="chat-messages"></div>
+        <div id="chat-memory-context" style="display:none;padding:4px 8px;border-top:1px solid var(--border-light);background:var(--bg-soft);font-size:0.78em;max-height:80px;overflow-y:auto"></div>
         <div id="chat-input-area">
           <textarea id="chat-input" rows="2" placeholder="${t('chat.placeholder')}"></textarea>
+          <button id="chat-recall-btn" class="secondary" title="${t('memory.recall_hint')}" style="padding:10px 12px;min-height:42px;font-size:0.85em">${t('memory.recall')}</button>
           <button id="chat-send" class="primary">${t('chat.send')}</button>
+        </div>
+      </div>
+    </div>
+    <div id="chat-confirm-dialog" class="modal" style="display:none;">
+      <div class="modal-content">
+        <p>${t('chat.confirmDelete')}</p>
+        <div class="row" style="justify-content:flex-end;margin-top:12px;gap:8px">
+          <button id="chat-confirm-no" class="secondary">${t('chat.no')}</button>
+          <button id="chat-confirm-yes" class="primary danger">${t('chat.yes')}</button>
+        </div>
+      </div>
+    </div>
+    <div id="chat-recall-dialog" class="modal" style="display:none;">
+      <div class="modal-content" style="max-width:500px">
+        <h4 style="margin:0 0 8px">${t('memory.recall_result')}</h4>
+        <input id="chat-recall-query" type="text" placeholder="${t('memory.search_placeholder')}" style="margin-bottom:8px">
+        <div id="chat-recall-results" style="max-height:300px;overflow-y:auto"></div>
+        <div class="row" style="justify-content:flex-end;margin-top:8px;gap:8px">
+          <button id="chat-recall-close" class="secondary">${t('chat.no')}</button>
         </div>
       </div>
     </div>
@@ -36,13 +168,18 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   const input = document.getElementById('chat-input') as HTMLTextAreaElement;
   const sendBtn = document.getElementById('chat-send') as HTMLButtonElement;
   const newBtn = document.getElementById('chat-new-btn') as HTMLButtonElement;
+  const exportBtn = document.getElementById('chat-export-btn') as HTMLButtonElement;
 
   // ── Helper: add a message bubble ─────────────────────────────────
   function addMessage(role: string, content: string): void {
     const div = document.createElement('div');
     div.className = `message ${role}`;
     const label = role === 'user' ? t('chat.you') : t('chat.assistant');
-    div.innerHTML = `<strong>${label}</strong><br>${escapeHtml(content)}`;
+    if (role === 'user') {
+      div.innerHTML = `<strong>${label}</strong><br>${escapeHtml(content)}`;
+    } else {
+      div.innerHTML = `<strong>${label}</strong><br>${renderMarkdown(content)}`;
+    }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
   }
@@ -100,27 +237,43 @@ export async function mountChat(container: HTMLElement): Promise<void> {
               <div class="session-title">${escapeHtml(s.title)}</div>
               <div class="session-preview muted">${escapeHtml(preview)}</div>
             </div>
-            <button class="session-delete-btn" title="${t('chat.delete')}" data-id="${escapeHtml(s.id)}">×</button>
+            <div class="session-item-actions">
+              <button class="session-export-btn" title="${t('chat.export')}" data-id="${escapeHtml(s.id)}">↓</button>
+              <button class="session-delete-btn" title="${t('chat.delete')}" data-id="${escapeHtml(s.id)}">×</button>
+            </div>
           </div>`;
         })
         .join('');
 
-      // Bind delete buttons
+      // Bind delete buttons with confirmation
       sessionList.querySelectorAll('.session-delete-btn').forEach((btn) => {
         btn.addEventListener('click', async (e) => {
           e.stopPropagation();
           const id = (btn as HTMLElement).dataset.id;
           if (!id) return;
-          try {
-            await zApi.deleteSession(id);
-            if (currentSessionId === id) {
-              currentSessionId = null;
-              messages.innerHTML = '';
+          showConfirmDialog(t('chat.confirmDelete'), async () => {
+            try {
+              await zApi.deleteSession(id!);
+              if (currentSessionId === id) {
+                currentSessionId = null;
+                messages.innerHTML = '';
+              }
+              await renderSessionList();
+            } catch (err) {
+              console.error('Delete session error:', err);
             }
-            await renderSessionList();
-          } catch (err) {
-            console.error('Delete session error:', err);
-          }
+          });
+        });
+      });
+
+      // Bind export buttons on session items
+      sessionList.querySelectorAll('.session-export-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = (btn as HTMLElement).dataset.id;
+          if (!id) return;
+          // Export as markdown by default from session list
+          await exportSession(id, 'markdown');
         });
       });
 
@@ -140,6 +293,47 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       sessionList.innerHTML = `<div class="muted" style="padding:8px">Error loading sessions</div>`;
     }
   }
+
+  // ── Helper: store a memory (fire-and-forget) ────────────────────
+  function storeMemory(content: string, kind: string): void {
+    zApi.storeMemory(content, kind, 'user').catch(() => {});
+  }
+
+  // ── Memory context hint ─────────────────────────────────────────
+  const memoryContextEl = document.getElementById('chat-memory-context')!;
+  let memoryContextTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  async function updateMemoryContext(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (trimmed.length < 4) {
+      memoryContextEl.style.display = 'none';
+      return;
+    }
+    try {
+      const hits = await zApi.recallMemory(trimmed, 3);
+      if (hits.length === 0) {
+        memoryContextEl.style.display = 'none';
+        return;
+      }
+      memoryContextEl.innerHTML = hits
+        .map((h) => {
+          const content = h.memory.content.length > 80
+            ? h.memory.content.slice(0, 80) + '…'
+            : h.memory.content;
+          return `<span style="display:inline-block;padding:1px 6px;margin:1px 2px;border-radius:3px;background:var(--accent-soft);color:var(--accent);cursor:pointer" title="${t('memory.recall_hint')}">${escapeHtml(content)}</span>`;
+        })
+        .join('');
+      memoryContextEl.style.display = 'block';
+    } catch {
+      memoryContextEl.style.display = 'none';
+    }
+  }
+
+  // Debounced input listener for memory context
+  input.addEventListener('input', () => {
+    if (memoryContextTimeout) clearTimeout(memoryContextTimeout);
+    memoryContextTimeout = setTimeout(() => updateMemoryContext(input.value), 500);
+  });
 
   // ── Send message ──────────────────────────────────────────────────
   async function sendMessage(): Promise<void> {
@@ -165,6 +359,9 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     addMessage('user', text);
     renderSessionList();
 
+    // Store user message as episodic memory (fire-and-forget)
+    storeMemory(`User asked: ${text.slice(0, 200)}`, 'episodic');
+
     // Call LLM
     try {
       showProgress('plan', 'Starting...');
@@ -179,6 +376,9 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: reply, timestamp: Date.now() });
       addMessage('assistant', reply);
       renderSessionList();
+
+      // Store assistant reply as episodic memory (fire-and-forget)
+      storeMemory(`Assistant replied: ${reply.slice(0, 200)}`, 'episodic');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errorText = `${t('chat.error')}: ${msg}`;
@@ -201,6 +401,87 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     } catch {}
   }
 
+  // ── Export current session ────────────────────────────────────────
+  async function exportCurrentSession(): Promise<void> {
+    if (!currentSessionId) return;
+    // Show a simple format picker
+    const format = confirm('Export as Markdown? Click OK for Markdown, Cancel for JSON.')
+      ? 'markdown'
+      : 'json';
+    await exportSession(currentSessionId, format);
+  }
+
+  // ── Memory recall dialog ─────────────────────────────────────────
+  const recallBtn = document.getElementById('chat-recall-btn') as HTMLButtonElement;
+  const recallDialog = document.getElementById('chat-recall-dialog')!;
+  const recallQuery = document.getElementById('chat-recall-query') as HTMLInputElement;
+  const recallResults = document.getElementById('chat-recall-results')!;
+  const recallClose = document.getElementById('chat-recall-close') as HTMLButtonElement;
+
+  function openRecallDialog(): void {
+    recallQuery.value = '';
+    recallResults.innerHTML = `<p class="muted">${t('memory.recall_empty')}</p>`;
+    recallDialog.style.display = 'flex';
+    setTimeout(() => recallQuery.focus(), 100);
+  }
+
+  async function performRecall(): Promise<void> {
+    const query = recallQuery.value.trim();
+    if (!query) {
+      recallResults.innerHTML = `<p class="muted">${t('memory.recall_empty')}</p>`;
+      return;
+    }
+    recallResults.innerHTML = `<p class="muted">${t('memory.loading')}</p>`;
+    try {
+      const hits = await zApi.recallMemory(query, 5);
+      if (hits.length === 0) {
+        recallResults.innerHTML = `<p class="muted">${t('memory.recall_empty')}</p>`;
+        return;
+      }
+      recallResults.innerHTML = hits
+        .map((h, i) => {
+          const content = h.memory.content.length > 150
+            ? h.memory.content.slice(0, 150) + '…'
+            : h.memory.content;
+          const score = (h.score * 100).toFixed(0);
+          return `<div class="recall-hit" data-index="${i}" style="cursor:pointer;padding:8px 10px;margin:4px 0;background:var(--bg);border-radius:var(--radius-md);border:1px solid var(--border-light);transition:all var(--transition)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="memory-kind" style="font-size:0.75em;padding:1px 6px;border-radius:3px;background:var(--accent-soft);color:var(--accent)">${escapeHtml(h.memory.kind)}</span>
+              <span class="muted" style="font-size:0.78em">${score}%</span>
+            </div>
+            <p style="margin:4px 0 0;font-size:0.88em;color:var(--text-secondary);white-space:pre-wrap">${escapeHtml(content)}</p>
+          </div>`;
+        })
+        .join('');
+
+      // Click to insert into input
+      recallResults.querySelectorAll('.recall-hit').forEach((el) => {
+        el.addEventListener('click', () => {
+          const idx = parseInt((el as HTMLElement).dataset.index!, 10);
+          const hit = hits[idx];
+          if (hit) {
+            input.value = hit.memory.content;
+            input.focus();
+            recallDialog.style.display = 'none';
+          }
+        });
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      recallResults.innerHTML = `<p class="status error">${escapeHtml(msg)}</p>`;
+    }
+  }
+
+  recallBtn.addEventListener('click', openRecallDialog);
+  recallClose.addEventListener('click', () => { recallDialog.style.display = 'none'; });
+  recallQuery.addEventListener('input', performRecall);
+  recallQuery.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      performRecall();
+    }
+  });
+
   // ── Event binding ─────────────────────────────────────────────────
   sendBtn.addEventListener('click', sendMessage);
   input.addEventListener('keydown', (e) => {
@@ -211,6 +492,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   });
 
   newBtn.addEventListener('click', newSession);
+  exportBtn.addEventListener('click', exportCurrentSession);
 
   // Click session item → switch
   sessionList.addEventListener('click', (e) => {

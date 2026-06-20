@@ -9,14 +9,15 @@
     "build": "npm run build:renderer && tsc -p ./",
     "build:renderer": "esbuild src/renderer/index.ts --bundle --outfile=out/renderer/bundle.js --format=iife --global-name=ZApp --loader:.ts=ts 2>&1 && node -e \"require('fs').cpSync('src/renderer/index.html', 'out/renderer/index.html'); require('fs').cpSync('src/renderer/styles.css', 'out/renderer/styles.css'); if (require('fs').existsSync('src/assets')) require('fs').cpSync('src/assets', 'out/assets', {recursive: true})\"",
     "typecheck": "tsc -p ./ --noEmit",
-    "start": "npm run build && electron .",
+    "start": "npm run build && node ../../node_modules/electron/cli.js .",
     "prepackage": "node scripts/copy-deps.js",
-    "package": "npm run build && npm run prepackage && electron-builder",
+    "package": "npm run build && npm run prepackage && node ../../node_modules/electron-builder/cli.js",
     "test": "tsc -p ./ && node --test \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
     "@z-assistant/app-vscode-connector": "0.1.0",
+    "@z-assistant/agent-browser": "0.1.0",
     "@z-assistant/contracts": "0.1.0",
     "@z-assistant/runtime": "0.1.0",
     "electron-updater": "^6.1.0",

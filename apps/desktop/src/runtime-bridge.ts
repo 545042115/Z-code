@@ -8,7 +8,7 @@ import {
   type VSCodeConnectorConfig,
   type ConnectorEvent,
 } from '@z-assistant/app-vscode-connector';
-import type { AgentRun, AgentSpan, MemoryHit } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord } from '@z-assistant/contracts';
 import { SessionManager } from './session-manager';
 
 export interface DesktopSettings {
@@ -152,8 +152,129 @@ export class RuntimeBridge {
   }
 
   async recallMemory(query: string, limit = 10): Promise<MemoryHit[]> {
-    void query; void limit;
-    return [];
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const hits = await provider.recall({ query, limit, userId: 'desktop-user' });
+      await provider.close();
+      return hits;
+    } catch {
+      return [];
+    }
+  }
+
+  async exportSession(id: string, format: 'json' | 'markdown'): Promise<string> {
+    const session = this._sessions.get(id);
+    if (!session) throw new Error('Session not found');
+
+    if (format === 'json') {
+      return JSON.stringify(session, null, 2);
+    }
+
+    // Markdown format
+    const lines: string[] = [];
+    lines.push(`# ${session.title}`);
+    lines.push('');
+    lines.push(`> Created: ${new Date(session.createdAt).toLocaleString()}`);
+    lines.push(`> Updated: ${new Date(session.updatedAt).toLocaleString()}`);
+    lines.push(`> Messages: ${session.messages.length}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    for (const msg of session.messages) {
+      const role = msg.role === 'user' ? '**You**' : '**Assistant**';
+      const time = new Date(msg.timestamp).toLocaleString();
+      lines.push(`${role} (${time}):`);
+      lines.push('');
+      lines.push(msg.content);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+    return lines.join('\n');
+  }
+
+  async listMemories(kind?: string, limit = 50): Promise<MemoryRecord[]> {
+    if (!this.connector) return [];
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const filter: any = { limit };
+      if (kind) filter.kind = kind;
+      const records = await provider.list(filter);
+      await provider.close();
+      return records;
+    } catch {
+      return [];
+    }
+  }
+
+  async storeMemory(content: string, kind: string, scope: string): Promise<void> {
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      await provider.store({
+        id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        content,
+        kind: kind as any,
+        scope: scope as any,
+        userId: 'desktop-user',
+        createdAt: Date.now(),
+      });
+      await provider.close();
+    } catch {
+      // best-effort
+    }
+  }
+
+  async deleteMemory(id: string): Promise<boolean> {
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const result = await provider.delete(id);
+      await provider.close();
+      return result;
+    } catch {
+      return false;
+    }
+  }
+
+  async purgeMemories(): Promise<number> {
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const result = await provider.purge({ userId: 'desktop-user' });
+      await provider.close();
+      return result;
+    } catch {
+      return 0;
+    }
+  }
+
+  async exportMemories(): Promise<string> {
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const records = await provider.list({ limit: 10000 });
+      await provider.close();
+      return JSON.stringify(records, null, 2);
+    } catch {
+      return '[]';
+    }
+  }
+
+  async countMemories(kind?: string): Promise<number> {
+    try {
+      const { JsonlMemoryProvider } = await import('@z-assistant/runtime');
+      const provider = new JsonlMemoryProvider({ rootDir: this.storageDir });
+      const filter: any = {};
+      if (kind) filter.kind = kind;
+      const count = await provider.count(filter);
+      await provider.close();
+      return count;
+    } catch {
+      return 0;
+    }
   }
 
   // ── WeChat Hook (WeChatFerry DLL injection) ───────────────────

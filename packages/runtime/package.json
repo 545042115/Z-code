@@ -45,6 +45,7 @@
   },
   "scripts": {
     "build": "tsc -p ./",
+    "build:python": "cd python && pyinstaller perception-server.spec --clean",
     "typecheck": "tsc -p ./ --noEmit",
     "test": "tsc -p ./ && node --test \"out/orchestrator/__tests__/*.test.js\" \"out/evolution/__tests__/*.test.js\" \"out/evaluation/__tests__/*.test.js\" \"out/memory/__tests__/*.test.js\" \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"

@@ -799,6 +799,20 @@ select {
   font-family: var(--font-mono);
 }
 
+.span-tool-call {
+  margin-top: 4px;
+  font-size: 0.82em;
+}
+
+.span-tool-call code {
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
 /* ═══════════════════════════════════════════════════
    SETTINGS PANEL
    ═══════════════════════════════════════════════════ */
@@ -847,6 +861,188 @@ input[type="checkbox"]:checked::after {
 
 input[type="checkbox"]:focus {
   box-shadow: 0 0 0 3px rgba(91, 122, 158, 0.12);
+}
+
+/* ═══════════════════════════════════════════════════
+   MEMORY PANEL
+   ═══════════════════════════════════════════════════ */
+
+#memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.memory-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  transition: box-shadow var(--transition);
+}
+
+.memory-item:hover {
+  box-shadow: var(--shadow-sm);
+}
+
+.memory-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.memory-kind {
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.memory-date {
+  font-size: 0.82em;
+}
+
+.memory-importance {
+  font-size: 0.78em;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.memory-content {
+  font-size: 0.9em;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+}
+
+.memory-detail {
+  margin-top: 8px;
+}
+
+.memory-detail summary {
+  font-size: 0.8em;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.memory-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1em;
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition);
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.memory-item:hover .memory-delete-btn {
+  opacity: 1;
+}
+
+.memory-delete-btn:hover {
+  color: var(--danger);
+  background: rgba(196, 106, 106, 0.1);
+}
+
+.memory-meta {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════
+   MODAL DIALOG
+   ═══════════════════════════════════════════════════ */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(45, 42, 36, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  min-width: 320px;
+  max-width: 440px;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-content p {
+  margin: 0;
+  font-size: 0.95em;
+  line-height: 1.5;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ═══════════════════════════════════════════════════
+   SESSION ITEM ACTIONS
+   ═══════════════════════════════════════════════════ */
+
+.session-item-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.session-export-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9em;
+  padding: 2px 5px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition);
+  line-height: 1;
+}
+
+.session-item:hover .session-export-btn {
+  opacity: 1;
+}
+
+.session-export-btn:hover {
+  color: var(--accent);
+  background: rgba(91, 122, 158, 0.1);
+}
+
+/* Danger button variant */
+button.primary.danger {
+  background: var(--danger);
+  box-shadow: 0 1px 4px rgba(196, 106, 106, 0.2);
+}
+
+button.primary.danger:hover:not(:disabled) {
+  box-shadow: 0 3px 12px rgba(196, 106, 106, 0.3);
+  transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════════════════════════

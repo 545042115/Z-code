@@ -61,6 +61,12 @@ function renderSettings(container: HTMLElement): void {
           <input id="settings-memory" type="checkbox">
           <span>${t('settings.memory_label')}</span>
         </label>
+        <div class="row" style="margin-top:8px;gap:8px">
+          <button id="settings-goto-memory" class="secondary" style="font-size:0.82em">${t('memory.go_to')}</button>
+          <button id="settings-export-memory" class="secondary" style="font-size:0.82em">${t('memory.export')}</button>
+          <button id="settings-purge-memory" class="secondary danger" style="font-size:0.82em">${t('memory.purge')}</button>
+        </div>
+        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('memory.manage_desc')}</p>
       </div>
       <div class="card">
         <h3>${t('settings.storage')}</h3>
@@ -367,6 +373,44 @@ function renderSettings(container: HTMLElement): void {
       console.error(err);
     } finally {
       profileClearBtn.disabled = false;
+    }
+  });
+
+  // ── Memory management buttons ───────────────────────────────
+  const gotoMemoryBtn = document.getElementById('settings-goto-memory') as HTMLButtonElement;
+  const exportMemoryBtn = document.getElementById('settings-export-memory') as HTMLButtonElement;
+  const purgeMemoryBtn = document.getElementById('settings-purge-memory') as HTMLButtonElement;
+
+  gotoMemoryBtn.addEventListener('click', () => {
+    // Switch to memory view
+    const memBtn = document.querySelector('#nav button[data-view="memory"]') as HTMLElement;
+    if (memBtn) memBtn.click();
+  });
+
+  exportMemoryBtn.addEventListener('click', async () => {
+    try {
+      const data = await zApi.exportMemories();
+      const blob = new Blob([data], { type: 'application/json;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `memories_${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      status.textContent = `Export error: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  });
+
+  purgeMemoryBtn.addEventListener('click', async () => {
+    if (!confirm(t('memory.purge_confirm'))) return;
+    try {
+      const count = await zApi.purgeMemories();
+      status.textContent = `Purged ${count} memories`;
+    } catch (err: unknown) {
+      status.textContent = `Purge error: ${err instanceof Error ? err.message : String(err)}`;
     }
   });
 

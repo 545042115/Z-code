@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './constants';
 import type { ConnectorEvent } from '@z-assistant/app-vscode-connector';
-import type { AgentRun, AgentSpan, MemoryHit } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord } from '@z-assistant/contracts';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
@@ -26,6 +26,13 @@ export interface ZDesktopAPI {
   createSession: (title?: string) => Promise<ChatSession>;
   appendMessage: (sessionId: string, msg: ChatMessage) => Promise<ChatSession | undefined>;
   deleteSession: (id: string) => Promise<boolean>;
+  exportSession: (id: string, format: 'json' | 'markdown') => Promise<string>;
+  listMemories: (kind?: string, limit?: number) => Promise<MemoryRecord[]>;
+  storeMemory: (content: string, kind: string, scope: string) => Promise<void>;
+  deleteMemory: (id: string) => Promise<boolean>;
+  purgeMemories: () => Promise<number>;
+  exportMemories: () => Promise<string>;
+  countMemories: (kind?: string) => Promise<number>;
   // WeChat Hook (WeChatFerry DLL injection — captures ALL messages)
   startWeChatHook: (config?: { nickname?: string }) => Promise<WeChatHookStatus>;
   stopWeChatHook: () => Promise<WeChatHookStatus>;
@@ -41,6 +48,9 @@ export interface ZDesktopAPI {
   rebuildProfile: () => Promise<void>;
   setProfileEnabled: (enabled: boolean) => Promise<void>;
   clearProfile: () => Promise<void>;
+  // File System
+  writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
+  selectSaveDir: () => Promise<string | null>;
 }
 
 interface WeChatHookStatus {
@@ -83,6 +93,13 @@ const api: ZDesktopAPI = {
   createSession: (title) => ipcRenderer.invoke(IPC_CHANNELS.CREATE_SESSION, title),
   appendMessage: (sessionId, msg) => ipcRenderer.invoke(IPC_CHANNELS.APPEND_MESSAGE, sessionId, msg),
   deleteSession: (id) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_SESSION, id),
+  exportSession: (id, format) => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_SESSION, id, format),
+  listMemories: (kind, limit) => ipcRenderer.invoke(IPC_CHANNELS.LIST_MEMORIES, kind, limit),
+  storeMemory: (content, kind, scope) => ipcRenderer.invoke(IPC_CHANNELS.STORE_MEMORY, content, kind, scope),
+  deleteMemory: (id) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_MEMORY, id),
+  purgeMemories: () => ipcRenderer.invoke(IPC_CHANNELS.PURGE_MEMORIES),
+  exportMemories: () => ipcRenderer.invoke(IPC_CHANNELS.EXPORT_MEMORIES),
+  countMemories: (kind) => ipcRenderer.invoke(IPC_CHANNELS.COUNT_MEMORIES, kind),
   // WeChat Hook
   startWeChatHook: (config) => ipcRenderer.invoke(IPC_CHANNELS.START_WECHAT_HOOK, config),
   stopWeChatHook: () => ipcRenderer.invoke(IPC_CHANNELS.STOP_WECHAT_HOOK),
@@ -106,6 +123,9 @@ const api: ZDesktopAPI = {
   rebuildProfile: () => ipcRenderer.invoke(IPC_CHANNELS.REBUILD_PROFILE),
   setProfileEnabled: (enabled) => ipcRenderer.invoke(IPC_CHANNELS.SET_PROFILE_ENABLED, enabled),
   clearProfile: () => ipcRenderer.invoke(IPC_CHANNELS.CLEAR_CHAT_PROFILE),
+  // File System
+  writeFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WRITE_FILE, filePath, content),
+  selectSaveDir: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_SAVE_DIR),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);
