@@ -32,10 +32,23 @@ function resolvePath(userPath: string): string {
     ? path.resolve(userPath)
     : path.resolve(_projectDir, userPath);
   const norm = path.normalize(resolved);
-  if (!norm.startsWith(path.resolve(_projectDir))) {
-    throw new Error(`Access denied: path "${userPath}" is outside the project directory`);
+  const projectNorm = path.resolve(_projectDir);
+
+  // Allow paths inside the project directory
+  if (norm.startsWith(projectNorm)) {
+    return norm;
   }
-  return norm;
+
+  // Also allow paths under common user directories (Desktop, Documents, Downloads, etc.)
+  const homeDir = process.env.USERPROFILE || process.env.HOME || '';
+  if (homeDir) {
+    const homeNorm = path.resolve(homeDir);
+    if (norm.startsWith(homeNorm)) {
+      return norm;
+    }
+  }
+
+  throw new Error(`Access denied: path "${userPath}" is outside the project directory`);
 }
 
 // ── Tool definitions (OpenAI function calling format) ──────────────────
