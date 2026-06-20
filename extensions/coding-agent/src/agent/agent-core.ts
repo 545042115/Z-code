@@ -632,6 +632,29 @@ export class AgentCore {
     return longer.includes(shorter);
   }
 
+  private getSchemaForState(state: AgentState): object {
+    if (state !== 'ACT') {
+      return STATE_SCHEMAS[state];
+    }
+
+    // 动态构建 ACT schema：从 ToolRegistry 获取所有注册的工具名
+    const allToolNames = this.tools.getAll().map(t => t.name);
+    const actSchema = JSON.parse(JSON.stringify(STATE_SCHEMAS.ACT));
+    if (actSchema.properties?.toolCall?.properties?.name) {
+      actSchema.properties.toolCall.properties.name.enum = allToolNames;
+    }
+    return actSchema;
+  }
+
+  private getToolListForPrompt(): string {
+    return this.tools.getAll().map(t => {
+      const params = t.parameters.map(p =>
+        `  - ${p.name} (${p.type})${p.required ? ' [required]' : ' [optional]'}: ${p.description}${p.enum ? ` (${p.enum.join('|')})` : ''}`
+      ).join('\n');
+      return `- ${t.name}: ${t.description}\nParameters:\n${params}`;
+    }).join('\n\n');
+  }
+
   private async executeState(
     state: AgentState,
     onStream: (chunk: string) => void,
@@ -659,7 +682,7 @@ export class AgentCore {
       return { state: 'DONE', content };
     }
 
-    const schema = STATE_SCHEMAS[state];
+    const schema = this.getSchemaForState(state);
     const messagesForRequest = this.buildMessagesForState(state);
 
     const request: GenerateRequest = {
@@ -2059,36 +2082,13 @@ PLANNING → THINK → ACT → OBSERVE → (THINK | VERIFIER) → REFLECT → (T
 - DONE: All done
 
 ## Available Tools
-- build_context: Analyze a user request and build a focused context package (optional: currentFile). Call this FIRST when starting a new task.
-- project_context: Build a comprehensive project understanding. Collects architecture files, build configs, server modules, core modules, entry points. Use when user asks "what does this project do" or "analyze project architecture".
-- memory_search: Search conversation history from previous sessions. Retrieves relevant context by intent (project_understanding, bug_fix, feature_add, refactor) or recent N entries.
-- embedding_search: Search for semantically relevant files using TF-IDF style embedding. Returns top-K files ranked by relevance to a natural language query.
-- get_repo_graph: Get the RepoGraph: module dependency overview, data flow direction, cross-module dependencies, and module hierarchy tree.
-- planner_execute: Execute the full pipeline planner: intent → memory → embedding → repo graph → context building.
-- read_file: Read file content (required: filePath, optional: startLine, lineCount)
-- write_file: Write FULL file content (required: filePath, content). ONLY use for creating new files or complete rewrites.
-- replace_text: Replace a specific text snippet in an EXISTING file (required: filePath, oldText, newText). Use this for ALL small modifications to existing files.
-- insert_before: Insert text before an anchor in an existing file (required: filePath, anchorText, newText)
-- insert_after: Insert text after an anchor in an existing file (required: filePath, anchorText, newText)
-- append_text: Append text to the end of a file (required: filePath, newText)
-- search_code: Search text patterns across workspace files (required: pattern, optional: filePattern)
-- run_terminal: Execute terminal commands
-- list_directory: List directory contents
-- get_diagnostics: Get error/warning diagnostics
-- search_symbols: Search for code symbols (classes, functions, interfaces) by name using LSP index (required: query, optional: kind, maxResults)
-- get_workspace_context: Get workspace overview: file counts, languages, symbol statistics (optional: detail)
-- find_related_files: Find files related to a given file (required: filePath, optional: maxResults)
-- get_definition: Find definition of a symbol at a position using LSP (required: filePath, line, column)
-- get_references: Find all references to a symbol at a position using LSP (required: filePath, line, column, optional: maxResults)
-- get_repo_map: Get structured repository overview: directory tree, entry points, critical files, module breakdown (optional: depth, detail)
-- get_dependency_graph: Get dependency relationships for a file or overall graph (optional: filePath, depth)
-- analyze_impact: Analyze impact of changing a file or symbol: dependents, entry points, critical score (optional: filePath, symbolName, depth)
+${this.getToolListForPrompt()}
 
 Before making any code changes, use search_symbols or get_repo_map to understand the codebase.
 Use get_dependency_graph and analyze_impact before modifying critical files.
 Use get_definition and get_references when you need to understand how symbols are connected.
 Use embedding_search to find files related to a concept.
-Use memory_search to recall previous conversation context.
+Use memory_search to recall previous conversation history.
 
 ## Response Formats
 

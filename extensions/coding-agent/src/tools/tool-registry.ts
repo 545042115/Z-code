@@ -148,6 +148,17 @@ export class ToolRegistry {
     const paramAliases: Record<string, Record<string, string>> = {
       read_file: { path: 'filePath' },
       write_file: { path: 'filePath' },
+      git_blame: { path: 'filePath' },
+      git_file_history: { path: 'filePath' },
+      replace_text: { path: 'filePath' },
+      insert_before: { path: 'filePath' },
+      insert_after: { path: 'filePath' },
+      append_text: { path: 'filePath' },
+      search_code: { query: 'pattern' },
+      search_symbols: { query: 'keyword' },
+      get_definition: { path: 'filePath', symbol: 'symbolName' },
+      get_references: { path: 'filePath', symbol: 'symbolName' },
+      run_terminal: { cmd: 'command' },
     };
     const aliases = paramAliases[name];
     if (aliases) {

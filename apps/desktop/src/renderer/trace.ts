@@ -160,14 +160,31 @@ async function loadSpans(runId: string): Promise<void> {
     container.innerHTML = spans
       .map((s) => {
         const dur = s.duration ? `${s.duration.toFixed(0)}ms` : '—';
-        const output = s.output ? JSON.stringify(s.output, null, 2) : '';
+        const typeIcon = s.type === 'llm' ? '🤖' : s.type === 'tool' ? '🔧' : s.type === 'planner' ? '📋' : '•';
+        const input = s.input ? JSON.stringify(s.input, null, 2).slice(0, 300) : '';
+        const output = s.output ? JSON.stringify(s.output, null, 2).slice(0, 300) : '';
         const error = s.error ? escapeHtml(JSON.stringify(s.error)) : '';
+        const attrs = s.attributes && Object.keys(s.attributes).length > 0
+          ? Object.entries(s.attributes).map(([k, v]) => `<span class="attr">${escapeHtml(k)}: ${escapeHtml(String(v))}</span>`).join(' ')
+          : '';
+        const events = s.events && s.events.length > 0
+          ? s.events.map(e => `<span class="event">${escapeHtml(e.name)}</span>`).join(' ')
+          : '';
+        const tokens = s.tokensIn || s.tokensOut
+          ? `<span class="muted">↑${s.tokensIn ?? 0} ↓${s.tokensOut ?? 0}</span>`
+          : '';
         return `<div class="span-item">
           <div class="span-header">
+            <span class="span-type-icon">${typeIcon}</span>
             <strong>${escapeHtml(s.name)}</strong>
             <span class="muted">${dur}</span>
+            ${tokens}
+            <span class="span-status ${s.status === 'ok' ? 'ok' : s.status === 'error' ? 'error' : ''}">${s.status}</span>
           </div>
-          ${output ? `<pre class="span-output">${escapeHtml(output)}</pre>` : ''}
+          ${attrs ? `<div class="span-attrs">${attrs}</div>` : ''}
+          ${events ? `<div class="span-events">${events}</div>` : ''}
+          ${input ? `<details><summary>Input</summary><pre class="span-output">${escapeHtml(input)}</pre></details>` : ''}
+          ${output ? `<details><summary>Output</summary><pre class="span-output">${escapeHtml(output)}</pre></details>` : ''}
           ${error ? `<div class="span-error">${error}</div>` : ''}
         </div>`;
       })

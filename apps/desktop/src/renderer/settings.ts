@@ -224,7 +224,7 @@ function renderSettings(container: HTMLElement): void {
       const status = await zApi.startWeChatHook({ nickname: nick || undefined }) as any;
       if (status.online) {
         wchStatusEl.textContent = `已连接 (${status.nickname})`;
-        wchStatusEl.style.color = 'var(--green)';
+        wchStatusEl.style.color = 'var(--success)';
       } else {
         wchStatusEl.textContent = '连接失败';
       }
@@ -241,7 +241,7 @@ function renderSettings(container: HTMLElement): void {
   const unsubWCH = zApi.onWeChatHookStatus((s: any) => {
     if (s.online) {
       wchStatusEl.textContent = `已连接 (${s.nickname})`;
-      wchStatusEl.style.color = 'var(--green)';
+      wchStatusEl.style.color = 'var(--success)';
     } else {
       wchStatusEl.textContent = t('settings.wechat_hook_disconnected');
       wchStatusEl.style.color = '';
@@ -293,7 +293,7 @@ function renderSettings(container: HTMLElement): void {
       localStorage.setItem('qq-nickname', nick);
       await zApi.startQQ({ wsUrl, accessToken: token || undefined, nickname: nick || undefined });
       qqStatusEl.textContent = '已连接';
-      qqStatusEl.style.color = 'var(--green)';
+      qqStatusEl.style.color = 'var(--success)';
     } catch (err: unknown) {
       qqStatusEl.textContent = `连接失败: ${err instanceof Error ? err.message : String(err)}`;
       qqStatusEl.style.color = '';
@@ -306,7 +306,7 @@ function renderSettings(container: HTMLElement): void {
   const unsubQQ = zApi.onQQStatus((s: any) => {
     if (s.online) {
       qqStatusEl.textContent = `已连接 (${s.nickname || s.userId})`;
-      qqStatusEl.style.color = 'var(--green)';
+      qqStatusEl.style.color = 'var(--success)';
     } else {
       qqStatusEl.textContent = s.nickname || '未连接';
       qqStatusEl.style.color = '';

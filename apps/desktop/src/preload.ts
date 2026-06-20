@@ -18,6 +18,7 @@ export interface ZDesktopAPI {
   setSettings: (patch: Partial<DesktopSettings>) => Promise<DesktopSettings>;
   recallMemory: (query: string, limit?: number) => Promise<MemoryHit[]>;
   onRunEvent: (cb: (e: ConnectorEvent) => void) => () => void;
+  onProgress: (cb: (e: { phase: string; detail: string }) => void) => () => void;
   selectDirectory: () => Promise<string | null>;
   // Session management
   listSessions: () => Promise<ChatSession[]>;
@@ -69,6 +70,11 @@ const api: ZDesktopAPI = {
     const handler = (_: unknown, e: ConnectorEvent) => cb(e);
     ipcRenderer.on(IPC_CHANNELS.ON_RUN_EVENT, handler);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_RUN_EVENT, handler);
+  },
+  onProgress: (cb) => {
+    const handler = (_: unknown, e: { phase: string; detail: string }) => cb(e);
+    ipcRenderer.on(IPC_CHANNELS.ON_PROGRESS, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_PROGRESS, handler);
   },
   selectDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY),
   // Session management

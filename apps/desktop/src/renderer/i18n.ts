@@ -26,6 +26,7 @@ const TRANSLATIONS: TranslationMap = {
   'chat.error':         { 'zh-CN': '错误',         en: 'Error' },
   'chat.sessions':      { 'zh-CN': '会话',         en: 'Sessions' },
   'chat.new':           { 'zh-CN': '新对话',       en: 'New Chat' },
+  'chat.delete':        { 'zh-CN': '删除会话',     en: 'Delete Session' },
 
   // Trace
   'trace.runs':         { 'zh-CN': '运行记录',     en: 'Runs' },

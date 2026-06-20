@@ -2,7 +2,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
 import { IPC_CHANNELS, WINDOW_SIZES, APP_NAME } from './constants';
 import { RuntimeBridge } from './runtime-bridge';
 import { createTray, destroyTray } from './tray';
@@ -39,6 +39,7 @@ let mainWindow: BrowserWindow | null = null;
 let chatWindow: BrowserWindow | null = null;
 let traceWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 function getRendererUrl(file: string): string {
   const url = `file://${path.join(__dirname, 'renderer', file)}`;
@@ -77,7 +78,7 @@ function createMainWindow(): BrowserWindow {
   // ── Close to tray (minimize instead of quit) ─────────────────
   win.on('close', (event) => {
     // On Windows/Linux, minimize to tray instead of quitting
-    if (process.platform !== 'darwin') {
+    if (process.platform !== 'darwin' && !isQuitting) {
       event.preventDefault();
       win.hide();
     }
@@ -242,6 +243,9 @@ function forwardEventsToFocusedWindow(): void {
   bridge.onEvent((e) => {
     const target = chatWindow ?? mainWindow;
     target?.webContents.send(IPC_CHANNELS.ON_RUN_EVENT, e);
+    if ((e as { type: string }).type === 'progress') {
+      target?.webContents.send(IPC_CHANNELS.ON_PROGRESS, e);
+    }
   });
   bridge.onWeChatHookStatus((s) => {
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send(IPC_CHANNELS.ON_WECHAT_HOOK_STATUS, s));
@@ -252,10 +256,19 @@ function forwardEventsToFocusedWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   registerIpcHandlers();
   forwardEventsToFocusedWindow();
   mainWindow = createMainWindow();
   createTray({
+    onShowMain: () => {
+      if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+      } else {
+        mainWindow = createMainWindow();
+      }
+    },
     onShowChat: showChat,
     onShowTrace: showTrace,
     onShowSettings: showSettings,
@@ -272,16 +285,14 @@ app.whenReady().then(async () => {
 
 app.on('window-all-closed', () => {
   // On macOS, keep app running in menu bar. On other platforms,
-  // the close event is intercepted to minimize to tray instead.
-  if (process.platform === 'darwin') {
-    // Keep running
-  } else {
-    // Do NOT quit — the close event hides the window instead.
-    // User must use tray "Quit" to actually exit.
+  // quit when all windows are closed (e.g. after tray "Quit").
+  if (process.platform !== 'darwin') {
+    app.quit();
   }
 });
 
 app.on('before-quit', async () => {
+  isQuitting = true;
   unregisterAllGlobalHotkeys();
   destroyTray();
   await bridge.stop();

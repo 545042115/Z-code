@@ -130,16 +130,65 @@ interface SearchResult {
 
 function parseDuckDuckGo(html: string): SearchResult[] {
   const results: SearchResult[] = [];
-  // DuckDuckGo HTML results are in elements with class "result"
-  const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-  let match;
-  while ((match = resultRegex.exec(html)) !== null) {
-    results.push({
-      url: match[1].replace(/&amp;/g, '&'),
-      title: stripHtml(match[2], 200),
-      snippet: stripHtml(match[3], 300),
-    });
+  const seen = new Set<string>();
+
+  // Strategy 1: Modern DDG layout — articles with data-nrn attribute
+  const articleRegex = /<article[^>]*data-nrn="result"[^>]*>([\s\S]*?)<\/article>/gi;
+  let articleMatch;
+  while ((articleMatch = articleRegex.exec(html)) !== null) {
+    const block = articleMatch[1];
+    // Extract heading link (title + URL)
+    const headingMatch = /<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i.exec(block);
+    // Extract snippet
+    const snippetMatch = /<span[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(block)
+      || /<div[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block);
+    if (headingMatch) {
+      const url = headingMatch[1].replace(/&amp;/g, '&');
+      if (!seen.has(url)) {
+        seen.add(url);
+        results.push({
+          url,
+          title: stripHtml(headingMatch[2], 200),
+          snippet: snippetMatch ? stripHtml(snippetMatch[1], 300) : '',
+        });
+      }
+    }
   }
+
+  // Strategy 2: Classic DDG layout — result__a / result__snippet classes
+  if (results.length === 0) {
+    const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    while ((match = resultRegex.exec(html)) !== null) {
+      const url = match[1].replace(/&amp;/g, '&');
+      if (!seen.has(url)) {
+        seen.add(url);
+        results.push({
+          url,
+          title: stripHtml(match[2], 200),
+          snippet: stripHtml(match[3], 300),
+        });
+      }
+    }
+  }
+
+  // Strategy 3: Generic link + text extraction (fallback)
+  if (results.length === 0) {
+    const linkRegex = /<a[^>]*class="[^"]*result[^"]*"[^>]*href="(https?:\/\/[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+    let match;
+    while ((match = linkRegex.exec(html)) !== null) {
+      const url = match[1].replace(/&amp;/g, '&');
+      if (!seen.has(url) && !url.includes('duckduckgo.com')) {
+        seen.add(url);
+        results.push({
+          url,
+          title: stripHtml(match[2], 200),
+          snippet: '',
+        });
+      }
+    }
+  }
+
   return results;
 }
 

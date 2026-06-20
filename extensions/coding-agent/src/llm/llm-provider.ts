@@ -236,15 +236,17 @@ export class OpenAIProvider extends LLMProvider {
       body.response_format = {
         type: 'json_object',
       };
-      // 对于 OpenAI，我们需要在 system message 中描述 schema
+      // 将 schema 描述追加到原有的 system message 末尾，而非替换
       const schemaDescription = JSON.stringify(request.jsonSchema, null, 2);
-      body.messages = [
-        { 
-          role: 'system', 
-          content: `You must respond with a JSON object matching this schema:\n${schemaDescription}` 
-        },
-        ...request.messages.filter(m => m.role !== 'system'),
-      ];
+      body.messages = request.messages.map(m => {
+        if (m.role === 'system') {
+          return {
+            ...m,
+            content: `${m.content}\n\nYou must respond with a JSON object matching this schema:\n${schemaDescription}`,
+          };
+        }
+        return m;
+      });
     }
     body = this.prepareChatBody(body);
 
@@ -276,13 +278,15 @@ export class OpenAIProvider extends LLMProvider {
 
     if (request.jsonSchema) {
       const schemaDescription = JSON.stringify(request.jsonSchema, null, 2);
-      body.messages = [
-        { 
-          role: 'system', 
-          content: `You must respond with a JSON object matching this schema:\n${schemaDescription}` 
-        },
-        ...request.messages.filter(m => m.role !== 'system'),
-      ];
+      body.messages = request.messages.map(m => {
+        if (m.role === 'system') {
+          return {
+            ...m,
+            content: `${m.content}\n\nYou must respond with a JSON object matching this schema:\n${schemaDescription}`,
+          };
+        }
+        return m;
+      });
     }
     body = this.prepareChatBody(body);
 

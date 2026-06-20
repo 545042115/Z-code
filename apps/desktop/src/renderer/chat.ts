@@ -47,6 +47,32 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     messages.scrollTop = messages.scrollHeight;
   }
 
+  // ── Helper: show/hide progress indicator ─────────────────────────
+  let progressEl: HTMLElement | null = null;
+  function showProgress(phase: string, detail: string): void {
+    if (!progressEl) {
+      progressEl = document.createElement('div');
+      progressEl.className = 'message progress';
+      messages.appendChild(progressEl);
+    }
+    const phaseLabels: Record<string, string> = {
+      memory: 'Memory',
+      plan: 'Planning',
+      think: 'Thinking',
+      tool: 'Tool',
+      answer: 'Answering',
+    };
+    const label = phaseLabels[phase] || phase;
+    progressEl.innerHTML = `<span class="progress-spinner"></span> <strong>${label}</strong>: ${escapeHtml(detail)}`;
+    messages.scrollTop = messages.scrollHeight;
+  }
+  function hideProgress(): void {
+    if (progressEl) {
+      progressEl.remove();
+      progressEl = null;
+    }
+  }
+
   // ── Load messages into the UI ─────────────────────────────────────
   function loadSessionMessages(sessionId: string): void {
     messages.innerHTML = '';
@@ -70,11 +96,34 @@ export async function mountChat(container: HTMLElement): Promise<void> {
             ? s.messages[s.messages.length - 1].content.slice(0, 30)
             : '';
           return `<div class="session-item${active}" data-id="${escapeHtml(s.id)}">
-            <div class="session-title">${escapeHtml(s.title)}</div>
-            <div class="session-preview muted">${escapeHtml(preview)}</div>
+            <div class="session-item-content">
+              <div class="session-title">${escapeHtml(s.title)}</div>
+              <div class="session-preview muted">${escapeHtml(preview)}</div>
+            </div>
+            <button class="session-delete-btn" title="${t('chat.delete')}" data-id="${escapeHtml(s.id)}">×</button>
           </div>`;
         })
         .join('');
+
+      // Bind delete buttons
+      sessionList.querySelectorAll('.session-delete-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = (btn as HTMLElement).dataset.id;
+          if (!id) return;
+          try {
+            await zApi.deleteSession(id);
+            if (currentSessionId === id) {
+              currentSessionId = null;
+              messages.innerHTML = '';
+            }
+            await renderSessionList();
+          } catch (err) {
+            console.error('Delete session error:', err);
+          }
+        });
+      });
+
       // If no current session, auto-create one
       if (!currentSessionId || !sessions.find((s) => s.id === currentSessionId)) {
         if (sessions.length > 0) {
@@ -118,7 +167,13 @@ export async function mountChat(container: HTMLElement): Promise<void> {
 
     // Call LLM
     try {
+      showProgress('plan', 'Starting...');
+      const unsubProgress = zApi.onProgress((e) => {
+        showProgress(e.phase, e.detail);
+      });
       const { runId, result } = await zApi.runTask(text, currentSessionId);
+      unsubProgress();
+      hideProgress();
       const reply = result || `${t('chat.submitted')} ${runId}`;
       // Save & display assistant reply
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: reply, timestamp: Date.now() });

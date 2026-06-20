@@ -5,6 +5,7 @@ import * as path from 'path';
 import { APP_NAME } from './constants';
 
 export interface TrayOptions {
+  onShowMain: () => void;
   onShowChat: () => void;
   onShowTrace: () => void;
   onShowSettings: () => void;
@@ -20,13 +21,14 @@ export function createTray(opts: TrayOptions): Tray {
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }));
   tray.setToolTip(APP_NAME);
   tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Main', click: opts.onShowMain },
     { label: 'Chat', click: opts.onShowChat },
     { label: 'Trace', click: opts.onShowTrace },
     { label: 'Settings', click: opts.onShowSettings },
     { type: 'separator' },
     { label: 'Quit', click: opts.onQuit },
   ]));
-  tray.on('double-click', opts.onShowChat);
+  tray.on('double-click', opts.onShowMain);
   return tray;
 }
 

@@ -11,6 +11,7 @@ export const IPC_CHANNELS = {
   SET_SETTINGS: 'z:set-settings',
   RECALL_MEMORY: 'z:recall-memory',
   ON_RUN_EVENT: 'z:on-run-event',
+  ON_PROGRESS: 'z:on-progress',
   SELECT_DIRECTORY: 'z:select-directory',
   // Session management
   LIST_SESSIONS: 'z:list-sessions',

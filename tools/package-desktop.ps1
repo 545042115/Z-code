@@ -101,6 +101,11 @@ $appDir = Join-Path $unpackedDir "resources\app"
 # Electron dist is hoisted to the root node_modules (npm workspace)
 $electronDist = Join-Path $RootDir "node_modules\electron\dist"
 
+# Kill any running instances BEFORE copying files
+taskkill /f /im "Z Assistant.exe" 2>$null
+taskkill /f /im electron.exe 2>$null
+Start-Sleep -Seconds 2
+
 # Clean old build artifacts to avoid dll locking issues
 if (Test-Path $unpackedDir) {
   Write-Host "  Cleaning old build artifacts..."
@@ -117,11 +122,6 @@ New-Item -ItemType Directory -Force -Path $unpackedDir | Out-Null
 Copy-Item -Path "$electronDist\*" -Destination $unpackedDir -Recurse -Force
 # Also ensure resources/app exists
 New-Item -ItemType Directory -Force -Path $appDir | Out-Null
-
-# Step B: kill any running instance
-taskkill /f /im "Z Assistant.exe" 2>$null
-taskkill /f /im electron.exe 2>$null
-Start-Sleep -Seconds 1
 
 # Step C: copy app code into resources/app
 Write-Host "  Copying app code..."
@@ -171,8 +171,29 @@ Write-Host "  Installing runtime dependencies..."
 $rootNodeModules = Join-Path $RootDir "node_modules"
 $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 
-# Use npm install to correctly resolve all transitive deps
-node "$RootDir\tools\install-app-deps.js" "$appNodeModules" "$(Join-Path $RootDir "apps\vscode-connector")"
+# Copy third-party deps from root node_modules into app's node_modules
+$thirdPartyDeps = @("ws", "wechatferry", "electron-updater", "koffi", "@wechatferry", "@rustup")
+
+foreach ($dep in $thirdPartyDeps) {
+  $src = Join-Path $rootNodeModules $dep
+  $dst = Join-Path $appNodeModules $dep
+  if (Test-Path $src) {
+    New-Item -ItemType Directory -Force -Path $dst | Out-Null
+    Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "    Copied $dep" -ForegroundColor Gray
+  }
+}
+
+# Also copy @types/ws if present (needed for type references)
+$typesDeps = @("ws")
+foreach ($dep in $typesDeps) {
+  $src = Join-Path $rootNodeModules "@types\$dep"
+  $dst = Join-Path $appNodeModules "@types\$dep"
+  if (Test-Path $src) {
+    New-Item -ItemType Directory -Force -Path $dst | Out-Null
+    Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+  }
+}
 
 Write-Host "  [OK] Runtime dependencies installed" -ForegroundColor Green
 

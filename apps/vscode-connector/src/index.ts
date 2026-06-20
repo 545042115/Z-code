@@ -57,6 +57,7 @@ export type ConnectorEvent =
   | { type: 'runEnd'; runId: string; status: 'ok' | 'error' | 'cancelled' }
   | { type: 'spanStart'; runId: string; spanId: string; name: string }
   | { type: 'spanEnd'; runId: string; spanId: string; status: 'ok' | 'error' }
+  | { type: 'progress'; runId: string; phase: string; detail: string }
   | { type: 'evalComplete'; evaluationId: string; pass: boolean }
   | { type: 'evolutionReport'; reportId: string; readyToApply: boolean };
 
@@ -348,10 +349,23 @@ export class VSCodeConnector {
     });
 
     const registerChatAgent = (reg: AgentRegistry) => {
+      const tracker = this._runtime?.trace.active();
       reg.register(createChatAgent({
         llmProvider,
         projectDir: this.config.projectDir,
         profileDescription: this.profileEnabled ? (this.profile.profile?.description) : undefined,
+        storageDir: this.config.storageDir,
+        onProgress: (phase, detail) => {
+          this.emit({ type: 'progress', runId: '', phase, detail });
+        },
+        startSpan: (name, type, input) => {
+          const span = tracker?.startSpan({ name, type: type as any, input });
+          return {
+            end: (output) => { span?.setOutput(output); span?.end(); },
+            fail: (err) => { span?.fail(TraceManager.errorOf(err)); },
+            addEvent: (name) => { span?.addEvent(name); },
+          };
+        },
       }));
     };
 

@@ -152,14 +152,22 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private getStorage(): vscode.Memento {
-    return vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0
-      ? this.extensionContext.workspaceState
-      : this.extensionContext.globalState;
+    return this.extensionContext.globalState;
+  }
+
+  private getStorageKey(): string {
+    const repoPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (repoPath) {
+      const safePath = repoPath.replace(/[^a-zA-Z0-9]/g, '_');
+      return `codingAgent.chatState.${safePath}`;
+    }
+    return ChatViewProvider.STORAGE_KEY;
   }
 
   private loadState(): void {
     const storage = this.getStorage();
-    const stored = storage.get<ChatStorageState | ChatMessage[]>(ChatViewProvider.STORAGE_KEY);
+    const storageKey = this.getStorageKey();
+    const stored = storage.get<ChatStorageState | ChatMessage[]>(storageKey);
     const legacyMessages = storage.get<ChatMessage[]>(ChatViewProvider.LEGACY_STORAGE_KEY, []);
 
     if (Array.isArray(stored)) {
@@ -197,7 +205,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       sessions: this.sessions,
       activeSessionId: this.activeSessionId,
     };
-    void this.getStorage().update(ChatViewProvider.STORAGE_KEY, state);
+    void this.getStorage().update(this.getStorageKey(), state);
   }
 
   private restoreMessages(): void {
@@ -2416,7 +2424,7 @@ textarea:focus { outline: none; border-color: var(--vscode-focusBorder); }
         if (msg.activeSessionId) {
           sessionSelect.value = msg.activeSessionId;
         }
-        deleteSessionBtn.disabled = isRunning || msg.sessions.length <= 1;
+        deleteSessionBtn.disabled = isRunning;
         break;
 
       case 'restoreHistory':
