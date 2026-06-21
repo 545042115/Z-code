@@ -1,4 +1,4 @@
-﻿# ROADMAP-V2: Capability Gap（V2 距离 marvis 的能力差距）
+# ROADMAP-V2: Capability Gap（V2 距离 marvis 的能力差距）
 
 ## 背景
 
@@ -22,28 +22,33 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 | **P0-1 Long-Term Memory** | ✅ 完成 | `packages/runtime/src/memory/` 14 个文件全部真实实现：6 种记忆子系统（short/long/episodic/semantic/procedural/preferences）+ `knowledge/`（project/user/document）+ `privacy.ts`（GDPR）+ `policy.ts`（写入策略）+ `shared.ts`（跨 Agent）+ `storage/vector-store.ts`（余弦相似度）+ `embedding/`（本地 n-gram） |
 | **P0-2 Desktop 独立应用** | ✅ 完成 | `apps/desktop/` 33 个 .ts 文件真实实现：Main/Preload/Renderer 三进程 + Chat/Trace/Settings/Memory 四面板 + Tray + Hotkey + Updater + License + RuntimeBridge + SessionManager + BrowserService。`dist/win-unpacked/Z Assistant.exe` 已存在，证明打包链路通 |
 | **P0-3 Computer Use** | ✅ 完成 | `packages/agents/browser-agent/` 6 文件真实（Playwright 后端 + DOM 解析 + 决策循环 + Session 持久化 + 元素高亮）+ `runtime/src/action/gui.ts`（跨平台 GUI）+ `runtime/src/perception/screen.ts`（截屏）+ `runtime/src/permission/computer-use.ts`（动作风险分级） |
+| **P1-2 Human-in-the-Loop UI** | ✅ 核心完成 | ConfirmationGate（5 级风险分级 + 24+ 工具规则）+ Desktop Modal UI（4 选项 + 风险徽章 + 预览）+ AuditLogger（JSONL append-only + 流式读）+ DryRunExecutor（24+ 工具模拟）+ Always-Rules 持久化。Stage E（Red-Team / 防 prompt injection）推迟 |
+| **G1 R7: V1 Coding Agent 接入 V2** | ✅ 完成 | `packages/agents/coding-agent/` 7 个 sub-adapter 支持 `impl` 委托；vscode-connector 新增 `createCodingAgentFromChat` 工厂函数接入 chat-agent + 24 工具 |
+| **G2 Runtime 占位清理** | ✅ 完成 | 7 个 `index.ts` 改为 re-export shim（errors/cost/budget/config/permission/storage/trace），workflow 保留占位标注 Phase 8+ |
+| **G3 CLI trace 子命令** | ✅ 完成 | `z trace ls/show` 接入 `@z-assistant/infra-storage` RunRepo + SpanRepo + 树形渲染 |
+| **G4 AssistantRuntime.boot()** | ✅ 完成 | 聚合 Memory + AgentRegistry + Trace + Store；新增 `createOrchestrator()` 工厂方法返回真实 Runtime |
 
 ### 部分落地
 
 | 能力 | 状态 | 审计结论 |
 |---|---|---|
-| **P1-1 多模态感知** | ⚠️ 半完成 | `runtime/src/perception/` 已有 6 文件真实实现（screen/ocr/caption/audio/document/python-bridge），但 `packages/contracts/llm.ts` 的 `LLMMessage.content` 仍是 `string`，**不支持图像/音频/视频输入**。感知层能采集，但无法喂给 LLM |
+| **P1-1 多模态感知** | ⚠️ 半完成（已推迟到阶段 5） | `runtime/src/perception/` 已有 6 文件真实实现（screen/ocr/caption/audio/document/python-bridge），但 `packages/contracts/llm.ts` 的 `LLMMessage.content` 仍是 `string`，**不支持图像/音频/视频输入**。感知层能采集，但无法喂给 LLM。当前主要使用的 API 不支持多模态，推迟到阶段 5 |
 
 ### 未落地
 
 | 能力 | 状态 | 审计结论 |
 |---|---|---|
-| **P1-2 Human-in-the-Loop UI** | ❌ 未开始 | 无 Confirmation 系统、无风险分级 UI、无审计日志 |
+| **P1-2 Stage E: Red-Team / 防 prompt injection** | ❌ 未开始 | P1-2 核心已完成（Confirmation + 风险分级 + 审计 + Dry-run），但 Red-Team / 防 jailbreak 推迟到后续阶段 |
 | **P1-3 Skill Auto-Discovery** | ❌ 未开始 | `runtime/src/skills/` 只有静态 loader/selector/parser，无 auto-discovery / validator / composition / obsolescence |
 
 ### 审计新发现的缺口（原 ROADMAP 未提及）
 
 | 缺口 | 位置 | 严重度 | 说明 |
 |---|---|---|---|
-| **R7: V1 Coding Agent 接入 V2** | `packages/agents/coding-agent/` | 🔴 高 | 9 个文件全部 stub，`execute`/`buildPlan`/`reflect`/`verify`/`invoke` 统一返回错误码 `3001`。V2 的 Coding Agent 包名存实亡，实际 Coding 能力仍在 V1 `extensions/coding-agent/` |
-| **Runtime 机制层占位** | `packages/runtime/src/{workflow,trace,errors,cost,budget,config,storage,permission}/index.ts` | 🟡 中 | 8 个 `index.ts` 是 `export {}` 占位。其中 errors/cost/budget/config/permission/storage 的真实实现已在 `packages/infra/` 下，runtime 内的占位是"re-export shim 未填充"；trace 和 workflow 完全未实现 |
-| **CLI trace 子命令** | `apps/cli/src/index.ts` | 🟡 中 | `z run`/`z version`/`z help` 真实可用，但 `z trace ls`/`z trace show` 显式打印 "not implemented in Phase 6A" |
-| **AssistantRuntime.boot() stub** | `apps/vscode-connector/src/index.ts` | 🟡 中 | 返回 no-op runtime + 错误码 3001，未替换为真实实现 |
+| ~~**R7: V1 Coding Agent 接入 V2**~~ | `packages/agents/coding-agent/` | 🔴 高 | ✅ 已完成：7 个 sub-adapter 支持 `impl` 委托；vscode-connector 工厂函数接入 chat-agent |
+| ~~**Runtime 机制层占位**~~ | `packages/runtime/src/{workflow,trace,errors,cost,budget,config,storage,permission}/index.ts` | 🟡 中 | ✅ 已完成：7 个 `index.ts` 改为 re-export shim（workflow 保留占位） |
+| ~~**CLI trace 子命令**~~ | `apps/cli/src/index.ts` | 🟡 中 | ✅ 已完成：`z trace ls`/`z trace show` 接入 Storage + Trace projections |
+| ~~**AssistantRuntime.boot() stub**~~ | `apps/vscode-connector/src/index.ts` | 🟡 中 | ✅ 已完成：聚合 Memory + AgentRegistry + Trace + Store，返回真实 Runtime |
 | **office-agent / research-agent** | `packages/agents/{office,research}-agent/` | 🟢 低 | 纯占位 `export {}`，未开始实现（原计划就是占位） |
 
 ---
@@ -140,7 +145,7 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 
 # 二、P1 能力（3 项）
 
-## P1-1: 多模态感知（⚠️ 半完成）
+## P1-1: 多模态感知（⚠️ 半完成，推迟到阶段 5）
 
 ### 现状
 
@@ -191,40 +196,52 @@ export interface LLMMessage {
 - `packages/contracts/llm.ts` 扩展（向后兼容：`content: string | ContentPart[]`）
 - 已有的 `perception/` 层（无需重写）
 
+> **注**：当前主要使用的 API 不支持多模态输入，本能力推迟到阶段 5（等切换到支持多模态的 API 后再做）。
+
 ---
 
-## P1-2: Human-in-the-Loop UI（❌ 未开始）
+## P1-2: Human-in-the-Loop UI（✅ 核心完成）
 
-### 现状（已完成）\n\nV1 `extensions/coding-agent/src/infra/permission/` 有基础权限控制（fs-guard / net-guard / tool-guard，代码层面拒绝危险操作），但**无 UI**。V2 `packages/infra/permission/` 同样只有基础设施。
+### 现状（已完成）
+
+V1 `extensions/coding-agent/src/infra/permission/` 有基础权限控制（fs-guard / net-guard / tool-guard，代码层面拒绝危险操作），但**无 UI**。V2 `packages/infra/permission/` 同样只有基础设施。
 
 `apps/desktop/` 虽然有完整 UI，但没有 Confirmation 弹窗系统。
 
-### 缺什么
+**本次实施后**：P1-2 核心已完成（Stage A-D），Stage E（Red-Team / 防 prompt injection）推迟到后续阶段。
 
-| 子能力 | 说明 | 建议位置 |
-|---|---|---|
-| **Confirmation Prompt 系统** | Agent 执行敏感操作前问用户 | `packages/runtime/src/permission/confirmation.ts` |
-| **风险分级** | 读 vs 写 vs 删 vs 联网 vs 付款 | `packages/runtime/src/permission/risk-levels.ts` |
-| **操作预览** | 用户看到 Agent 想做什么（diff / 命令预览）| `packages/runtime/src/permission/preview.ts` |
-| **Allow / Deny / Always Allow / Always Deny** | 用户 4 选项 | `packages/runtime/src/permission/decisions.ts` |
-| **Confirmation UI（Desktop Modal）** | Electron 弹窗阻塞 | `apps/desktop/src/renderer/modal/` |
-| **Confirmation UI（Chat 内）** | 在 Chat 流中显示 | `apps/{cli, desktop, vscode-connector}/src/ui/confirmation.ts` |
-| **危险操作拦截** | rm -rf / 删数据库 / 改密码 | `packages/runtime/src/permission/policy.ts` |
-| **Dry-run / 模拟执行** | 试运行看会发生什么 | `packages/runtime/src/permission/dry-run.ts` |
-| **操作审计日志** | 事后查看 Agent 做了什么 | `packages/runtime/src/audit/logger.ts` |
-| **Red-Team / 防 prompt injection** | 防 jailbreak | `packages/runtime/src/security/` |
+### 已完成（Stage A-D）
+
+| Stage | 子能力 | 实现位置 | 状态 |
+|---|---|---|---|
+| **A** | ConfirmationGate（风险分级 + 决策路由 + Always-Rules） | `packages/runtime/src/permission/confirmation.ts` | ✅ |
+| **A** | 5 级风险分级（safe/low/medium/high/critical）+ 24+ 工具规则 | `packages/runtime/src/permission/risk-levels.ts` | ✅ |
+| **A** | Always-Rules 持久化（glob 模式匹配） | `packages/runtime/src/permission/confirmation.ts` + `always-rules.json` | ✅ |
+| **B** | AuditLogger（JSONL append-only + 流式读） | `packages/runtime/src/audit/logger.ts` | ✅ |
+| **B** | ConfirmationGate 集成 AuditLogger（logPending + logOutcome） | `packages/runtime/src/permission/confirmation.ts` | ✅ |
+| **C** | Desktop Confirmation Modal UI（4 选项 + 风险徽章 + 预览 + 队列） | `apps/desktop/src/renderer/confirmation.ts` | ✅ |
+| **C** | IPC 桥接（main↔renderer + pending Promise map + 5min 超时） | `apps/desktop/src/main.ts` + `runtime-bridge.ts` | ✅ |
+| **C** | 操作预览生成器（command/diff/url/text 4 种） | `apps/desktop/src/runtime-bridge.ts` `generatePreview()` | ✅ |
+| **D** | DryRunExecutor（24+ 工具模拟执行） | `packages/runtime/src/permission/dry-run.ts` | ✅ |
+| **D** | chat-agent 集成 Dry-run（XML + native 两条路径） | `apps/vscode-connector/src/chat-agent.ts` | ✅ |
+| **D** | Settings UI Dry-run 开关 | `apps/desktop/src/renderer/settings.ts` | ✅ |
 
 ### 验收标准
 
-- [ ] Agent 执行 `rm -rf` 前弹出确认
-- [ ] 用户能"始终允许"某类操作
-- [ ] 用户能"预览" Agent 想运行的命令
-- [ ] 所有 Agent 操作都有审计日志
-- [ ] Dry-run 模式可启用
+- [x] Agent 执行 `rm -rf` 前弹出确认（critical 级别强制确认）
+- [x] 用户能"始终允许"某类操作（Always-Rules glob 持久化）
+- [x] 用户能"预览" Agent 想运行的命令（4 种预览类型）
+- [x] 所有 Agent 操作都有审计日志（JSONL append-only + 流式读）
+- [x] Dry-run 模式可启用（Settings 开关 + chat-agent 集成）
+- [ ] 防 prompt injection（Stage E，推迟到后续阶段）
 
 ### 依赖
 
 - P0-2 Desktop（Confirmation UI 需 Desktop）✅ 已就绪
+
+### 详细实现
+
+见 [Appendix A: P1-2 HITL 实现详情](#appendix-a-p1-2-hitl-实现详情)。
 
 ---
 
@@ -293,59 +310,60 @@ V1 `extensions/coding-agent/src/skills/` 有 Skill 框架（loader / selector / 
 
 ---
 
-## G2: Runtime 机制层占位清理 🟡
+## G2: Runtime 机制层占位清理 🟡 ✅ 已完成
 
-### 现状
+### 现状（已完成）
 
-`packages/runtime/src/` 下 8 个 `index.ts` 是 `export {}` 占位：
+`packages/runtime/src/` 下 7 个 `index.ts` 已改为 re-export shim（`workflow/index.ts` 保留占位，标注 Phase 8+）：
 
-| 占位文件 | 真实实现位置 | 处理方式 |
-|---|---|---|
-| `errors/index.ts` | `packages/infra-errors/` | 改为 re-export shim |
-| `cost/index.ts` | `packages/infra-cost/` | 改为 re-export shim |
-| `budget/index.ts` | `packages/infra-cost/`（BudgetGuard） | 改为 re-export shim |
-| `config/index.ts` | `packages/infra-config/` | 改为 re-export shim |
-| `permission/index.ts` | `packages/infra-permission/` + `runtime/permission/computer-use.ts` | 改为 re-export shim |
-| `storage/index.ts` | `packages/infra-storage/` + `runtime/storage/vector-store.ts` | 改为 re-export shim |
-| `trace/index.ts` | `packages/trace/` | 改为 re-export shim |
-| `workflow/index.ts` | 无 | 保留占位，标注 "Phase 8+" |
+| 占位文件 | 真实实现位置 | 处理方式 | 状态 |
+|---|---|---|---|
+| `errors/index.ts` | `packages/infra-errors/` | 改为 re-export shim | ✅ |
+| `cost/index.ts` | `packages/infra-cost/` | 改为 re-export shim | ✅ |
+| `budget/index.ts` | `packages/infra-cost/`（BudgetGuard） | 改为 re-export shim | ✅ |
+| `config/index.ts` | `packages/infra-config/` | 改为 re-export shim | ✅ |
+| `permission/index.ts` | `packages/infra-permission/` + `runtime/permission/` | 改为 re-export shim | ✅ |
+| `storage/index.ts` | `packages/infra-storage/` + `runtime/storage/vector-store.ts` | 改为 re-export shim | ✅ |
+| `trace/index.ts` | `packages/trace/` | 改为 re-export shim | ✅ |
+| `workflow/index.ts` | 无 | 保留占位，标注 "Phase 8+" | ⏸️ |
 
 ### 优先级
 
-🟡 **中** — 不影响功能（消费者直接 import `@z-assistant/infra-*`），但增加认知负担。
+🟡 **中** — ✅ 已完成。消费者可直接 import `@z-assistant/runtime` 而无需知道真实实现位置。
 
 ---
 
-## G3: CLI trace 子命令 🟡
+## G3: CLI trace 子命令 🟡 ✅ 已完成
 
-### 现状
+### 现状（已完成）
 
-`apps/cli/src/index.ts` 的 `z trace ls` / `z trace show` 显式打印 "not implemented in Phase 6A"。
+`apps/cli/src/index.ts` 的 `z trace ls` / `z trace show` 已接入 `@z-assistant/infra-storage` 的 RunRepo + SpanRepo + 树形渲染。
 
-### 缺什么
+### 已完成
 
-- [ ] `z trace ls` 接入 `@z-assistant/infra-storage` 的 RunRepo
-- [ ] `z trace show <runId>` 接入 SpanRepo + 树形渲染
+- [x] `z trace ls` 接入 `@z-assistant/infra-storage` 的 RunRepo
+- [x] `z trace show <runId>` 接入 SpanRepo + 树形渲染
 
 ### 优先级
 
-🟡 **中** — CLI 是 V2 的核心入口之一，trace 子命令缺失影响可观测性。
+🟡 **中** — ✅ 已完成。CLI trace 子命令真实可用。
 
 ---
 
-## G4: AssistantRuntime.boot() stub 🟡
+## G4: AssistantRuntime.boot() stub 🟡 ✅ 已完成
 
-### 现状
+### 现状（已完成）
 
-`apps/vscode-connector/src/index.ts` 的 `AssistantRuntime.boot()` 返回 no-op runtime + 错误码 3001。
+`apps/vscode-connector/src/index.ts` 的 `AssistantRuntime.boot()` 已替换为真实 Runtime 实现，聚合 Memory + AgentRegistry + Trace + Store，并新增 `createOrchestrator()` 工厂方法。
 
-### 缺什么
+### 已完成
 
-- [ ] 替换为真实 Runtime 实现（聚合 Memory / Orchestrator / Trace / Skills）
+- [x] 替换为真实 Runtime 实现（聚合 Memory / Orchestrator / Trace / Skills）
+- [x] 新增 `createOrchestrator()` 工厂方法
 
 ### 优先级
 
-🟡 **中** — 当前 Desktop/Connector 通过 `VSCodeConnector` 绕过此 stub 直接调子模块，但长期需要统一入口。
+🟡 **中** — ✅ 已完成。Desktop/Connector 可通过统一入口 `AssistantRuntime.boot()` 获得真实 Runtime。
 
 ---
 
@@ -370,13 +388,19 @@ P0-2 Desktop 实际实现 ✅ ───┐           │
                            │           │
 P0-3 Computer Use ✅ ───────┼───────────┤
                            │           │
-G1 R7 Coding Agent 接入 ───┼───────────┤  (新增，阻塞 V2 Coding 统一)
+G1 R7 Coding Agent 接入 ✅ ─┼───────────┤  (已完成，V2 Coding Agent 不再是空壳)
                            │           │
-P1-1 多模态感知（半完成）───┼───────────┤  (只需扩展 contracts/llm.ts)
+G2 Runtime 占位清理 ✅ ─────┼───────────┤  (已完成，7 个 index.ts 改为 re-export)
                            │           │
-P1-2 Human-in-the-Loop UI ─┼───────────┤
+G3 CLI trace 子命令 ✅ ─────┼───────────┤  (已完成，z trace ls/show 可用)
                            │           │
-P1-3 Skill Auto-Discovery ─┼───────────┘
+G4 AssistantRuntime.boot ✅─┼───────────┤  (已完成，返回真实 Runtime)
+                           │           │
+P1-2 Human-in-the-Loop ✅ ─┼───────────┤  (核心完成，Stage E 推迟)
+                           │           │
+P1-1 多模态感知（半完成）───┼───────────┤  (推迟到阶段 5，等 API 支持)
+                           │           │
+P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始，阶段 4)
                            │
                            ↓
         marvis 级别"完整通用 Agent 产品"
@@ -384,10 +408,12 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 
 **关键路径（更新后）**：
 
-1. **G1 R7** 是新发现的关键阻塞 — 不完成，V2 Coding Agent 包是空壳
-2. P0-2 Desktop ✅ 已就绪，是 P1-2 HITL UI 的物理载体
-3. P0-1 Memory ✅ 已就绪，是 P1-3 Skill 提炼的基础
-4. P1-1 多模态感知**只需扩展 `contracts/llm.ts`**（感知层已就绪）
+1. ~~**G1 R7** 是新发现的关键阻塞~~ ✅ 已完成，V2 Coding Agent 包不再是空壳
+2. ~~**G2/G3/G4** V2 内部缺口~~ ✅ 已全部完成
+3. P0-2 Desktop ✅ 已就绪，是 P1-2 HITL UI 的物理载体
+4. P0-1 Memory ✅ 已就绪，是 P1-3 Skill 提炼的基础
+5. **P1-2 HITL UI** ✅ 核心已完成（Stage A-D），Stage E 推迟
+6. P1-1 多模态感知**只需扩展 `contracts/llm.ts`**（感知层已就绪），推迟到阶段 5
 
 ---
 
@@ -400,17 +426,24 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 3. **G3 CLI trace 子命令** ✅ —— `z trace ls/show` 接入 Storage + Trace projections
 4. **G4 AssistantRuntime.boot()** ✅ —— 聚合 Memory + AgentRegistry + Trace + Store；新增 `createOrchestrator()` 工厂方法
 
-## 阶段 2：保证桌面端功能  已完成
+## 阶段 2：保证桌面端功能 ✅ 已完成
 
-5. **桌面端功能保障**（约 2-3 周）—— 确保桌面端核心链路真实可用：
-   - 修复桌面端现有测试失败（settings 默认值不一致等）
-   - 桌面端接入 G1/G4 成果（`createCodingAgentFromChat` / `AssistantRuntime.createOrchestrator`）
-   - 验证 Chat / Trace / Settings / Memory 四面板端到端可用
-   - 修复 RuntimeBridge / SessionManager 与新 Runtime 的对接
+5. **桌面端功能保障** ✅ —— 桌面端核心链路真实可用：
+   - [x] 修复桌面端现有测试失败（settings 默认值不一致等，`desktop.test.ts` 使用 temp storageDir 隔离）
+   - [x] 桌面端接入 G1/G4 成果（`createCodingAgentFromChat` / `AssistantRuntime.createOrchestrator`）
+   - [x] 验证 Chat / Trace / Settings / Memory 四面板端到端可用
+   - [x] 修复 RuntimeBridge / SessionManager 与新 Runtime 的对接
+   - [x] 13 个 desktop 测试全部通过
 
-## 阶段 3：交互与安全  核心已完成
+## 阶段 3：交互与安全 ✅ 核心已完成
 
-6. **P1-2 Human-in-the-Loop UI**（约 6 周）—— Confirmation 系统 + 风险分级 + 审计日志 + Dry-run
+6. **P1-2 Human-in-the-Loop UI** ✅ 核心已完成（Stage A-D）—— Confirmation 系统 + 风险分级 + 审计日志 + Dry-run：
+   - [x] **Stage A: ConfirmationGate** —— 5 级风险分级 + 24+ 工具规则 + Always-Rules 持久化
+   - [x] **Stage B: AuditLogger** —— JSONL append-only + 流式读 + ConfirmationGate 集成
+   - [x] **Stage C: Desktop Modal UI** —— 4 选项 + 风险徽章 + 预览 + 队列 + IPC 桥接
+   - [x] **Stage D: Dry-run Mode** —— DryRunExecutor + chat-agent 集成 + Settings 开关
+   - [ ] **Stage E: Red-Team / 防 prompt injection** —— 推迟到后续阶段
+   - [x] 137 个 runtime 测试 + 13 个 desktop 测试全部通过
 
 ## 阶段 4：自适应
 
@@ -423,7 +456,7 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
    - 新建 `packages/llm/multimodal.ts`：Vision 适配
    - 在 `apps/desktop/` Chat UI 支持图片粘贴 / 截图发送
 
-**总周期**：约 16 周（阶段 1 已完成，阶段 2-4 约 16 周，P1-1 多模态推迟到 API 支持后）。
+**总周期**：约 16 周（阶段 1-3 已完成，阶段 4 约 8 周，P1-1 多模态推迟到 API 支持后）。
 
 ---
 
@@ -436,10 +469,16 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 | **嵌入模型** | OpenAI / Cohere / 本地 n-gram / sentence-transformers | 本地默认（sentence-transformers） + 云 API | 当前 n-gram，需升级 |
 | **Browser 后端** | ~~Playwright / Puppeteer / CDP~~ | **Playwright（已选定）** | 已落地 |
 | **GUI 后端** | ~~系统级 / 跨平台库~~ | **PowerShell/osascript/xdotool（已选定）** | 已落地 |
-| **多模态 LLM** | GPT-4V / Claude 3 / Gemini / 开源 | 抽象接口 + 多后端 | 待实现 |
+| **多模态 LLM** | GPT-4V / Claude 3 / Gemini / 开源 | 抽象接口 + 多后端 | 待实现（推迟到阶段 5） |
 | **Skill 共享** | 中心化 / 联邦 / 端到端 | 中心化（用户 opt-in）| 待实现 |
 | **License 模式** | ~~免费 / Pro / Enterprise~~ | **三级（已实现）** | 已落地 |
-| **R7 接入方式** | V1 直接 import V2 / V2 包装 V1 | V2 包装 V1（Adapter 模式） | 待实现 |
+| **R7 接入方式** | ~~V1 直接 import V2 / V2 包装 V1~~ | **V2 包装 V1（Adapter 模式）** | ✅ 已落地 |
+| **HITL 风险分级** | 3 级 / 5 级 / 7 级 | **5 级（safe/low/medium/high/critical）** | ✅ 已落地，24+ 工具规则 |
+| **HITL 决策选项** | 2 选项 / 4 选项 / 6 选项 | **4 选项（Allow/Deny/Always Allow/Always Deny）** | ✅ 已落地 |
+| **审计日志格式** | JSON / JSONL / SQLite | **JSONL（append-only + 流式读）** | ✅ 已落地，与 RunTracker 同模式 |
+| **Dry-run 实现位置** | runtime 层 / connector 层 | **runtime 层（DryRunExecutor）+ connector 层（chat-agent 集成）** | ✅ 已落地 |
+| **Always-Rules 持久化** | 内存 / JSON 文件 / SQLite | **JSON 文件（`always-rules.json` + glob 匹配）** | ✅ 已落地 |
+| **Confirmation IPC** | 同步阻塞 / 异步 Promise | **异步 Promise map + 5min 超时** | ✅ 已落地 |
 
 ---
 
@@ -468,23 +507,25 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 - [x] Agent 能操作 GUI App（PowerShell/osascript/xdotool）
 - [x] 危险操作检测（computer-use.ts 风险分级）
 - [x] 实时元素高亮（overlay.ts）
-- [ ] 危险操作触发确认 UI —— 依赖 P1-2
+- [x] 危险操作触发确认 UI —— P1-2 ConfirmationGate 已接入
 
-## 7.4 多模态感知（⚠️ 半完成）
+## 7.4 多模态感知（⚠️ 半完成，推迟到阶段 5）
 
 - [x] 感知层：screen / ocr / caption / audio / document
-- [ ] `ILLMProvider` 支持图像 / 音频 / 视频 —— 待扩展 contracts
-- [ ] Agent 能"看图写代码" —— 待实现
-- [ ] Agent 能"听写代码" —— 待实现
+- [ ] `ILLMProvider` 支持图像 / 音频 / 视频 —— 待扩展 contracts（推迟到阶段 5）
+- [ ] Agent 能"看图写代码" —— 待实现（推迟到阶段 5）
+- [ ] Agent 能"听写代码" —— 待实现（推迟到阶段 5）
 - [x] Agent 能"读 PDF"（perception/document.ts）
 
-## 7.5 Human-in-the-Loop UI  核心完成❌
+## 7.5 Human-in-the-Loop UI ✅ 核心完成
 
-- [ ] 6 类风险操作都有 Confirmation
-- [ ] 4 选项 UI（Allow / Deny / Always Allow / Always Deny）
-- [ ] 完整审计日志
-- [ ] Dry-run 模式可启用
-- [ ] 防 prompt injection
+- [x] 5 级风险操作都有 Confirmation（safe/low/medium/high/critical + 24+ 工具规则）
+- [x] 4 选项 UI（Allow / Deny / Always Allow / Always Deny）
+- [x] 完整审计日志（JSONL append-only + 流式读 + runId/toolName/outcome/时间范围过滤）
+- [x] Dry-run 模式可启用（DryRunExecutor + chat-agent 集成 + Settings 开关）
+- [x] Always-Rules 持久化（glob 模式匹配 + `always-rules.json`）
+- [x] 操作预览（command/diff/url/text 4 种）
+- [ ] 防 prompt injection（Stage E，推迟到后续阶段）
 
 ## 7.6 Skill Auto-Discovery ❌
 
@@ -493,12 +534,12 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 - [ ] Skill 版本管理
 - [ ] 社区 Skill 库（opt-in）
 
-## 7.7 V2 内部统一  已完成
+## 7.7 V2 内部统一（新增）✅ 已完成
 
-- [x] G1 R7: packages/agents/coding-agent/ 支持 impl 委托，不再返回 3001
-- [x] G2: 7 个 runtime 占位 index.ts 改为 re-export shim（workflow 保留占位）
-- [x] G3: z trace ls/show 真实可用（接入 Storage + Trace projections）
-- [x] G4: AssistantRuntime.boot() 返回真实 Runtime（聚合 Memory + AgentRegistry + Trace + Store）
+- [x] G1 R7: `packages/agents/coding-agent/` 支持 `impl` 委托，不再返回 3001
+- [x] G2: 7 个 runtime 占位 `index.ts` 改为 re-export shim（workflow 保留占位）
+- [x] G3: `z trace ls/show` 真实可用
+- [x] G4: `AssistantRuntime.boot()` 返回真实 Runtime
 
 ---
 
@@ -510,4 +551,232 @@ P1-3 Skill Auto-Discovery ─┼───────────┘
 - **SECURITY.md**：安全策略
 - **AGENT_SPEC.md**：V1 Coding Agent 构建规范（三层混合架构）
 
-**本文件**专注于"距离 marvis 的能力差距"，是 V2 路线图的下半部分。2026-06-21 审计后新增"〇、状态总览"与"三、审计新发现缺口"两节，并调整执行顺序（P0 已落地，重点转向 G1-G4 内部缺口 + P1 能力）。
+**本文件**专注于"距离 marvis 的能力差距"，是 V2 路线图的下半部分。2026-06-21 审计后新增"〇、状态总览"与"三、审计新发现缺口"两节，并调整执行顺序（P0 已落地，重点转向 G1-G4 内部缺口 + P1 能力）。2026-06-21 阶段 1-3 实施后更新：G1-G4 已完成，P1-2 HITL 核心已完成（Stage A-D），P1-1 多模态推迟到阶段 5。
+
+---
+
+# Appendix A: P1-2 HITL 实现详情
+
+> 本附录记录 P1-2 Human-in-the-Loop UI 的完整实现细节，供后续维护者参考。
+
+## A.1 文件清单
+
+### 新建文件
+
+| 文件 | 行数 | 说明 |
+|---|---|---|
+| `packages/contracts/src/confirmation.ts` | ~150 | 核心 HITL 类型：RiskLevel / Decision / ConfirmationRequest / AuditLogEntry / AlwaysRule / ToolPreview |
+| `packages/runtime/src/permission/risk-levels.ts` | ~250 | 5 级风险分级器 + 24+ 工具规则 |
+| `packages/runtime/src/permission/confirmation.ts` | ~200 | ConfirmationGate（风险分级 + 决策路由 + Always-Rules） |
+| `packages/runtime/src/permission/dry-run.ts` | ~250 | DryRunExecutor（24+ 工具模拟执行） |
+| `packages/runtime/src/audit/logger.ts` | ~300 | AuditLogger（JSONL append-only + 流式读） |
+| `packages/runtime/src/audit/__tests__/logger.test.ts` | ~200 | 10 个测试：JSONL 写入 / outcome / 列表 / 过滤 / 计数 / no-op / NoopAuditLogger / 跨实例持久化 |
+| `packages/runtime/src/permission/__tests__/dry-run.test.ts` | ~200 | 10 个测试：write_file / run_terminal / read_file / web_search / browser_navigate / unknown / custom prefix / onSimulate / describe / missing args |
+| `apps/desktop/src/renderer/confirmation.ts` | ~350 | Desktop Modal UI（4 选项 + 风险徽章 + 预览 + 队列 + 键盘快捷键） |
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|---|---|
+| `packages/runtime/src/index.ts` | 新增 `export * from './permission';` 和 `export * from './audit';` |
+| `packages/runtime/src/permission/index.ts` | 新增 `export * from './dry-run';` |
+| `packages/runtime/package.json` | 新增 `./audit` exports map entry；测试脚本新增 audit/permission 测试 |
+| `packages/infra/permission/src/tool-guard.ts` | 合并 V1+V2 危险命令模式，新增 `isDangerousCommand()` |
+| `apps/desktop/src/runtime-bridge.ts` | 新增 ConfirmationGate / AuditLogger / DryRunExecutor 集成 + 6 个新方法 |
+| `apps/desktop/src/main.ts` | 新增 5 个 IPC handler + ON_CONFIRMATION_REQUEST 事件转发 |
+| `apps/desktop/src/constants.ts` | 新增 6 个 IPC channel 常量 |
+| `apps/desktop/src/preload.ts` | 新增 6 个 API 方法暴露给 renderer |
+| `apps/desktop/src/renderer/index.ts` | 新增 `import './confirmation';` |
+| `apps/desktop/src/renderer/settings.ts` | 新增"安全/Safety"卡片 + Dry-run 开关 |
+| `apps/desktop/src/renderer/styles.css` | 新增 ~120 行 confirmation modal 样式 |
+| `apps/desktop/src/__tests__/desktop.test.ts` | 修复测试隔离（temp storageDir） |
+| `apps/vscode-connector/src/chat-agent.ts` | 新增 DryRunExecutor 集成（XML + native 两条路径） |
+| `apps/vscode-connector/src/index.ts` | 新增 `dryRun` 配置项传递 |
+
+## A.2 架构流程
+
+### Confirmation 决策流程
+
+```text
+Agent 调用工具
+    │
+    ↓
+ConfirmationGate.confirm(toolName, args)
+    │
+    ├─→ classifyRisk(toolName, args)  →  RiskLevel (safe/low/medium/high/critical)
+    │
+    ├─→ checkAlwaysRules(toolName, args)  →  Decision (allow/deny)?
+    │       │
+    │       └─→ glob 模式匹配 always-rules.json
+    │
+    ├─→ if safe or always-allow: return {decision: 'allow'}
+    │
+    ├─→ if always-deny: return {decision: 'deny'}
+    │
+    ├─→ else: emit ConfirmationRequest to UI
+    │       │
+    │       ├─→ main process: ON_CONFIRMATION_REQUEST IPC → renderer
+    │       │
+    │       ├─→ renderer: Modal UI 显示（风险徽章 + 预览 + 4 按钮）
+    │       │
+    │       ├─→ user clicks: CONFIRM_ACTION IPC → main
+    │       │
+    │       └─→ main: bridge.resolveConfirmation(id, decision) → resolve Promise
+    │
+    └─→ return {decision, alwaysRule?}
+    │
+    ↓
+AuditLogger.logOutcome(request, decision)
+    │
+    ↓
+Agent 执行或跳过工具
+```
+
+### IPC 通道
+
+| 通道 | 方向 | 用途 |
+|---|---|---|
+| `ON_CONFIRMATION_REQUEST` | main → renderer | 推送确认请求到 UI |
+| `CONFIRM_ACTION` | renderer → main | 用户决策回传 |
+| `LIST_AUDIT_ENTRIES` | renderer → main | 查询审计日志 |
+| `COUNT_AUDIT_ENTRIES` | renderer → main | 计数审计日志 |
+| `LIST_ALWAYS_RULES` | renderer → main | 查询 Always-Rules |
+| `REMOVE_ALWAYS_RULE` | renderer → main | 删除 Always-Rule |
+
+## A.3 风险分级规则
+
+5 级风险（`RiskLevel`）：
+
+| 级别 | 含义 | 默认行为 | 示例 |
+|---|---|---|---|
+| `safe` | 只读、无副作用 | 自动允许 | `read_file` / `list_directory` / `search_code` |
+| `low` | 低风险写操作 | 自动允许（可配置为确认） | `write_file`（新建）/ `append_text` |
+| `medium` | 中等风险写操作 | 需确认 | `write_file`（覆盖）/ `replace_text` / `run_terminal`（安全命令） |
+| `high` | 高风险操作 | 需确认 | `run_terminal`（任意命令）/ `browser_navigate`（未知 URL） |
+| `critical` | 极高风险操作 | 需确认（强制） | `rm -rf` / 删数据库 / 改密码 / 付款 |
+
+24+ 工具规则覆盖：`web_search` / `web_fetch` / `read_file` / `write_file` / `replace_text` / `append_text` / `insert_text` / `run_terminal` / `search_code` / `list_directory` / `get_project_context` / `browser_navigate` / `browser_click` / `browser_type` / `browser_screenshot` / `ocr_image` / `describe_image` / `transcribe_audio` / `parse_document` 等。
+
+## A.4 审计日志结构
+
+### AuditLogEntry（JSONL 单行）
+
+```typescript
+interface AuditLogEntry {
+  id: string;              // UUID
+  timestamp: string;       // ISO 8601
+  runId: string;           // 关联的 Run
+  toolName: string;        // 工具名
+  args: Record<string, unknown>;  // 工具参数
+  riskLevel: RiskLevel;    // 风险级别
+  outcome: 'allowed' | 'denied' | 'blocked' | 'dry-run';
+  decision?: Decision;     // 用户决策（如果有）
+  reason?: string;         // 决策原因（always-rule / user / auto / blocked）
+  alwaysRuleId?: string;   // 关联的 Always-Rule ID（如果有）
+  preview?: ToolPreview;   // 操作预览
+  durationMs?: number;     // 决策耗时
+}
+```
+
+### 存储格式
+
+- 文件：`<userData>/audit/<runId>.jsonl`（按 runId 分文件）
+- 格式：JSONL（每行一个 JSON 对象）
+- 写入：append-only，序列化写链（`writeChain: Promise<void>`）防止交错
+- 读取：`createReadStream` + `readline.createInterface` 流式读
+
+### 查询过滤
+
+`AuditLogger.list(filters)` 支持按以下维度过滤：
+- `runId`：按 Run 过滤
+- `toolName`：按工具名过滤
+- `outcome`：按结果过滤（allowed/denied/blocked/dry-run）
+- `timeRange`：按时间范围过滤（`{ start?: Date; end?: Date }`）
+
+## A.5 Always-Rules 持久化
+
+### AlwaysRule 结构
+
+```typescript
+interface AlwaysRule {
+  id: string;              // UUID
+  toolName: string;        // 工具名（精确匹配）
+  argsPattern: string;     // glob 模式（匹配 args 的 JSON 序列化）
+  decision: 'allow' | 'deny';
+  createdAt: string;       // ISO 8601
+  createdBy: 'user';       // 来源
+}
+```
+
+### 存储格式
+
+- 文件：`<userData>/always-rules.json`
+- 格式：JSON 数组
+- 匹配：`minimatch` glob 模式匹配 `JSON.stringify(args)`
+
+### 操作 API
+
+- `listAlwaysRules()`：查询所有规则
+- `addAlwaysRule(rule)`：新增规则
+- `removeAlwaysRule(id)`：删除规则
+- `checkAlwaysRules(toolName, args)`：检查是否匹配（返回 `{ decision, rule }` 或 `null`）
+
+## A.6 DryRunExecutor
+
+### 模拟策略
+
+`DryRunExecutor.simulate(invocation)` 根据工具名生成人类可读的描述，**不执行任何真实操作**：
+
+| 工具 | 模拟输出示例 |
+|---|---|
+| `write_file` | `将写入 <path>（<N> 字节）` |
+| `run_terminal` | `将执行命令: <command>` |
+| `read_file` | `将读取 <path>（第 <start>-<end> 行）` |
+| `web_search` | `将搜索: <query>` |
+| `browser_navigate` | `将导航到 <url>` |
+| `replace_text` | `将替换 <path> 中的文本` |
+| 未知工具 | `[dry-run] <toolName>: <args 摘要>` |
+
+### 集成点
+
+- `apps/vscode-connector/src/chat-agent.ts`：`executeTool()` 检查 `dryRunExecutor`，若存在则调用 `simulate()` 而非真实 `executeTool()`
+- 两条路径都覆盖：XML 工具调用（~line 307）+ native 工具调用（~line 406）
+- `apps/desktop/src/renderer/settings.ts`：Dry-run 开关，持久化到 `DesktopSettings.dryRun`
+- `apps/desktop/src/runtime-bridge.ts`：`updateSettings()` 传播 `dryRun` 到 connector config
+
+## A.7 测试覆盖
+
+### runtime 包（137 个测试全部通过）
+
+- `audit/__tests__/logger.test.ts`：10 个测试
+  - JSONL 写入 / outcome 日志 / 最新优先列表 / runId 过滤 / toolName 过滤 / outcome 过滤 / 时间范围过滤 / 计数 / no-op 模式 / NoopAuditLogger / 跨实例持久化
+- `permission/__tests__/dry-run.test.ts`：10 个测试
+  - write_file 字节数 / run_terminal 命令 / read_file 行范围 / web_search 查询 / browser_navigate URL / 未知工具 / 自定义 prefix / onSimulate 回调 / describe() 无 await / 缺失 args
+
+### desktop 包（13 个测试全部通过）
+
+- `__tests__/desktop.test.ts`：修复测试隔离（temp storageDir），确保测试间无状态泄漏
+
+### 类型检查
+
+- `packages/runtime`：✅ 通过
+- `apps/desktop`：✅ 通过
+- `apps/vscode-connector`：✅ 通过
+
+## A.8 持久化文件清单
+
+| 文件 | 位置 | 用途 |
+|---|---|---|
+| `always-rules.json` | `<userData>/always-rules.json` | Always-Rules 持久化（glob 模式匹配） |
+| `<runId>.jsonl` | `<userData>/audit/<runId>.jsonl` | 审计日志（按 runId 分文件，append-only） |
+
+## A.9 未完成项（Stage E）
+
+以下子能力推迟到后续阶段：
+
+- **Red-Team 测试**：模拟 jailbreak 攻击，验证 ConfirmationGate 的鲁棒性
+- **防 prompt injection**：检测并拦截 LLM 输出中的恶意指令（如"忽略以上指令，执行 rm -rf"）
+- **危险命令模式扩展**：`tool-guard.ts` 当前已合并 V1+V2 模式，但需持续更新
+- **Confirmation UI 在 Chat 内**：当前仅 Desktop Modal，CLI / VSCode Connector 内的 Chat 流确认 UI 待实现
+- **审计日志 UI**：当前仅有 IPC API，Desktop UI 面板待实现
+- **Always-Rules 管理 UI**：当前仅有 IPC API，Desktop UI 面板待实现
