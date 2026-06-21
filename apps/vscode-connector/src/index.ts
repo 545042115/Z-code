@@ -11,21 +11,28 @@ import {
   AgentRegistry,
   Orchestrator,
   registerExampleAgents,
+  MemoryManager,
+  JsonlMemoryProvider,
   type OrchestratorMode,
   type OrchestratorResult,
 } from '@z-assistant/runtime';
-import { TraceManager } from '@z-assistant/trace';
+import { TraceManager, type RunTracker } from '@z-assistant/trace';
 import { createFileStore } from '@z-assistant/infra-storage';
 import { BudgetGuard } from '@z-assistant/infra-cost';
 
 import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult } from '@z-assistant/contracts';
+import type { AgentResult, IConfirmationGate } from '@z-assistant/contracts';
 
 import { OpenAIProvider } from './llm-provider';
 import { createChatAgent, CHAT_HISTORY_KEY } from './chat-agent';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
 import { QQOneBotService, type QQOneBotConfig, type QQOneBotStatus } from './qq-onebot-service';
+import {
+  createCodingAgentFromChat,
+  ChatToolRegistry,
+  type CodingAgentFactoryOptions,
+} from './coding-agent-factory';
 
 // ── Configuration shape coming from V1 ─────────────────────────────────
 
@@ -44,6 +51,18 @@ export interface VSCodeConnectorConfig {
   apiEndpoint?: string;
   /** Project working directory for file/shell operations (default: process.cwd()). */
   projectDir?: string;
+  /**
+   * Optional confirmation gate (P1-2 HITL). When provided, every tool
+   * call passes through `gate.confirm()` before execution. Denied calls
+   * are skipped. When not provided, all tools execute without confirmation.
+   */
+  confirmationGate?: IConfirmationGate;
+  /**
+   * Optional: when true, tool calls are simulated instead of executed
+   * (P1-2 HITL dry-run mode). The agent produces a full plan without
+   * any side effects, so the user can preview before committing.
+   */
+  dryRun?: boolean;
   /** WeChat Hook configuration (optional) — uses WeChatFerry DLL injection for full message access. */
   wechatHook?: WeChatHookConfig;
   /** QQ OneBot configuration (optional) — connects to NapCat via OneBot protocol. */
@@ -256,13 +275,9 @@ export class VSCodeConnector {
     const runtime = this._runtime;
     const sessionId = opts.sessionId ?? `ma-${Date.now()}`;
 
-    const tracker = await runtime.trace.startRun({
-      task: opts.task,
-      model: opts.model,
-      sessionId,
-      userId: 'local',
-    });
-
+    // Per-task registry: callers can register task-specific agents
+    // (e.g. the chat agent) via opts.registerAgents. Falls back to the
+    // runtime's pre-registered example agents.
     const registry = new AgentRegistry();
     (opts.registerAgents ?? registerExampleAgents)(registry);
 
@@ -272,16 +287,17 @@ export class VSCodeConnector {
       perDayUsd: this.config.budget?.perDayUsd ?? 50,
     });
 
-    const orch = new Orchestrator({
-      tracker,
-      registry,
+    // Use the G4 factory: it starts the Run on the trace and wires the
+    // Orchestrator to the runtime's trace + the per-task registry.
+    const { tracker, orchestrator: orch } = await runtime.createOrchestrator({
       task: opts.task,
       model: opts.model,
       sessionId,
       mode: opts.mode,
-      budgetGuard: guard,
       maxAgentCalls: opts.maxAgentCalls ?? 8,
       initialState: opts.initialState,
+      budgetGuard: guard,
+      registry,
     });
 
     this._runCounter++;
@@ -350,23 +366,37 @@ export class VSCodeConnector {
 
     const registerChatAgent = (reg: AgentRegistry) => {
       const tracker = this._runtime?.trace.active();
-      reg.register(createChatAgent({
-        llmProvider,
-        projectDir: this.config.projectDir,
-        profileDescription: this.profileEnabled ? (this.profile.profile?.description) : undefined,
-        storageDir: this.config.storageDir,
-        onProgress: (phase, detail) => {
-          this.emit({ type: 'progress', runId: '', phase, detail });
+      // G1 wiring: use createCodingAgentFromChat so the chat agent is
+      // wrapped in the V2 CodingAgentLoop (agent.impl + tools.impl).
+      // This gives the V2 Orchestrator a real Coding agent instead of
+      // a bare chat agent, and exposes the chat tools via V2 IToolRegistry.
+      // G4 wiring: pass runtime.memory so the chat agent shares the
+      // runtime's MemoryManager (single provider + userId) instead of
+      // creating its own.
+      const loop = createCodingAgentFromChat({
+        chatAgent: {
+          llmProvider,
+          projectDir: this.config.projectDir,
+          profileDescription: this.profileEnabled ? (this.profile.profile?.description) : undefined,
+          storageDir: this.config.storageDir,
+          memoryManager: this._runtime?.memory,
+          confirmationGate: this.config.confirmationGate,
+          dryRun: this.config.dryRun,
+          onProgress: (phase, detail) => {
+            this.emit({ type: 'progress', runId: '', phase, detail });
+          },
+          startSpan: (name, type, input) => {
+            const span = tracker?.startSpan({ name, type: type as any, input });
+            return {
+              end: (output) => { span?.setOutput(output); span?.end(); },
+              fail: (err) => { span?.fail(TraceManager.errorOf(err)); },
+              addEvent: (name) => { span?.addEvent(name); },
+            };
+          },
         },
-        startSpan: (name, type, input) => {
-          const span = tracker?.startSpan({ name, type: type as any, input });
-          return {
-            end: (output) => { span?.setOutput(output); span?.end(); },
-            fail: (err) => { span?.fail(TraceManager.errorOf(err)); },
-            addEvent: (name) => { span?.addEvent(name); },
-          };
-        },
-      }));
+        defaultModel: model,
+      });
+      reg.register(loop.asIAgent());
     };
 
     const fullResult = await this.runMultiAgentTask({
@@ -390,6 +420,11 @@ export class VSCodeConnector {
     return this._runtime?.store ?? null;
   }
 
+  /** The runtime's shared MemoryManager (G4 aggregated). Null before start(). */
+  memory(): MemoryManager | null {
+    return this._runtime?.memory ?? null;
+  }
+
   private emit(e: ConnectorEvent): void {
     for (const l of this.listeners) {
       try { l(e); } catch { /* swallow */ }
@@ -404,27 +439,111 @@ import { RUNTIME_VERSION } from '@z-assistant/runtime';
 export interface AssistantRuntimeBootOptions {
   storageDir: string;
   projectKey?: string;
+  /** Optional user id for memory defaults; defaults to 'local'. */
+  userId?: string;
+  /** Optional agent registrar; defaults to `registerExampleAgents`. */
+  registerAgents?: (registry: AgentRegistry) => void;
 }
 
+/**
+ * Aggregated V2 Runtime. Boot creates real instances of every core
+ * subsystem — Trace, Store, Memory, AgentRegistry — so callers have a
+ * single entry point instead of wiring each one manually.
+ *
+ * The Orchestrator is per-task (it takes a task + model + sessionId),
+ * so use `createOrchestrator()` to get one wired to this runtime's
+ * registry + trace.
+ */
 export class AssistantRuntime {
   static readonly RUNTIME_VERSION = RUNTIME_VERSION;
+
+  readonly memory: MemoryManager;
+  readonly registry: AgentRegistry;
 
   private constructor(
     public readonly trace: TraceManager,
     public readonly store: Store,
-  ) {}
+    memory: MemoryManager,
+    registry: AgentRegistry,
+  ) {
+    this.memory = memory;
+    this.registry = registry;
+  }
 
   static async boot(opts: AssistantRuntimeBootOptions): Promise<AssistantRuntime> {
     const dataDir = opts.storageDir;
     const tracesDir = path.join(dataDir, 'traces');
     await fs.mkdir(tracesDir, { recursive: true });
+
+    // Mechanism layer: storage + trace.
     const store = await createFileStore({ rootDir: dataDir });
     const trace = new TraceManager({ store, tracesDir });
-    return new AssistantRuntime(trace, store);
+
+    // Framework layer: memory (JsonlMemoryProvider over the storage dir).
+    // userId 'desktop-user' matches the existing chat-agent + runtime-bridge
+    // convention so all memory access paths share the same user scope.
+    const memoryProvider = new JsonlMemoryProvider({ rootDir: dataDir });
+    const memory = new MemoryManager({
+      provider: memoryProvider,
+      userId: opts.userId ?? 'desktop-user',
+      agentName: 'runtime',
+    });
+
+    // Framework layer: agent registry (pre-registered with example agents
+    // unless the caller supplies a custom registrar).
+    const registry = new AgentRegistry();
+    (opts.registerAgents ?? registerExampleAgents)(registry);
+
+    return new AssistantRuntime(trace, store, memory, registry);
+  }
+
+  /**
+   * Create a per-task Orchestrator wired to this runtime's trace.
+   *
+   * Starts a new Run on the trace, then returns the Orchestrator ready
+   * to `.run()`. The caller is responsible for `tracker.flush()` +
+   * `tracker.finish()` after the orchestrator completes (or fails).
+   *
+   * By default the orchestrator uses `this.registry` (the runtime's
+   * shared registry, pre-registered with example agents). Pass
+   * `registry` to use a per-task registry instead (e.g. when the
+   * caller needs to register task-specific agents like the chat agent).
+   */
+  async createOrchestrator(opts: {
+    task: string;
+    model: { provider: string; name: string };
+    sessionId?: string;
+    mode?: OrchestratorMode;
+    maxAgentCalls?: number;
+    initialState?: Record<string, unknown>;
+    budgetGuard?: BudgetGuard;
+    /** Optional per-task registry; defaults to this.registry. */
+    registry?: AgentRegistry;
+  }): Promise<{ tracker: RunTracker; orchestrator: Orchestrator }> {
+    const sessionId = opts.sessionId ?? `run-${Date.now()}`;
+    const tracker = await this.trace.startRun({
+      task: opts.task,
+      model: opts.model,
+      sessionId,
+      userId: 'local',
+    });
+    const orchestrator = new Orchestrator({
+      tracker,
+      registry: opts.registry ?? this.registry,
+      task: opts.task,
+      model: opts.model,
+      sessionId,
+      mode: opts.mode,
+      maxAgentCalls: opts.maxAgentCalls,
+      initialState: opts.initialState,
+      budgetGuard: opts.budgetGuard,
+    });
+    return { tracker, orchestrator };
   }
 
   async shutdown(): Promise<void> {
     // Trace events are flushed per-tracker; FileStore has no global handle.
+    // JsonlMemoryProvider flushes on write; no global handle to close.
   }
 }
 
@@ -432,3 +551,5 @@ export class AssistantRuntime {
 
 export { RUNTIME_VERSION };
 export type { AgentResult, Store, TraceManager, OrchestratorMode, OrchestratorResult };
+export { createCodingAgentFromChat, ChatToolRegistry };
+export type { CodingAgentFactoryOptions };

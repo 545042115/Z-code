@@ -3,23 +3,22 @@
 // V2 CLI entry point. Boots the V2 Assistant Runtime for terminal use.
 //
 //   $ z run "fix the failing test in src/foo.test.ts"
+//   $ z trace ls               — list recent runs
+//   $ z trace show <runId>     — show a run with its span tree
+//   $ z version                — print runtime version
 //
-// Subcommands planned for R7+:
-//   z run <task>           — run a single task
-//   z trace ls             — list recent runs
-//   z trace show <runId>   — show a run with its span tree
+// Subcommands planned for future phases:
 //   z eval <benchmark>     — run a benchmark suite
 //   z evolution            — generate a self-improvement report
 //   z config get/set       — config-center CLI
 //
-// Phase 6A: this file is the *real* entry point. It parses argv,
-// dispatches to subcommand handlers, and wires the V2 runtime. The
-// subcommand handlers themselves are stubs that print a clear "not
-// implemented in Phase 6A" message; R7+ will fill them in. The
-// runtime is instantiated (boot + shutdown on exit) so the wiring
-// is exercised end-to-end in this revision.
+// This file is the *real* entry point. It parses argv, dispatches to
+// subcommand handlers, and wires the V2 runtime. `run` / `trace` /
+// `version` / `help` are fully implemented; `eval` / `evolution` /
+// `config` are future work.
 
 import { RUNTIME_VERSION } from '@z-assistant/runtime';
+import { listRunSummaries, listSpanNodes, type SpanNode } from '@z-assistant/trace';
 import { VSCodeConnector, type VSCodeConnectorConfig } from '@z-assistant/app-vscode-connector';
 
 // ── Subcommand surface ────────────────────────────────────────────────
@@ -57,23 +56,150 @@ const runSubcommand: CLISubcommand = {
 
 const traceSubcommand: CLISubcommand = {
   name: 'trace',
-  description: 'List / show runs and spans (Phase 6A placeholder)',
+  description: 'List / show runs and spans',
   async run(ctx) {
     const sub = ctx.args[0];
     if (sub === 'ls') {
-      ctx.out('(stub) z trace ls: not implemented in Phase 6A — use `npm test --prefix packages/runtime` for now');
-      return 0;
+      return await traceList(ctx);
     }
     if (sub === 'show') {
       const id = ctx.args[1];
       if (!id) { ctx.err('error: missing runId. usage: z trace show <runId>'); return 2; }
-      ctx.out(`(stub) z trace show ${id}: not implemented in Phase 6A`);
-      return 0;
+      return await traceShow(ctx, id);
     }
     ctx.err('error: unknown subcommand. usage: z trace <ls|show>');
     return 2;
   },
 };
+
+// ── trace ls — list recent runs ───────────────────────────────────────
+
+async function traceList(ctx: CLIContext): Promise<number> {
+  const store = ctx.runtime.store();
+  if (!store) {
+    ctx.err('error: runtime store not available (boot failed?)');
+    return 1;
+  }
+  const summaries = await listRunSummaries(store, { limit: 20 });
+  if (summaries.length === 0) {
+    ctx.out('No runs found.');
+    return 0;
+  }
+  // Table header
+  ctx.out(formatRow(['RUN ID', 'STATUS', 'DURATION', 'SPANS', 'TOKENS', 'COST', 'TASK']));
+  ctx.out(formatRow(['─'.repeat(20), '─'.repeat(8), '─'.repeat(10), '─'.repeat(6), '─'.repeat(10), '─'.repeat(8), '─'.repeat(30)]));
+  for (const s of summaries) {
+    ctx.out(formatRow([
+      s.id.slice(0, 20),
+      s.status,
+      s.duration != null ? formatDuration(s.duration) : '-',
+      String(s.spanCount),
+      formatTokens(s.totalTokensIn + s.totalTokensOut),
+      s.totalCostUsd > 0 ? `$${s.totalCostUsd.toFixed(4)}` : '-',
+      truncate(s.task, 30),
+    ]));
+  }
+  ctx.out(`\n${summaries.length} run(s) listed (limit 20).`);
+  return 0;
+}
+
+// ── trace show <runId> — show span tree ───────────────────────────────
+
+async function traceShow(ctx: CLIContext, runId: string): Promise<number> {
+  const store = ctx.runtime.store();
+  if (!store) {
+    ctx.err('error: runtime store not available (boot failed?)');
+    return 1;
+  }
+  const summaries = await listRunSummaries(store, { limit: 1000 });
+  const run = summaries.find((s) => s.id === runId);
+  if (!run) {
+    ctx.err(`error: run '${runId}' not found`);
+    return 1;
+  }
+  // Run summary
+  ctx.out(`Run: ${run.id}`);
+  ctx.out(`  Task:    ${run.task}`);
+  ctx.out(`  Model:   ${run.model.provider}/${run.model.name}`);
+  ctx.out(`  Status:  ${run.status}`);
+  ctx.out(`  Start:   ${new Date(run.startTime).toISOString()}`);
+  if (run.endTime) {
+    ctx.out(`  End:     ${new Date(run.endTime).toISOString()}`);
+  }
+  if (run.duration != null) {
+    ctx.out(`  Duration: ${formatDuration(run.duration)}`);
+  }
+  ctx.out(`  Tokens:  ${formatTokens(run.totalTokensIn)} in / ${formatTokens(run.totalTokensOut)} out`);
+  if (run.totalCostUsd > 0) {
+    ctx.out(`  Cost:    $${run.totalCostUsd.toFixed(4)}`);
+  }
+  ctx.out(`  Spans:   ${run.spanCount} (${run.errorSpanCount} error)`);
+
+  // Span tree
+  const nodes = await listSpanNodes(store, runId);
+  if (nodes.length === 0) {
+    ctx.out('\nNo spans recorded.');
+    return 0;
+  }
+  ctx.out('\nSpan tree:');
+  const byId = new Map<string, SpanNode>(nodes.map((n) => [n.id, n]));
+  const childrenOf = new Map<string | undefined, SpanNode[]>();
+  for (const n of nodes) {
+    const key = n.parentSpanId;
+    const arr = childrenOf.get(key) ?? [];
+    arr.push(n);
+    childrenOf.set(key, arr);
+  }
+  const roots = childrenOf.get(undefined) ?? [];
+  for (const root of roots) {
+    printSpanTree(ctx, root, byId, childrenOf, 0);
+  }
+  return 0;
+}
+
+function printSpanTree(
+  ctx: CLIContext,
+  node: SpanNode,
+  byId: Map<string, SpanNode>,
+  childrenOf: Map<string | undefined, SpanNode[]>,
+  depth: number,
+): void {
+  const indent = '  '.repeat(depth);
+  const prefix = depth === 0 ? '' : '├─ ';
+  const dur = node.duration != null ? ` (${formatDuration(node.duration)})` : '';
+  const status = node.hasError ? ' ✗' : '';
+  const tokens = (node.tokensIn || node.tokensOut) ? ` [${formatTokens(node.tokensIn ?? 0)}+${formatTokens(node.tokensOut ?? 0)}]` : '';
+  ctx.out(`${indent}${prefix}${node.name} [${node.type}]${dur}${tokens}${status}`);
+  const kids = childrenOf.get(node.id) ?? [];
+  for (const k of kids) {
+    printSpanTree(ctx, k, byId, childrenOf, depth + 1);
+  }
+}
+
+// ── Formatting helpers ────────────────────────────────────────────────
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  const m = Math.floor(ms / 60_000);
+  const s = Math.round((ms % 60_000) / 1000);
+  return `${m}m${s}s`;
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}K`;
+  return `${(n / 1_000_000).toFixed(2)}M`;
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return s.slice(0, max - 1) + '…';
+}
+
+function formatRow(cols: string[]): string {
+  return cols.join('  ');
+}
 
 const versionSubcommand: CLISubcommand = {
   name: 'version',
@@ -133,9 +259,9 @@ export interface CLIOptions {
    */
   storageDir?: string;
   /**
-   * If true, boot a real AssistantRuntime. Phase 6A defaults to
-   * `false` because the runtime is itself a stub; setting this to
-   * `true` exercises the boot path. R7+ flips the default.
+   * If true, boot a real AssistantRuntime. Defaults to true so trace
+   * subcommands can access the Store. Tests may set this to false to
+   * skip the boot path.
    */
   bootRuntime?: boolean;
 }

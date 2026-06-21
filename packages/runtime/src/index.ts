@@ -38,6 +38,8 @@ export const RUNTIME_VERSION = '0.1.0';
 
 // Mechanism layer
 export * from './orchestrator';
+export * from './permission';
+export * from './audit';
 
 // Framework layer
 export * from './action';

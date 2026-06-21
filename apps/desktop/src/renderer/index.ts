@@ -4,6 +4,7 @@ import './chat';
 import './trace';
 import './memory';
 import './settings';
+import './confirmation';
 import { t, loadLanguage } from './i18n';
 
 function getView(): string {

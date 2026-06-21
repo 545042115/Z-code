@@ -91,6 +91,14 @@ function renderSettings(container: HTMLElement): void {
         <p class="muted" style="font-size:0.85em;margin-top:4px">文件操作和 Shell 命令的工作目录</p>
       </div>
       <div class="card">
+        <h3>安全 / Safety</h3>
+        <label class="row">
+          <input id="settings-dryrun" type="checkbox">
+          <span>Dry-run 模式（模拟执行，不产生副作用）</span>
+        </label>
+        <p class="muted" style="font-size:0.82em;margin-top:4px">启用后，Agent 的所有工具调用将被模拟执行，仅返回"将要做什么"的描述，方便预览完整计划后再正式执行。</p>
+      </div>
+      <div class="card">
         <h3>${t('settings.wechat_title')}</h3>
         <p class="muted" style="font-size:0.85em;margin-bottom:8px;color:#eab308">${t('settings.wechat_hook_warning')}</p>
         <label class="row" style="margin-top:8px">
@@ -156,6 +164,7 @@ function renderSettings(container: HTMLElement): void {
   const endpoint = document.getElementById('settings-endpoint') as HTMLInputElement;
   const memory = document.getElementById('settings-memory') as HTMLInputElement;
   const storage = document.getElementById('settings-storage') as HTMLInputElement;
+  const dryRun = document.getElementById('settings-dryrun') as HTMLInputElement;
   const browseBtn = document.getElementById('settings-browse') as HTMLButtonElement;
   const projectDir = document.getElementById('settings-projectdir') as HTMLInputElement;
   const browseProjectBtn = document.getElementById('settings-browse-project') as HTMLButtonElement;
@@ -179,6 +188,7 @@ function renderSettings(container: HTMLElement): void {
     memory.checked = s.memoryEnabled;
     storage.value = s.storageDir;
     projectDir.value = s.projectDir || '';
+    dryRun.checked = !!s.dryRun;
     // Load profile data
     await updateProfileDisplay();
   }
@@ -437,6 +447,7 @@ function renderSettings(container: HTMLElement): void {
         apiEndpoint: endpoint.value,
         storageDir: storage.value.trim() || undefined,
         projectDir: projectDir.value.trim() || undefined,
+        dryRun: dryRun.checked,
       } as any);
       status.textContent = t('settings.saved');
     } catch (err: unknown) {

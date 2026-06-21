@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './constants';
 import type { ConnectorEvent } from '@z-assistant/app-vscode-connector';
-import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule } from '@z-assistant/contracts';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
@@ -51,6 +51,14 @@ export interface ZDesktopAPI {
   // File System
   writeFile: (filePath: string, content: string) => Promise<{ success: boolean; error?: string }>;
   selectSaveDir: () => Promise<string | null>;
+  // Confirmation (P1-2 HITL)
+  onConfirmationRequest: (cb: (req: ConfirmationRequest) => void) => () => void;
+  confirmAction: (requestId: string, decision: Decision) => Promise<void>;
+  // Audit log (P1-2 HITL)
+  listAuditEntries: (filter?: { runId?: string; toolName?: string; outcome?: 'pending' | 'success' | 'error' | 'blocked'; limit?: number }) => Promise<AuditLogEntry[]>;
+  countAuditEntries: (filter?: { runId?: string; toolName?: string; outcome?: 'pending' | 'success' | 'error' | 'blocked' }) => Promise<number>;
+  listAlwaysRules: () => Promise<AlwaysRule[]>;
+  removeAlwaysRule: (id: string) => Promise<boolean>;
 }
 
 interface WeChatHookStatus {
@@ -126,6 +134,18 @@ const api: ZDesktopAPI = {
   // File System
   writeFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WRITE_FILE, filePath, content),
   selectSaveDir: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_SAVE_DIR),
+  // Confirmation (P1-2 HITL)
+  onConfirmationRequest: (cb) => {
+    const handler = (_: unknown, req: ConfirmationRequest) => cb(req);
+    ipcRenderer.on(IPC_CHANNELS.ON_CONFIRMATION_REQUEST, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_CONFIRMATION_REQUEST, handler);
+  },
+  confirmAction: (requestId, decision) => ipcRenderer.invoke(IPC_CHANNELS.CONFIRM_ACTION, requestId, decision),
+  // Audit log (P1-2 HITL)
+  listAuditEntries: (filter) => ipcRenderer.invoke(IPC_CHANNELS.LIST_AUDIT_ENTRIES, filter),
+  countAuditEntries: (filter) => ipcRenderer.invoke(IPC_CHANNELS.COUNT_AUDIT_ENTRIES, filter),
+  listAlwaysRules: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_ALWAYS_RULES),
+  removeAlwaysRule: (id) => ipcRenderer.invoke(IPC_CHANNELS.REMOVE_ALWAYS_RULE, id),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);

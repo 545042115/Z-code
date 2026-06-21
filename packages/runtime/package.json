@@ -41,19 +41,53 @@
     "./skills": {
       "types": "./out/skills/index.d.ts",
       "default": "./out/skills/index.js"
+    },
+    "./errors": {
+      "types": "./out/errors/index.d.ts",
+      "default": "./out/errors/index.js"
+    },
+    "./cost": {
+      "types": "./out/cost/index.d.ts",
+      "default": "./out/cost/index.js"
+    },
+    "./budget": {
+      "types": "./out/budget/index.d.ts",
+      "default": "./out/budget/index.js"
+    },
+    "./config": {
+      "types": "./out/config/index.d.ts",
+      "default": "./out/config/index.js"
+    },
+    "./permission": {
+      "types": "./out/permission/index.d.ts",
+      "default": "./out/permission/index.js"
+    },
+    "./audit": {
+      "types": "./out/audit/index.d.ts",
+      "default": "./out/audit/index.js"
+    },
+    "./storage": {
+      "types": "./out/storage/index.d.ts",
+      "default": "./out/storage/index.js"
+    },
+    "./trace": {
+      "types": "./out/trace/index.d.ts",
+      "default": "./out/trace/index.js"
     }
   },
   "scripts": {
     "build": "tsc -p ./",
     "build:python": "cd python && pyinstaller perception-server.spec --clean",
     "typecheck": "tsc -p ./ --noEmit",
-    "test": "tsc -p ./ && node --test \"out/orchestrator/__tests__/*.test.js\" \"out/evolution/__tests__/*.test.js\" \"out/evaluation/__tests__/*.test.js\" \"out/memory/__tests__/*.test.js\" \"out/__tests__/*.test.js\"",
+    "test": "tsc -p ./ && node --test \"out/orchestrator/__tests__/*.test.js\" \"out/evolution/__tests__/*.test.js\" \"out/evaluation/__tests__/*.test.js\" \"out/memory/__tests__/*.test.js\" \"out/audit/__tests__/*.test.js\" \"out/permission/__tests__/*.test.js\" \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
     "@z-assistant/contracts": "0.1.0",
+    "@z-assistant/infra-config": "0.1.0",
     "@z-assistant/infra-cost": "0.1.0",
     "@z-assistant/infra-errors": "0.1.0",
+    "@z-assistant/infra-permission": "0.1.0",
     "@z-assistant/infra-storage": "0.1.0",
     "@z-assistant/trace": "0.1.0"
   }

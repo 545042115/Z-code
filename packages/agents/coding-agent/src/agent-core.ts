@@ -17,6 +17,13 @@
 import type { AgentResult, IAgent, ModelSpec, TaskContext } from '@z-assistant/contracts';
 
 export interface CodingAgentOptions {
+  /**
+   * Optional full IAgent implementation to delegate to. When set, all
+   * IAgent methods (execute / canHandle / rollback / health) forward to
+   * this impl. Used by R7 to wire the V1 AgentLoop (or the
+   * vscode-connector's chat-agent) behind the V2 interface.
+   */
+  impl?: IAgent;
   /** Optional override for the V1 AgentLoop. Used by tests. */
   loop?: (ctx: TaskContext) => Promise<AgentResult>;
   /** Default model when the runtime doesn't pin one. */
@@ -46,7 +53,13 @@ export class CodingAgent implements IAgent {
     this.maxAttempts = opts.maxAttempts ?? 3;
   }
 
+  canHandle(ctx: TaskContext): number | Promise<number> {
+    if (this.opts.impl?.canHandle) return this.opts.impl.canHandle(ctx);
+    return 1.0;
+  }
+
   async execute(ctx: TaskContext): Promise<AgentResult> {
+    if (this.opts.impl) return this.opts.impl.execute(ctx);
     if (this.opts.loop) return this.opts.loop(ctx);
 
     // Phase 6A stub. R7:
@@ -64,11 +77,13 @@ export class CodingAgent implements IAgent {
     };
   }
 
-  async rollback(_ctx: TaskContext): Promise<void> {
+  async rollback(ctx: TaskContext): Promise<void> {
+    if (this.opts.impl?.rollback) return this.opts.impl.rollback(ctx);
     // Phase 6A: no-op. R7 delegates to V1's EditTransactionManager.
   }
 
   async health() {
+    if (this.opts.impl?.health) return this.opts.impl.health();
     return { ok: true, checkedAt: Date.now() };
   }
 }

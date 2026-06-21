@@ -2,22 +2,48 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+
+// ── Test isolation helpers ───────────────────────────────────────────
+// RuntimeBridge.loadSettings() reads `<storageDir>/settings.json` on
+// construction. To avoid polluting unit tests with the developer's real
+// disk settings, every test uses a fresh temp directory.
+
+function tmpStorageDir(): string {
+  const dir = path.join(os.tmpdir(), `za-test-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+const _tmpDirs: string[] = [];
+
+afterEach(() => {
+  // Best-effort cleanup; ignore errors.
+  while (_tmpDirs.length) {
+    const dir = _tmpDirs.pop()!;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
 
 // ── RuntimeBridge ─────────────────────────────────────────────────────
 
 describe('RuntimeBridge', () => {
   it('uses default settings when none provided', async () => {
     const { RuntimeBridge } = await import('../runtime-bridge');
-    const bridge = new RuntimeBridge();
+    const storageDir = tmpStorageDir(); _tmpDirs.push(storageDir);
+    const bridge = new RuntimeBridge({ storageDir });
     const settings = bridge.getSettings();
     assert.strictEqual(settings.defaultModel.provider, 'sglang');
     assert.strictEqual(settings.memoryEnabled, true);
-    assert.ok(settings.storageDir.includes('.z-assistant'));
+    assert.ok(settings.storageDir.includes('za-test-'));
   });
 
   it('merges partial settings', async () => {
     const { RuntimeBridge } = await import('../runtime-bridge');
-    const bridge = new RuntimeBridge({ memoryEnabled: false });
+    const storageDir = tmpStorageDir(); _tmpDirs.push(storageDir);
+    const bridge = new RuntimeBridge({ storageDir, memoryEnabled: false });
     const settings = bridge.getSettings();
     assert.strictEqual(settings.memoryEnabled, false);
     assert.strictEqual(settings.defaultModel.provider, 'sglang');
@@ -25,7 +51,8 @@ describe('RuntimeBridge', () => {
 
   it('updateSettings returns merged settings', async () => {
     const { RuntimeBridge } = await import('../runtime-bridge');
-    const bridge = new RuntimeBridge();
+    const storageDir = tmpStorageDir(); _tmpDirs.push(storageDir);
+    const bridge = new RuntimeBridge({ storageDir });
     const updated = bridge.updateSettings({ memoryEnabled: false });
     assert.strictEqual(updated.memoryEnabled, false);
     const current = bridge.getSettings();
@@ -34,7 +61,8 @@ describe('RuntimeBridge', () => {
 
   it('isReady returns false before start', async () => {
     const { RuntimeBridge } = await import('../runtime-bridge');
-    const bridge = new RuntimeBridge();
+    const storageDir = tmpStorageDir(); _tmpDirs.push(storageDir);
+    const bridge = new RuntimeBridge({ storageDir });
     assert.strictEqual(bridge.isReady(), false);
   });
 });

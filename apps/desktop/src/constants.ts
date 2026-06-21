@@ -44,6 +44,14 @@ export const IPC_CHANNELS = {
   // File System
   WRITE_FILE: 'z:write-file',
   SELECT_SAVE_DIR: 'z:select-save-dir',
+  // Confirmation (P1-2 HITL)
+  ON_CONFIRMATION_REQUEST: 'z:on-confirmation-request',
+  CONFIRM_ACTION: 'z:confirm-action',
+  // Audit log (P1-2 HITL)
+  LIST_AUDIT_ENTRIES: 'z:list-audit-entries',
+  COUNT_AUDIT_ENTRIES: 'z:count-audit-entries',
+  LIST_ALWAYS_RULES: 'z:list-always-rules',
+  REMOVE_ALWAYS_RULE: 'z:remove-always-rule',
 } as const;
 
 export const WINDOW_SIZES = {

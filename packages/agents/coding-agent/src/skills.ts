@@ -43,6 +43,7 @@ export class CodingSkillRegistry implements ISkillRegistry {
   }
 
   async select(_ctx: TaskContext, topK = 5): Promise<SelectedSkill[]> {
+    if (this.opts.impl) return this.opts.impl.select(_ctx, topK);
     // Phase 6A stub — R7 delegates to V1 SkillSelector
     return [...this._skills.values()].slice(0, topK).map((skill) => ({
       skill,

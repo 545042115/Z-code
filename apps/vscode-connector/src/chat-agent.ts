@@ -3,7 +3,7 @@
 // Supports web search, file operations, shell commands, code search,
 // and cross-session memory for personalized, context-aware responses.
 
-import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage } from '@z-assistant/contracts';
+import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, IConfirmationGate, ToolInvocation } from '@z-assistant/contracts';
 import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
 import { computeCost } from '@z-assistant/infra-cost';
 import {
@@ -14,6 +14,7 @@ import {
   EpisodicMemory,
   PreferencesMemory,
   recall,
+  DryRunExecutor,
   type JsonlMemoryProviderOptions,
 } from '@z-assistant/runtime';
 import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch } from './web-tools';
@@ -32,6 +33,27 @@ export interface ChatAgentOptions {
   profileDescription?: string;
   /** Storage directory for Memory persistence (optional). If not set, memory is disabled. */
   storageDir?: string;
+  /**
+   * Optional shared MemoryManager (from AssistantRuntime.memory). When
+   * provided, the chat agent uses this instance instead of creating its
+   * own, so all memory access paths share the same provider + userId.
+   */
+  memoryManager?: MemoryManager;
+  /**
+   * Optional confirmation gate (P1-2 HITL). When provided, every tool
+   * call passes through `gate.confirm()` before execution. Denied calls
+   * are skipped and a "Blocked by user" tool message is pushed back to
+   * the LLM. When not provided, all tools execute without confirmation
+   * (backward-compatible behavior for tests / headless mode).
+   */
+  confirmationGate?: IConfirmationGate;
+  /**
+   * Optional: when true, tool calls are simulated instead of executed.
+   * The DryRunExecutor returns a description of what each tool *would*
+   * have done, so the user can preview the agent's full plan before
+   * committing to real execution. Default: false.
+   */
+  dryRun?: boolean;
   /** Progress callback for streaming execution status to the UI. */
   onProgress?: (phase: string, detail: string) => void;
   /** Span factory for detailed execution tracing. */
@@ -93,14 +115,23 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   const allTools = [...WEB_TOOLS, ...TASK_TOOLS, ...BROWSER_TOOLS, ...PERCEPTION_TOOLS];
   const allToolNames = new Set(allTools.map((t) => t.name));
 
-  // Create MemoryManager if storageDir is provided
+  // Create MemoryManager if storageDir is provided OR an external
+  // memoryManager is supplied (from AssistantRuntime.memory). Preferring
+  // the external instance keeps a single provider + userId across the
+  // runtime, chat agent, and desktop memory panel.
   let memoryManager: MemoryManager | undefined;
   let shortTermMem: ShortTermMemory | undefined;
   let longTermMem: LongTermMemory | undefined;
   let episodicMem: EpisodicMemory | undefined;
   let preferencesMem: PreferencesMemory | undefined;
 
-  if (opts.storageDir) {
+  if (opts.memoryManager) {
+    memoryManager = opts.memoryManager;
+    shortTermMem = new ShortTermMemory(memoryManager);
+    longTermMem = new LongTermMemory(memoryManager);
+    episodicMem = new EpisodicMemory(memoryManager);
+    preferencesMem = new PreferencesMemory(memoryManager);
+  } else if (opts.storageDir) {
     const provider = new JsonlMemoryProvider({
       rootDir: opts.storageDir,
     } as JsonlMemoryProviderOptions);
@@ -137,6 +168,8 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
       let toolCalls = 0;
       const progress = opts.onProgress ?? (() => {});
       const startSpan = opts.startSpan;
+      // P1-2: Dry-run executor — simulates tool calls without side effects.
+      const dryRunExecutor = opts.dryRun ? new DryRunExecutor() : null;
 
       try {
         // ── Phase 1: Memory Recall (fast, no LLM call) ──────────────
@@ -256,10 +289,26 @@ Do NOT call any tools.`,
                   continue;
                 }
 
+                // P1-2: Confirmation gate — check before executing.
+                if (opts.confirmationGate) {
+                  const inv: ToolInvocation = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
+                  const decision = await opts.confirmationGate.confirm(inv);
+                  if (decision === 'deny') {
+                    messages.push({
+                      role: 'tool',
+                      content: `Blocked by user (tool: ${tc.name}).`,
+                      toolCallId: `xml_${tc.name}_${i}`,
+                    });
+                    continue;
+                  }
+                }
+
                 toolCalls++;
                 const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-                progress('tool', `Executing ${tc.name}...`);
-                const result = await executeTool(tc.name, tc.arguments);
+                progress('tool', dryRunExecutor ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
+                const result = dryRunExecutor
+                  ? await dryRunExecutor.simulate({ id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments })
+                  : await executeTool(tc.name, tc.arguments);
                 toolSpan?.end({ result: result.slice(0, 200) });
                 messages.push({
                   role: 'tool',
@@ -341,10 +390,26 @@ Do NOT call any tools.`,
               continue;
             }
 
+            // P1-2: Confirmation gate — check before executing.
+            if (opts.confirmationGate) {
+              const inv: ToolInvocation = { id: tc.id, toolName: tc.name, args: tc.arguments };
+              const decision = await opts.confirmationGate.confirm(inv);
+              if (decision === 'deny') {
+                messages.push({
+                  role: 'tool',
+                  content: `Blocked by user (tool: ${tc.name}).`,
+                  toolCallId: tc.id,
+                });
+                continue;
+              }
+            }
+
             toolCalls++;
             const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-            progress('tool', `Executing ${tc.name}...`);
-            const result = await executeTool(tc.name, tc.arguments);
+            progress('tool', dryRunExecutor ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
+            const result = dryRunExecutor
+              ? await dryRunExecutor.simulate({ id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments })
+              : await executeTool(tc.name, tc.arguments);
             toolSpan?.end({ result: result.slice(0, 200) });
             messages.push({
               role: 'tool',
@@ -553,3 +618,19 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       return `Unknown tool: ${name}`;
   }
 }
+
+// Exported for V2 adapter wiring (see coding-agent-factory.ts).
+// `executeToolByName` is the same dispatcher used inside the chat-agent's
+// ReAct loop, exposed so the V2 CodingToolRegistry can invoke chat tools
+// by name without re-implementing the dispatch table.
+export const executeToolByName = executeTool;
+
+// Aggregate of all tool definitions exported for V2 adapter wiring.
+// Each entry is in OpenAI function-calling format; the V2 factory wraps
+// them into ITool instances.
+export const ALL_CHAT_TOOLS = [
+  ...WEB_TOOLS,
+  ...TASK_TOOLS,
+  ...BROWSER_TOOLS,
+  ...PERCEPTION_TOOLS,
+];

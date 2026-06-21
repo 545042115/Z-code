@@ -11,7 +11,7 @@ AI models are NOT bundled — they download on first use to ~/.cache/.
 block_cipher = None
 
 a = Analysis(
-    ['python/perception_server.py'],
+    ['perception_server.py'],
     pathex=[],
     binaries=[],
     datas=[],

@@ -11,6 +11,7 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
+    "@z-assistant/agent-coding": "0.1.0",
     "@z-assistant/contracts": "0.1.0",
     "@z-assistant/infra-cost": "0.1.0",
     "@z-assistant/infra-storage": "0.1.0",

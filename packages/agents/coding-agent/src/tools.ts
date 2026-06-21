@@ -39,6 +39,7 @@ export class CodingToolRegistry implements IToolRegistry {
   }
 
   async invoke(inv: ToolInvocation): Promise<ToolResult> {
+    if (this.opts.impl) return this.opts.impl.invoke(inv);
     // Phase 6A stub — R7 delegates to V1 ToolRegistry
     return {
       ok: false,

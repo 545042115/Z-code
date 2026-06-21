@@ -41,3 +41,12 @@ extensions/coding-agent/out/
 extensions/coding-agent/dist/
 extensions/coding-agent/node_modules/
 *.tsbuildinfo
+
+# Python 环境（conda venv / PyInstaller 产物）
+.venv/
+__pycache__/
+*.pyc
+packages/runtime/python/build/
+packages/runtime/python/dist/
+packages/runtime/python/.deps-installed
+packages/runtime/python/.requirements-hash

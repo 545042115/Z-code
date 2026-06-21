@@ -63,7 +63,7 @@ if (-not $SkipPythonDeps) {
         if ($condaPath) {
             Write-Host "  Using conda: $condaPath" -ForegroundColor Green
             $pkgManager = 'conda'
-            $pythonExe = "$venvDir\Scripts\python.exe"
+            $pythonExe = "$venvDir\python.exe"
         } else {
             # Find a real Python (skip WindowsApps stub)
             $pythonExe = $null
@@ -92,7 +92,7 @@ if (-not $SkipPythonDeps) {
     }
 
     # 1b. Create venv if needed
-    if ($pythonExe -and (-not (Test-Path "$venvDir\Scripts\python.exe"))) {
+    if ($pythonExe -and (-not (Test-Path $pythonExe))) {
         Write-Host "  Creating virtual environment..."
         if ($pkgManager -eq 'uv') {
             uv venv "$venvDir" 2>&1
@@ -120,13 +120,18 @@ if (-not $SkipPythonDeps) {
 
     if ($needInstall -and $pythonExe) {
         Write-Host "  Installing Python dependencies..."
+        # pip writes warnings to stderr; with $ErrorActionPreference='Stop' that
+        # would abort the script even on success. Temporarily relax it.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         if ($pkgManager -eq 'uv') {
-            uv pip install -r "$reqFile" --python "$venvDir\Scripts\python.exe" 2>&1
+            uv pip install -r "$reqFile" --python "$pythonExe" 2>&1
         } elseif ($pkgManager -eq 'conda') {
-            & "$venvDir\Scripts\python.exe" -m pip install -r "$reqFile" 2>&1
+            & "$pythonExe" -m pip install -r "$reqFile" 2>&1
         } else {
-            & "$venvDir\Scripts\python.exe" -m pip install -r "$reqFile" 2>&1
+            & "$pythonExe" -m pip install -r "$reqFile" 2>&1
         }
+        $ErrorActionPreference = $prevEAP
         if ($LASTEXITCODE -ne 0) { throw "pip install failed" }
 
         # Write marker files
@@ -138,14 +143,22 @@ if (-not $SkipPythonDeps) {
 
     # 1d. Install PyInstaller (for packaging sidecar)
     if ($pythonExe) {
-        $hasPyInstaller = & "$venvDir\Scripts\python.exe" -c "import PyInstaller; print('ok')" 2>$null
+        # import may fail (ModuleNotFoundError) when PyInstaller isn't installed
+        # yet; that traceback goes to stderr and would abort under 'Stop'.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $hasPyInstaller = & "$pythonExe" -c "import PyInstaller; print('ok')" 2>$null
+        $ErrorActionPreference = $prevEAP
         if ($LASTEXITCODE -ne 0) {
             Write-Host "  Installing PyInstaller..."
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
             if ($pkgManager -eq 'uv') {
-                uv pip install pyinstaller --python "$venvDir\Scripts\python.exe" 2>&1
+                uv pip install pyinstaller --python "$pythonExe" 2>&1
             } else {
-                & "$venvDir\Scripts\python.exe" -m pip install pyinstaller 2>&1
+                & "$pythonExe" -m pip install pyinstaller 2>&1
             }
+            $ErrorActionPreference = $prevEAP
             if ($LASTEXITCODE -eq 0) {
                 Write-Host "  [OK] PyInstaller installed" -ForegroundColor Green
             }
@@ -160,34 +173,9 @@ if (-not $SkipPythonDeps) {
 # ── 2. Build TypeScript ──────────────────────────────────────────────
 Write-Step "2/6 Build TypeScript"
 
-# Patch 7za to ignore exit code 2 (macOS symlinks in winCodeSign)
-$7zaDir = "$rootDir\node_modules\7zip-bin\win\x64"
-$7zaReal = "$7zaDir\7za_real.exe"
-if ((Test-Path "$7zaDir\7za.exe") -and -not (Test-Path $7zaReal)) {
-    Write-Host "  Patching 7za.exe to ignore exit code 2..."
-    Move-Item "$7zaDir\7za.exe" $7zaReal -Force
-    $csCode = @'
-using System;
-using System.Diagnostics;
-using System.IO;
-class Program {
-    static int Main(string[] args) {
-        var psi = new ProcessStartInfo {
-            FileName = Path.Combine(Path.GetDirectoryName(typeof(Program).Assembly.Location), "7za_real.exe"),
-            Arguments = string.Join(" ", args),
-            UseShellExecute = false
-        };
-        var p = Process.Start(psi);
-        p.WaitForExit();
-        return p.ExitCode == 2 ? 0 : p.ExitCode;
-    }
-}
-'@
-    Add-Type -TypeDefinition $csCode -Language CSharp -OutputAssembly "$7zaDir\7za.exe" -OutputType ConsoleApplication -ReferencedAssemblies @() 2>&1 | Out-Null
-    if (Test-Path "$7zaDir\7za.exe") {
-        Write-Host "  [OK] 7za.exe patched" -ForegroundColor Green
-    }
-}
+# Note: 7za.exe patching removed — the C# wrapper compilation was unreliable and
+# broke electron-builder (which needs the original 7za.exe). With sign:false on
+# Windows, the exit-code-2 issue from macOS symlinks in winCodeSign doesn't apply.
 
 # Set signing env vars (no certs available)
 $env:CSC_IDENTITY_AUTO_DISCOVERY = 'false'
@@ -223,7 +211,8 @@ Pop-Location
 if (-not $SkipPython) {
     Write-Step "4/6 Build Python sidecar (perception-server.exe)"
 
-    $venvPython = "$venvDir\Scripts\python.exe"
+    # conda puts python.exe at venv root; uv/standard venv puts it in Scripts\
+    $venvPython = if (Test-Path "$venvDir\python.exe") { "$venvDir\python.exe" } else { "$venvDir\Scripts\python.exe" }
     $venvPyInstaller = "$venvDir\Scripts\pyinstaller.exe"
 
     if (-not (Test-Path $venvPython)) {
@@ -236,7 +225,12 @@ if (-not $SkipPython) {
 
         Write-Host "  Running PyInstaller..."
         Push-Location $pyDir
+        # PyInstaller writes all logs (INFO/WARNING) to stderr; relax EAP so
+        # normal logging doesn't abort the script under 'Stop'.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
         & $venvPyInstaller perception-server.spec --clean --noconfirm 2>&1
+        $ErrorActionPreference = $prevEAP
         Pop-Location
 
         $exe = "$pyDir\dist\perception-server.exe"
@@ -253,28 +247,21 @@ if (-not $SkipPython) {
 
 # ── 5. Package desktop app ──────────────────────────────────────────
 if (-not $SkipDesktop) {
-    Write-Step "5/6 Package desktop app"
-    $ebCli = "$rootDir\node_modules\electron-builder\cli.js"
-    if (-not (Test-Path $ebCli)) {
-        Write-Host "  [WARN] electron-builder not found, skipping" -ForegroundColor Yellow
+    Write-Step "5/6 Package desktop app (manual portable EXE)"
+    # electron-builder's "installing production dependencies" step prunes
+    # devDependencies (including 7zip-bin) from the workspace root, breaking
+    # its own 7za.exe dependency. Use the manual packaging script instead,
+    # which copies the Electron binary + app files without dependency pruning.
+    $pkgScript = "$rootDir\tools\package-desktop.ps1"
+    if (-not (Test-Path $pkgScript)) {
+        Write-Host "  [WARN] tools/package-desktop.ps1 not found, skipping" -ForegroundColor Yellow
     } else {
-        Write-Host "  Running electron-builder..."
-        Push-Location "$rootDir\apps\desktop"
-        $env:ELECTRON_VERSION = '30.5.1'
-        node $ebCli --config build/electron-builder.json 2>&1
-        Pop-Location
-        $dist = "$rootDir\apps\desktop\dist"
-        if (Test-Path $dist) {
-            Write-Host "  Output:" -ForegroundColor Cyan
-            Get-ChildItem $dist | ForEach-Object {
-                if ($_.Length) {
-                    $s = "{0:N1} MB" -f ($_.Length / 1MB)
-                    Write-Host "    $($_.Name)  $s"
-                } else {
-                    Write-Host "    $($_.Name)  (dir)"
-                }
-            }
-        }
+        # package-desktop.ps1 uses native commands (taskkill, robocopy) that
+        # write to stderr; reset EAP so they don't abort under 'Stop'.
+        $prevEAP = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        & $pkgScript -SkipInstall
+        $ErrorActionPreference = $prevEAP
     }
 } else {
     Write-Step "5/6 Skip desktop packaging"

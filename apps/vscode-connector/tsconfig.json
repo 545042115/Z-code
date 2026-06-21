@@ -13,6 +13,7 @@
     { "path": "../../packages/runtime" },
     { "path": "../../packages/trace" },
     { "path": "../../packages/infra/storage" },
-    { "path": "../../packages/infra/cost" }
+    { "path": "../../packages/infra/cost" },
+    { "path": "../../packages/agents/coding-agent" }
   ]
 }

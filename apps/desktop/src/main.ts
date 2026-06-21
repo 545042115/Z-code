@@ -296,6 +296,27 @@ function registerIpcHandlers(): void {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+
+  // ── Confirmation (P1-2 HITL) IPC handlers ───────────────────────
+  // Renderer → main: user clicked a button in the confirmation modal.
+  ipcMain.handle(
+    IPC_CHANNELS.CONFIRM_ACTION,
+    async (_event, requestId: string, decision: import('@z-assistant/contracts').Decision) => {
+      return bridge.resolveConfirmation(requestId, decision);
+    },
+  );
+
+  // ── Audit log (P1-2 HITL) IPC handlers ──────────────────────────
+  ipcMain.handle(IPC_CHANNELS.LIST_AUDIT_ENTRIES, async (_event, filter?: { runId?: string; toolName?: string; outcome?: string; limit?: number }) => {
+    await bridge.start();
+    return bridge.listAuditEntries(filter as any);
+  });
+  ipcMain.handle(IPC_CHANNELS.COUNT_AUDIT_ENTRIES, async (_event, filter?: { runId?: string; toolName?: string; outcome?: string }) => {
+    await bridge.start();
+    return bridge.countAuditEntries(filter as any);
+  });
+  ipcMain.handle(IPC_CHANNELS.LIST_ALWAYS_RULES, () => bridge.listAlwaysRules());
+  ipcMain.handle(IPC_CHANNELS.REMOVE_ALWAYS_RULE, (_event, id: string) => bridge.removeAlwaysRule(id));
 }
 
 function forwardEventsToFocusedWindow(): void {
@@ -311,6 +332,12 @@ function forwardEventsToFocusedWindow(): void {
   });
   bridge.onQQStatus((s) => {
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send(IPC_CHANNELS.ON_QQ_STATUS, s));
+  });
+  // P1-2 HITL: forward confirmation requests to every renderer so the
+  // modal can pop up on whichever window is currently focused.
+  bridge.onConfirmationRequest((req) => {
+    debugLog(`[confirmation] request ${req.id} risk=${req.risk} tool=${req.invocation.toolName}`);
+    BrowserWindow.getAllWindows().forEach(w => w.webContents.send(IPC_CHANNELS.ON_CONFIRMATION_REQUEST, req));
   });
 }
 

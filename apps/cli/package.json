@@ -16,6 +16,7 @@
   "dependencies": {
     "@z-assistant/app-vscode-connector": "0.1.0",
     "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/runtime": "0.1.0"
+    "@z-assistant/runtime": "0.1.0",
+    "@z-assistant/trace": "0.1.0"
   }
 }

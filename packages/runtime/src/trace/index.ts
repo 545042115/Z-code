@@ -1,3 +1,4 @@
 // trace/ — Universal trace mechanism (Span / Run / Metric / QueryService).
-// Phase 6A placeholder. Filled in R5.
-export {};
+//
+// Re-export shim: the real implementation lives in `@z-assistant/trace`.
+export * from '@z-assistant/trace';

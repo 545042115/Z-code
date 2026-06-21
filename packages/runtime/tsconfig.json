@@ -10,8 +10,10 @@
   "exclude": ["out", "node_modules"],
   "references": [
     { "path": "../contracts" },
-    { "path": "../infra/errors" },
+    { "path": "../infra/config" },
     { "path": "../infra/cost" },
+    { "path": "../infra/errors" },
+    { "path": "../infra/permission" },
     { "path": "../infra/storage" },
     { "path": "../trace" }
   ]
