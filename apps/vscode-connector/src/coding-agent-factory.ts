@@ -39,6 +39,7 @@
 
 import type {
   IAgent,
+  IConfirmationGate,
   ITool,
   IToolRegistry,
   ToolInvocation,
@@ -49,6 +50,9 @@ import {
   createCodingAgentLoop,
   type CodingAgentLoop,
 } from '@z-assistant/agent-coding';
+import type { DryRunExecutor } from '@z-assistant/runtime/permission';
+import type { AuditLogger } from '@z-assistant/runtime';
+import { ToolInvocationPipeline } from '@z-assistant/runtime/permission';
 
 import {
   createChatAgent,
@@ -59,6 +63,21 @@ import {
 
 // ── ChatToolRegistry — V2 IToolRegistry backed by chat-agent tools ─────
 
+export interface ChatToolRegistryOptions {
+  /** Optional confirmation gate (P1-2 HITL). */
+  confirmationGate?: IConfirmationGate;
+  /** Optional dry-run executor (P1-2 HITL). */
+  dryRunExecutor?: DryRunExecutor;
+  /** Optional audit logger (P1-2 HITL). */
+  auditLogger?: AuditLogger;
+  /** Optional run id for audit correlation. */
+  runId?: string;
+  /** Optional user id for audit. */
+  userId?: string;
+  /** Optional V2 tool policy (allow/deny lists). */
+  toolPolicy?: ToolPolicy;
+}
+
 /**
  * V2 `IToolRegistry` implementation that wraps the chat-agent's tool
  * definitions (OpenAI function-calling format) into V2 `ITool` instances.
@@ -66,14 +85,27 @@ import {
  * Each tool's `invoke()` delegates to the chat-agent's `executeToolByName`
  * dispatcher, so the V2 Orchestrator can call any chat tool by name and
  * get back a V2 `ToolResult`.
+ *
+ * P1-2 HITL: the registry also honors the optional `confirmationGate`,
+ * `dryRunExecutor`, and `auditLogger`. When these are provided, direct V2
+ * tool invocations go through the same gating/simulation/audit pipeline as
+ * the chat-agent's internal loop, preventing bypass of the confirmation UI.
  */
 export class ChatToolRegistry implements IToolRegistry {
   readonly name = 'chat-tools';
   private _tools = new Map<string, ITool>();
   private _policy: ToolPolicy;
+  private _pipeline: ToolInvocationPipeline;
 
-  constructor(policy?: ToolPolicy) {
-    this._policy = policy ?? { allow: [], deny: [] };
+  constructor(opts: ChatToolRegistryOptions = {}) {
+    this._policy = opts.toolPolicy ?? { allow: [], deny: [] };
+    this._pipeline = new ToolInvocationPipeline({
+      confirmationGate: opts.confirmationGate,
+      dryRunExecutor: opts.dryRunExecutor,
+      auditLogger: opts.auditLogger,
+      runId: opts.runId,
+      userId: opts.userId,
+    });
     for (const def of ALL_CHAT_TOOLS) {
       this._tools.set(def.name, this._wrapTool(def));
     }
@@ -85,26 +117,8 @@ export class ChatToolRegistry implements IToolRegistry {
       description: def.description,
       argsSchema: def.argsSchema as Record<string, unknown> | undefined,
       capabilities: ['chat', 'desktop'],
-      async invoke(inv: ToolInvocation): Promise<ToolResult> {
-        const t0 = Date.now();
-        try {
-          const output = await executeToolByName(inv.toolName, inv.args);
-          return {
-            ok: true,
-            output,
-            metrics: { durationMs: Date.now() - t0 },
-          };
-        } catch (e: unknown) {
-          return {
-            ok: false,
-            error: {
-              code: 'TOOL_ERROR',
-              message: e instanceof Error ? e.message : String(e),
-            },
-            metrics: { durationMs: Date.now() - t0 },
-          };
-        }
-      },
+      invoke: (inv: ToolInvocation): Promise<ToolResult> =>
+        this._pipeline.invoke(inv, async () => executeToolByName(inv.toolName, inv.args)),
     };
   }
 
@@ -158,6 +172,16 @@ export interface CodingAgentFactoryOptions {
   toolPolicy?: ToolPolicy;
   /** Optional default model for the Coding agent. */
   defaultModel?: { provider: string; name: string };
+  /** Optional confirmation gate for direct V2 tool invocations. */
+  confirmationGate?: IConfirmationGate;
+  /** Optional dry-run executor for direct V2 tool invocations. */
+  dryRunExecutor?: DryRunExecutor;
+  /** Optional audit logger for direct V2 tool invocations. */
+  auditLogger?: AuditLogger;
+  /** Optional run id for audit correlation. */
+  runId?: string;
+  /** Optional user id for audit. */
+  userId?: string;
 }
 
 /**
@@ -178,7 +202,14 @@ export function createCodingAgentFromChat(
   opts: CodingAgentFactoryOptions,
 ): CodingAgentLoop {
   const chatAgent: IAgent = createChatAgent(opts.chatAgent);
-  const toolRegistry = new ChatToolRegistry(opts.toolPolicy);
+  const toolRegistry = new ChatToolRegistry({
+    toolPolicy: opts.toolPolicy,
+    confirmationGate: opts.confirmationGate,
+    dryRunExecutor: opts.dryRunExecutor,
+    auditLogger: opts.auditLogger,
+    runId: opts.runId,
+    userId: opts.userId,
+  });
 
   return createCodingAgentLoop({
     agent: {

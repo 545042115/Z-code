@@ -20,6 +20,8 @@ export * from './llm';
 export * from './reflection';
 export * from './context';
 export * from './skill';
+export * from './skill-discovery';
+export * from './prompt-injection';
 export * from './budget';
 export * from './memory';
 export * from './confirmation';

@@ -11,3 +11,12 @@ export * from './computer-use';
 export * from './risk-levels';
 export * from './confirmation';
 export * from './dry-run';
+export * from './prompt-injection';
+export {
+  ToolInvocationPipeline,
+  type ToolInvocationPipelineOptions,
+  type PipelineInvocationResult,
+  type ToolExecutor,
+} from './pipeline';
+
+export { checkPath, extractFilePaths, type PathGuardOptions } from './path-guard';

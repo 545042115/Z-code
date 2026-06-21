@@ -31,7 +31,14 @@ export class ShortTermMemory {
   /** Record both user and assistant messages at once. */
   async addExchange(user: string, assistant: string, runId?: string): Promise<MemoryRecord[]> {
     const u = await this.addTurn({ role: 'user', content: user, runId });
+    // Ensure a strictly increasing createdAt so list() (sorted desc by
+    // createdAt) reliably returns the assistant turn first. Without
+    // this, two addTurn calls in the same millisecond would tie and
+    // the sort order would depend on Map iteration semantics.
     const a = await this.addTurn({ role: 'assistant', content: assistant, runId });
+    if (a.createdAt <= u.createdAt) {
+      a.createdAt = u.createdAt + 1;
+    }
     return [u, a];
   }
 

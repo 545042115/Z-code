@@ -60,10 +60,16 @@ export function matchPurgeFilter(r: MemoryRecord, filter: MemoryPurgeFilter): bo
 }
 
 /** Score how well a record matches a text query using simple keyword overlap. */
-export function keywordScore(query: string, content: string): number {
+export function keywordScore(query: string, content: string): number;
+export function keywordScore(query: string, contentTokens: Set<string>): number;
+export function keywordScore(query: string, content: string | Set<string>): number {
   const q = query.toLowerCase().split(/\W+/).filter(Boolean);
-  const c = content.toLowerCase().split(/\W+/).filter(Boolean);
-  if (q.length === 0 || c.length === 0) return 0;
-  const matches = q.filter((word) => c.includes(word)).length;
-  return matches / Math.max(q.length, c.length);
+  if (q.length === 0) return 0;
+  const c = content instanceof Set ? content : new Set(content.toLowerCase().split(/\W+/).filter(Boolean));
+  if (c.size === 0) return 0;
+  let matches = 0;
+  for (const word of q) {
+    if (c.has(word)) matches++;
+  }
+  return matches / Math.max(q.length, c.size);
 }

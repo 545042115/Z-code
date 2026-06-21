@@ -2,7 +2,8 @@
   "name": "@z-assistant/runtime",
   "version": "0.1.0",
   "private": true,
-  "description": "V2 Assistant Runtime — mechanism layer (trace, storage, cost, errors, permission, config, budget, orchestrator) and framework layer (planning, reflection, context, skills, evaluation, evolution, memory). workflow/ is a placeholder for future phases.",
+  "description": "V2 Assistant Runtime — mechanism layer (trace, storage, cost, errors, permission, config, budget, orchestrator) and framework layer (planning, reflection, context, skills, evaluation, evolution, memory, workflow).",
+
   "main": "out/index.js",
   "types": "out/index.d.ts",
   "exports": {
@@ -33,6 +34,10 @@
     "./planning": {
       "types": "./out/planning/index.d.ts",
       "default": "./out/planning/index.js"
+    },
+    "./workflow": {
+      "types": "./out/workflow/index.d.ts",
+      "default": "./out/workflow/index.js"
     },
     "./reflection": {
       "types": "./out/reflection/index.d.ts",
@@ -79,7 +84,7 @@
     "build": "tsc -p ./",
     "build:python": "cd python && pyinstaller perception-server.spec --clean",
     "typecheck": "tsc -p ./ --noEmit",
-    "test": "tsc -p ./ && node --test \"out/orchestrator/__tests__/*.test.js\" \"out/evolution/__tests__/*.test.js\" \"out/evaluation/__tests__/*.test.js\" \"out/memory/__tests__/*.test.js\" \"out/audit/__tests__/*.test.js\" \"out/permission/__tests__/*.test.js\" \"out/__tests__/*.test.js\"",
+    "test": "tsc -p ./ && node --test \"out/orchestrator/__tests__/*.test.js\" \"out/evolution/__tests__/*.test.js\" \"out/evaluation/__tests__/*.test.js\" \"out/memory/__tests__/*.test.js\" \"out/audit/__tests__/*.test.js\" \"out/permission/__tests__/*.test.js\" \"out/skills/__tests__/*.test.js\" \"out/workflow/__tests__/*.test.js\" \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {

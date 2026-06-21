@@ -15,7 +15,13 @@ import {
   PreferencesMemory,
   recall,
   DryRunExecutor,
+  ToolInvocationPipeline,
+  extractFacts,
+  buildHierarchicalPlan,
+  renderPlan,
+  selectPlanningMode,
   type JsonlMemoryProviderOptions,
+  type PlanningMode,
 } from '@z-assistant/runtime';
 import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch } from './web-tools';
 import { TASK_TOOLS, readFile, writeFile, replaceText, appendText, insertText, runTerminal, searchCode, listDirectory, getProjectContext } from './task-tools';
@@ -58,7 +64,26 @@ export interface ChatAgentOptions {
   onProgress?: (phase: string, detail: string) => void;
   /** Span factory for detailed execution tracing. */
   startSpan?: (name: string, type: string, input?: unknown) => { end: (output?: unknown) => void; fail: (err: unknown) => void; addEvent: (name: string) => void; };
+  /**
+   * Planning mode:
+   *   - simple: native ReAct loop (default)
+   *   - hierarchical: LLM generates milestones+steps before acting
+   *   - auto: pick based on task complexity
+   */
+  planningMode?: PlanningMode;
+  /**
+   * Optional file attachments (images, audio, documents). Non-text media is
+   * pre-processed by the perception layer (OCR/caption/transcribe/parse) into
+   * text before being sent to the LLM. This allows text-only models like
+   * DeepSeek to consume multimodal input.
+   */
+  attachments?: ChatAttachment[];
 }
+
+export type ChatAttachment =
+  | { type: 'image'; path: string }
+  | { type: 'audio'; path: string }
+  | { type: 'document'; path: string };
 
 /** Key used in SharedState to persist conversation history. */
 export const CHAT_HISTORY_KEY = 'chat.history';
@@ -142,6 +167,18 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     preferencesMem = new PreferencesMemory(memoryManager);
   }
 
+  // Unified tool invocation pipeline (P1-2 HITL + sandbox): risk → injection
+  // scan → path guard → confirmation gate → dry-run/execute → audit.
+  const dryRunExecutor = opts.dryRun ? new DryRunExecutor() : undefined;
+  const allowedRoots = [opts.projectDir ?? process.cwd(), opts.storageDir].filter(Boolean) as string[];
+  const toolPipeline = new ToolInvocationPipeline({
+    confirmationGate: opts.confirmationGate,
+    dryRunExecutor,
+    pathGuard: allowedRoots.length > 0 ? { allowedRoots } : undefined,
+    runId: '',
+    userId: 'desktop-user',
+  });
+
   return {
     name: 'chat',
     role: 'Chat',
@@ -168,8 +205,6 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
       let toolCalls = 0;
       const progress = opts.onProgress ?? (() => {});
       const startSpan = opts.startSpan;
-      // P1-2: Dry-run executor — simulates tool calls without side effects.
-      const dryRunExecutor = opts.dryRun ? new DryRunExecutor() : null;
 
       try {
         // ── Phase 1: Memory Recall (fast, no LLM call) ──────────────
@@ -202,45 +237,95 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
         // Load conversation history from shared state
         const history = ctx.sharedState.get<LLMMessage[]>(CHAT_HISTORY_KEY) ?? [];
 
-        // ── Phase 2: Planning (1 LLM call) ──────────────────────────
+        // ── Phase 1.5: Multimodal attachment preprocessing ──────────
+        // Convert images/audio/documents into text so text-only LLMs (e.g.
+        // DeepSeek) can reason about them.
+        let attachmentContext = '';
+        if (opts.attachments && opts.attachments.length > 0) {
+          const parts: string[] = [];
+          for (const att of opts.attachments) {
+            progress('perception', `Processing ${att.type} attachment: ${att.path}`);
+            try {
+              if (att.type === 'image') {
+                const [ocr, caption] = await Promise.all([
+                  ocrImage(att.path),
+                  describeImage(att.path),
+                ]);
+                const imageParts = [`[Image: ${att.path}]`, caption];
+                if (ocr && !ocr.startsWith('(no text') && !ocr.startsWith('OCR failed')) {
+                  imageParts.push(`OCR text: ${ocr}`);
+                }
+                parts.push(imageParts.join('\n'));
+              } else if (att.type === 'audio') {
+                const text = await transcribeAudio(att.path);
+                parts.push(`[Audio: ${att.path}]\nTranscription: ${text}`);
+              } else if (att.type === 'document') {
+                const text = await parseDocument(att.path);
+                parts.push(`[Document: ${att.path}]\n${text}`);
+              }
+            } catch (err: unknown) {
+              const msg = err instanceof Error ? err.message : String(err);
+              parts.push(`[Attachment ${att.path} failed: ${msg}]`);
+            }
+          }
+          if (parts.length > 0) {
+            attachmentContext = '\n\n## Attachments\n' + parts.join('\n\n---\n\n');
+          }
+        }
+
+        // ── Phase 2: Planning ───────────────────────────────────────
         const planSpan = startSpan?.('planning', 'planner', { task: ctx.task.slice(0, 200) });
         progress('plan', 'Analyzing request and creating execution plan...');
-        const planMessages: LLMMessage[] = [
-          {
-            role: 'system',
-            content: `You are a task planner. Analyze the user's request and create a brief plan (2-4 steps).
+
+        const mode = selectPlanningMode(ctx.task, opts.planningMode ?? 'simple');
+        let planText = '';
+
+        if (mode === 'hierarchical') {
+          // Deep planning: milestones + steps, rendered into the system prompt.
+          const hierarchicalPlan = await buildHierarchicalPlan(ctx.task, {
+            llmProvider: opts.llmProvider,
+            model: ctx.model,
+          });
+          planText = '\n\n' + renderPlan(hierarchicalPlan);
+          llmCalls++;
+          planSpan?.end({ plan: 'hierarchical', steps: hierarchicalPlan.steps.length });
+        } else {
+          // Simple planning: native ReAct with a brief 2-4 step plan.
+          const planMessages: LLMMessage[] = [
+            {
+              role: 'system',
+              content: `You are a task planner. Analyze the user's request and create a brief plan (2-4 steps).
 Output ONLY a JSON object with a "plan" array of step descriptions.
 Do NOT call any tools.`,
-          },
-          { role: 'user', content: ctx.task },
-        ];
+            },
+            { role: 'user', content: ctx.task },
+          ];
 
-        const planResponse = await opts.llmProvider.generate({
-          model: ctx.model,
-          messages: planMessages,
-          temperature: 0.3,
-          maxTokens: 1024,
-          signal: ctx.signal,
-        });
-        llmCalls++;
-        totalTokensIn += planResponse.usage.tokensIn;
-        totalTokensOut += planResponse.usage.tokensOut;
+          const planResponse = await opts.llmProvider.generate({
+            model: ctx.model,
+            messages: planMessages,
+            temperature: 0.3,
+            maxTokens: 1024,
+            signal: ctx.signal,
+          });
+          llmCalls++;
+          totalTokensIn += planResponse.usage.tokensIn;
+          totalTokensOut += planResponse.usage.tokensOut;
 
-        // Extract plan text from response (best-effort, non-blocking if parse fails)
-        let planText = '';
-        try {
-          const planJson = JSON.parse(planResponse.message.content ?? '{}');
-          if (Array.isArray(planJson.plan)) {
-            planText = '\n\n## Plan\n' + planJson.plan.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n');
+          try {
+            const planJson = JSON.parse(planResponse.message.content ?? '{}');
+            if (Array.isArray(planJson.plan)) {
+              planText = '\n\n## Plan\n' + planJson.plan.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n');
+            }
+          } catch {
+            planText = '';
           }
-        } catch {
-          planText = '';
+          planSpan?.end({ plan: planText ? 'simple' : 'skipped' });
         }
-        planSpan?.end({ plan: planText ? 'created' : 'skipped' });
 
         // ── Phase 3: ReAct loop ─────────────────────────────────────
         const messages: LLMMessage[] = [
-          { role: 'system', content: systemPrompt + memoryContext + planText },
+          { role: 'system', content: systemPrompt + memoryContext + attachmentContext + planText },
           ...history,
           { role: 'user', content: ctx.task },
         ];
@@ -305,10 +390,12 @@ Do NOT call any tools.`,
 
                 toolCalls++;
                 const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-                progress('tool', dryRunExecutor ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-                const result = dryRunExecutor
-                  ? await dryRunExecutor.simulate({ id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments })
-                  : await executeTool(tc.name, tc.arguments);
+                const inv = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
+                progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
+                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments));
+                const result = pipelineResult.ok
+                  ? String(pipelineResult.output ?? '')
+                  : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
                 toolSpan?.end({ result: result.slice(0, 200) });
                 messages.push({
                   role: 'tool',
@@ -332,32 +419,49 @@ Do NOT call any tools.`,
             ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
 
             // ── Phase 4: Memory Save (async, non-blocking) ──────────
-            if (shortTermMem && episodicMem && longTermMem && preferencesMem) {
-              // Save as episode (fire-and-forget)
-              episodicMem.record({
-                task: ctx.task.slice(0, 200),
-                story: reply.slice(0, 500),
-                outcome: 'success',
-                tags: ['chat'],
-              }).catch(() => {});
+          if (shortTermMem && episodicMem && longTermMem && preferencesMem) {
+            // Save as episode (fire-and-forget)
+            episodicMem.record({
+              task: ctx.task.slice(0, 200),
+              story: reply.slice(0, 500),
+              outcome: 'success',
+              tags: ['chat'],
+            }).catch(() => {});
 
-              // Detect and save user preferences (simple heuristics)
-              const prefKeywords = ['我喜欢', 'I like', 'I prefer', 'I use', 'I want', 'I need', 'I am'];
-              for (const kw of prefKeywords) {
-                const idx = ctx.task.indexOf(kw);
-                if (idx !== -1) {
-                  const statement = ctx.task.slice(idx, idx + 100).split(/[.。!！?？\n]/)[0];
-                  if (statement) {
-                    preferencesMem.learn({
-                      key: 'inferred',
-                      value: statement,
-                      statement,
-                      confidence: 0.5,
-                    }).catch(() => {});
-                  }
+            // Extract durable facts about the user using rules + optional LLM.
+            // Heuristics catch "我在上海", "I prefer dark mode", etc.
+            // LLM fallback handles implicit or complex statements.
+            extractFacts(ctx.task, { minConfidence: 0.7 }).then(async (facts) => {
+              for (const f of facts) {
+                await longTermMem!.remember(
+                  {
+                    content: `${f.entity ?? 'user'} ${f.factType}: ${f.value}`,
+                    payload: {
+                      factType: f.factType,
+                      entity: f.entity ?? 'user',
+                      value: f.value,
+                      statement: f.statement,
+                      confidence: f.confidence,
+                      source: f.source,
+                    },
+                    importance: f.confidence,
+                  },
+                  'user',
+                ).catch(() => {});
+
+                // Also keep explicit preferences in the preference subsystem
+                // for backwards-compatible recall paths.
+                if (f.factType === 'preference') {
+                  await preferencesMem!.learn({
+                    key: `inferred-${f.factType}`,
+                    value: f.value,
+                    statement: f.statement,
+                    confidence: f.confidence,
+                  }).catch(() => {});
                 }
               }
-            }
+            }).catch(() => {});
+          }
 
             return okResult(reply, {
               artifacts: { reply, history: updatedHistory },
@@ -390,26 +494,14 @@ Do NOT call any tools.`,
               continue;
             }
 
-            // P1-2: Confirmation gate — check before executing.
-            if (opts.confirmationGate) {
-              const inv: ToolInvocation = { id: tc.id, toolName: tc.name, args: tc.arguments };
-              const decision = await opts.confirmationGate.confirm(inv);
-              if (decision === 'deny') {
-                messages.push({
-                  role: 'tool',
-                  content: `Blocked by user (tool: ${tc.name}).`,
-                  toolCallId: tc.id,
-                });
-                continue;
-              }
-            }
-
             toolCalls++;
             const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-            progress('tool', dryRunExecutor ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-            const result = dryRunExecutor
-              ? await dryRunExecutor.simulate({ id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments })
-              : await executeTool(tc.name, tc.arguments);
+            const inv: ToolInvocation = { id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
+            progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
+            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments));
+            const result = pipelineResult.ok
+              ? String(pipelineResult.output ?? '')
+              : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
             toolSpan?.end({ result: result.slice(0, 200) });
             messages.push({
               role: 'tool',

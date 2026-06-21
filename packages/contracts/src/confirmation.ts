@@ -18,6 +18,7 @@
 // (CLI), or a VSCode warning (extension).
 
 import type { ToolInvocation } from './tool';
+import type { PromptInjectionReport } from './prompt-injection';
 
 // ── Risk levels ──────────────────────────────────────────────────────
 
@@ -73,6 +74,11 @@ export interface ConfirmationRequest {
   preview?: ToolPreview;
   /** When the request was created (epoch ms). */
   createdAt: number;
+  /**
+   * Prompt-injection scan report, if the tool arguments were scanned.
+   * When `injected` is true, the call is blocked (critical risk).
+   */
+  promptInjectionReport?: PromptInjectionReport;
 }
 
 // ── Tool preview ────────────────────────────────────────────────────

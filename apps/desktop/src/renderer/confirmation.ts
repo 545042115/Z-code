@@ -61,6 +61,10 @@ function ensureModal(): HTMLElement {
       </div>
       <div class="confirmation-body">
         <p class="confirmation-reason" id="confirmation-reason"></p>
+        <div class="confirmation-injection-warning" id="confirmation-injection-warning" style="display:none">
+          <strong>⚠ Prompt Injection Detected</strong>
+          <ul id="confirmation-injection-list"></ul>
+        </div>
         <div class="confirmation-tool">
           <span>Tool:</span>
           <code id="confirmation-tool-name"></code>
@@ -91,14 +95,18 @@ function ensureModal(): HTMLElement {
   wire('confirmation-btn-always-allow', 'always-allow');
   wire('confirmation-btn-always-deny', 'always-deny');
 
-  // Esc → deny; Enter → allow.
+  // Esc → deny; Enter → allow (unless critical, in which case Enter also denies).
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       e.preventDefault();
       onDecision('deny');
     } else if (e.key === 'Enter') {
       e.preventDefault();
-      onDecision('allow');
+      // The current request is not yet rendered here, but callers must pass
+      // the active risk to `ensureModal` or re-read it from the DOM dataset.
+      // We store the active risk on the overlay so keyboard shortcuts respect it.
+      const activeRisk = overlay.dataset.risk as ConfirmationRequest['risk'] | undefined;
+      onDecision(activeRisk === 'critical' ? 'deny' : 'allow');
     }
   });
 
@@ -120,10 +128,24 @@ function renderRequest(req: ConfirmationRequest): void {
   const title = overlay.querySelector('#confirmation-title') as HTMLElement;
 
   title.textContent = 'Action Confirmation';
+  overlay.dataset.risk = req.risk;
   badge.textContent = RISK_LABELS[req.risk];
   badge.className = `confirmation-risk-badge ${req.risk}`;
   reason.textContent = req.reason || RISK_DESCRIPTIONS[req.risk];
   toolName.textContent = req.invocation.toolName;
+
+  // Render prompt-injection warning if present.
+  const injectionWarning = overlay.querySelector('#confirmation-injection-warning') as HTMLElement;
+  const injectionList = overlay.querySelector('#confirmation-injection-list') as HTMLElement;
+  if (req.promptInjectionReport?.matches.length) {
+    injectionWarning.style.display = 'block';
+    injectionList.innerHTML = req.promptInjectionReport.matches
+      .map((m) => `<li><strong>${escapeHtml(m.type)}</strong>: ${escapeHtml(m.reason)} <code>${escapeHtml(m.snippet.slice(0, 80))}</code></li>`)
+      .join('');
+  } else {
+    injectionWarning.style.display = 'none';
+    injectionList.innerHTML = '';
+  }
 
   // Render preview if present.
   if (req.preview && req.preview.content) {

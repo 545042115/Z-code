@@ -22,3 +22,14 @@ export {
   buildWaves,
   type DagExecutorOptions,
 } from './dag-executor';
+
+export {
+  buildHierarchicalPlan,
+  executeHierarchicalPlan,
+  renderPlan,
+  selectPlanningMode,
+  type PlanningMode,
+  type HierarchicalPlan,
+  type HierarchicalPlannerOptions,
+  type Milestone,
+} from './hierarchical-planner';

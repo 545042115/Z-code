@@ -43,6 +43,10 @@ export interface ToolRiskRule {
 // (safe read-only tools). First match wins.
 
 export const DEFAULT_TOOL_RISK_RULES: ToolRiskRule[] = [
+  // Note: prompt-injection / jailbreak detection is handled centrally by
+  // ConfirmationGate before classifyToolCall is called, so it is intentionally
+  // NOT duplicated here. This avoids scanning the same arguments twice.
+
   // ── Critical: dangerous shell commands (rm -rf, git push --force, etc.) ──
   {
     name: 'shell.dangerous-command',
@@ -91,13 +95,28 @@ export const DEFAULT_TOOL_RISK_RULES: ToolRiskRule[] = [
     warning: 'Appending to a file.',
   },
 
-  // ── Medium: browser navigation to non-HTTPS ──
+  // ── Critical: browser navigation to dangerous schemes ──
+  {
+    name: 'browser.dangerous-scheme',
+    match: (name, args) => {
+      if (name !== 'browser_navigate') return false;
+      const url = String(args.url ?? '');
+      if (url.length === 0) return false;
+      // Only http(s) are allowed. about: is explicitly denied because it can
+      // be used to access browser internals (about:config, about:blank XSS).
+      return !(url.startsWith('http://') || url.startsWith('https://'));
+    },
+    risk: 'critical',
+    warning: 'Navigating to a URL with a non-HTTP(S) scheme is blocked for safety.',
+  },
+
+  // ── Medium: browser navigation to non-HTTPS HTTP URL ──
   {
     name: 'browser.insecure-nav',
     match: (name, args) => {
       if (name !== 'browser_navigate') return false;
       const url = String(args.url ?? '');
-      return url.length > 0 && !url.startsWith('https://') && !url.startsWith('about:');
+      return url.startsWith('http://');
     },
     risk: 'medium',
     warning: 'Navigating to a non-HTTPS URL. Data may be transmitted in plaintext.',
@@ -201,3 +220,5 @@ export function compareRisk(a: RiskLevel, b: RiskLevel): number {
   const order: RiskLevel[] = ['safe', 'low', 'medium', 'high', 'critical'];
   return order.indexOf(a) - order.indexOf(b);
 }
+
+

@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "V2 Coding Agent adapter layer. Thin wrapper that implements V2 interfaces (IAgent, IPlanner, IReflectionEngine, IContextProvider, ISkillRegistry, IToolRegistry, IVerifier) by delegating to V1's `extensions/coding-agent/src/`. Does NOT re-implement Coding business logic.",
-  "main": "out/index.js",
-  "types": "out/index.d.ts",
+  "main": "out/src/index.js",
+  "types": "out/src/index.d.ts",
   "scripts": {
     "build": "tsc -p ./",
     "typecheck": "tsc -p ./ --noEmit",

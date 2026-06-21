@@ -34,6 +34,8 @@ export interface AuditLoggerOptions {
    * or as a read cache. Default 1000.
    */
   maxInMemory?: number;
+  /** Optional callback invoked after every entry is appended. */
+  onAppend?: (entry: AuditLogEntry) => void;
 }
 
 // ── Filter for list() ────────────────────────────────────────────────
@@ -80,6 +82,7 @@ export class AuditLogger {
   private readonly filename: string;
   private readonly filePath?: string;
   private readonly maxInMemory: number;
+  private readonly onAppend?: (entry: AuditLogEntry) => void;
   private readonly buffer: AuditLogEntry[] = [];
   /** Serialized write chain — each write awaits the previous. */
   private writeChain: Promise<void> = Promise.resolve();
@@ -88,6 +91,7 @@ export class AuditLogger {
     this.rootDir = opts.rootDir;
     this.filename = opts.filename ?? 'audit.jsonl';
     this.maxInMemory = opts.maxInMemory ?? 1000;
+    this.onAppend = opts.onAppend;
     if (this.rootDir) {
       this.filePath = join(this.rootDir, this.filename);
     }
@@ -199,10 +203,24 @@ export class AuditLogger {
     return this.listFromBuffer(filter, limit);
   }
 
-  /** Count entries matching the filter (no limit). */
+  /** Count entries matching the filter (no limit). Streams the file. */
   async count(filter: AuditListFilter = {}): Promise<number> {
-    const all = await this.list({ ...filter, limit: Number.MAX_SAFE_INTEGER });
-    return all.length;
+    if (!this.filePath || !existsSync(this.filePath)) {
+      return this.listFromBuffer(filter, Number.MAX_SAFE_INTEGER).length;
+    }
+    const stream = createReadStream(this.filePath, { encoding: 'utf8' });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+    let n = 0;
+    for await (const line of rl) {
+      if (!line) continue;
+      try {
+        const entry = JSON.parse(line) as AuditLogEntry;
+        if (this.matchesFilter(entry, filter)) n++;
+      } catch {
+        // skip malformed
+      }
+    }
+    return n;
   }
 
   // ── Internals ────────────────────────────────────────────────────
@@ -212,6 +230,13 @@ export class AuditLogger {
     this.buffer.push(entry);
     if (this.buffer.length > this.maxInMemory) {
       this.buffer.splice(0, this.buffer.length - this.maxInMemory);
+    }
+
+    // Notify subscribers (e.g. background evolution scheduler).
+    try {
+      this.onAppend?.(entry);
+    } catch {
+      // Subscriber errors must not break logging.
     }
 
     // Persist to disk (serialized).
@@ -242,21 +267,28 @@ export class AuditLogger {
     const stream = createReadStream(this.filePath!, { encoding: 'utf8' });
     const rl = createInterface({ input: stream, crlfDelay: Infinity });
 
-    // Collect all matching entries, then take the last `limit`.
-    const matched: AuditLogEntry[] = [];
+    // Fixed-size ring buffer: keep only the most recent `limit` matching
+    // entries to avoid materialising the whole file in memory.
+    const ring: AuditLogEntry[] = new Array(limit);
+    let ringPos = 0;
+    let ringCount = 0;
     for await (const line of rl) {
       if (!line) continue;
       try {
         const entry = JSON.parse(line) as AuditLogEntry;
-        if (this.matchesFilter(entry, filter)) matched.push(entry);
+        if (!this.matchesFilter(entry, filter)) continue;
+        ring[ringPos] = entry;
+        ringPos = (ringPos + 1) % limit;
+        ringCount++;
       } catch {
         // skip malformed
       }
     }
     // Return newest-first.
-    const start = Math.max(0, matched.length - limit);
-    for (let i = matched.length - 1; i >= start; i--) {
-      out.push(matched[i]);
+    const count = Math.min(ringCount, limit);
+    for (let i = 0; i < count; i++) {
+      const idx = (ringPos - 1 - i + limit) % limit;
+      out.push(ring[idx]);
     }
     return out;
   }

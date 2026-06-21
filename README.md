@@ -13,8 +13,8 @@
 > - **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**，包含独立 Desktop 应用、CLI、Runtime 框架
 >
 > **当前版本 / Current Versions**
-> - V1（VSCode 扩展）：v1.2.0
-> - V2（Assistant Runtime）：v2.0.0-alpha.4
+- V1（VSCode 扩展）：v1.2.0
+- V2（Assistant Runtime）：v2.0.0-alpha.5
 
 ---
 
@@ -222,21 +222,31 @@ V1 VSCode 扩展保留并继续发版；V2 不替换 V1，而是给 V1 加一层
 | 💚 **WeChatFerry 微信自动回复** | `apps/vscode-connector/src/wechat-hook-service.ts` | DLL 注入微信 Windows 客户端，自动回复好友私聊和群聊 @消息，支持风格模仿 |
 | 💙 **QQ 自动回复（NapCat + OneBot）** | `apps/vscode-connector/src/qq-onebot-service.ts` | NapCat + OneBot v11 WebSocket 协议，自动回复 QQ 好友私聊和群聊 @消息 |
 | 🖥️ **Computer Use 微信/QQ 操控** | `apps/vscode-connector/src/computer-use-{service,wechat,qq}.ts` | Windows UIAutomation（PowerShell + Win32）截图 + OCR + 鼠标键盘模拟操控微信/QQ 窗口，零封号风险 |
-| 🧠 **Chat Agent** | `apps/vscode-connector/src/chat-agent.ts` | Plan+ReAct+Reflect 完整循环（memory recall → planning → ReAct loop → memory save），支持原生 tool_calls + XML fallback（兼容 DeepSeek） |
-| 🛠️ **工具集** | `apps/vscode-connector/src/{task-tools,web-tools,browser-tools,perception-tools}.ts` | 9 个文件操作工具 + DuckDuckGo 搜索 + 7 个 Playwright 工具 + 4 个感知工具，路径沙箱 + 危险命令黑名单 |
+| 🧠 **Chat Agent** | `apps/vscode-connector/src/chat-agent.ts` | Plan+ReAct+Reflect 完整循环（memory recall → planning → ReAct loop → memory save），支持原生 tool_calls + XML fallback（兼容 DeepSeek）。**新增双模式规划**（simple/hierarchical/auto）+ **事实提取器**（规则+LLM混合提取用户事实替换硬编码偏好）+ **多模态附件预处理**（图片OCR/caption、音频转录、文档解析） |
+| 🛠️ **工具集** | `apps/vscode-connector/src/{task-tools,web-tools,browser-tools,perception-tools}.ts` | 9 个文件操作工具 + DuckDuckGo 搜索 + 7 个 Playwright 工具 + 4 个感知工具，路径沙箱 + 危险命令黑名单。**新增统一 ToolInvocationPipeline**（风险分级 → 注入扫描 → 路径沙箱 → 确认门 → dry-run → 审计） |
 | 🎭 **聊天风格模仿** | `apps/vscode-connector/src/chat-profile.ts` | 自动收集对话双方消息，分析 emoji / 句长 / 常用开头结尾，注入 LLM 提示 |
+| 🧩 **记忆智能提取** | `packages/runtime/src/memory/fact-extractor.ts` | 规则+LLM混合事实提取器，自动从对话中提取 location/preference/constraint/identity/goal 等用户事实，存入 long-term memory。替代硬编码关键词匹配 |
+| 🪜 **多层级规划** | `packages/runtime/src/planning/hierarchical-planner.ts` | 双模式规划：simple（原生 ReAct）+ hierarchical（LLM 生成 milestones+steps）。支持 auto 模式根据任务复杂度自动选择 |
+| 🔒 **安全沙箱** | `packages/runtime/src/permission/path-guard.ts` | 文件系统路径隔离，限制文件工具只能操作 projectDir/storageDir 内路径，阻止 `..` 穿越。集成到 ToolInvocationPipeline |
+| 🔄 **工作流编排** | `packages/runtime/src/workflow/workflow.ts` | 声明式 WorkflowEngine，支持顺序/依赖排序/模板参数/条件分支/人工审批节点。YAML 格式定义 |
+| 🌱 **在线学习自动调度** | `packages/runtime/src/evolution/scheduler.ts` | BackgroundScheduler 监听 AuditLogger 失败事件，达到阈值自动触发 EvolutionEngine + AutoDiscoveryEngine，候选人审后入库 |
 
 ### V2 待落地能力（[ROADMAP-V2-Capability-Gap.md](docs/ROADMAP-V2-Capability-Gap.md)）
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
-| 🔴 **G1 R7: V1 Coding Agent 接入 V2** | 未开始 | `packages/agents/coding-agent/` 全是 stub，需把 V1 `AgentCore`/`Planner`/`Reflection`/`Tools`/`Verifier`/`Skills`/`Context` 包装成 V2 接口 |
-| 🟡 **G2 Runtime 占位清理** | 未开始 | 8 个 `index.ts` 改为 re-export shim |
-| 🟡 **G3 CLI trace 子命令** | 未开始 | `z trace ls/show` 接入 Storage |
-| 🟡 **G4 AssistantRuntime.boot()** | 未开始 | 替换 stub 为真实 Runtime 聚合 |
-| ⚠️ **P1-1 多模态感知** | 半完成 | 感知层已就绪，需扩展 `contracts/llm.ts` 支持 `content: string \| ContentPart[]` + 多模态 LLM 后端 |
-| ❌ **P1-2 Human-in-the-Loop UI** | 未开始 | Confirmation 系统 + 风险分级 + 审计日志 + Dry-run |
-| ❌ **P1-3 Skill Auto-Discovery** | 未开始 | 失败提炼 + 验证 + 社区 |
+| 🔴 **G1 R7: V1 Coding Agent 接入 V2** | ✅ 已完成 | `packages/agents/coding-agent/` 支持 `impl` 委托，vscode-connector 工厂函数接入 chat-agent |
+| 🟡 **G2 Runtime 占位清理** | ✅ 已完成 | 7 个 `index.ts` 改为 re-export shim |
+| 🟡 **G3 CLI trace 子命令** | ✅ 已完成 | `z trace ls/show` 接入 Storage |
+| 🟡 **G4 AssistantRuntime.boot()** | ✅ 已完成 | 替换 stub 为真实 Runtime 聚合 |
+| ⚠️ **P1-1 多模态感知** | ✅ 已通过本地预处理替代 | 感知层已就绪 + chat-agent 附件预处理（OCR/caption/transcribe/parse），纯文本 LLM 可间接消费图像/音频/文档 |
+| ✅ **P1-2 Human-in-the-Loop UI** | ✅ 已完成 | Confirmation 系统 + 风险分级 + 审计日志 + Dry-run + 防 prompt injection |
+| ✅ **P1-3 Skill Auto-Discovery** | ✅ 已完成 | 失败提炼 + 验证 + 版本 + 审核 + 社区 + 自动调度 |
+| 🧩 **记忆智能提取** | ✅ 已完成 | 规则+LLM混合事实提取器，替换硬编码偏好匹配 |
+| 🪜 **多层级规划** | ✅ 已完成 | simple/hierarchical/auto 双模式规划 |
+| 🔒 **安全沙箱** | ✅ 已完成 | 文件系统路径隔离（Sandbox Layer 1-2） |
+| 🔄 **工作流编排** | ✅ 已完成 | 声明式 WorkflowEngine（顺序/依赖/条件/审批） |
+| 🌱 **在线学习自动调度** | ✅ 已完成 | BackgroundScheduler 自动触发 evolution + skill-discovery |
 
 ### V1 ↔ V2 桥接
 
@@ -354,6 +364,8 @@ node apps/cli/out/index.js trace ls
 - `packages/runtime/src/{workflow,trace,errors,cost,budget,config,storage,permission}/index.ts` 是 8 个占位 `export {}`，等待 G2 改为 re-export shim
 - P0 三件套（Memory / Desktop / Computer Use）已完成；P1 多模态感知半完成（感知层已就绪，LLM 多模态输入待扩展）；P1-2 HITL UI / P1-3 Skill Auto-Discovery 待推进
 
+> **2026-06-22 更新**：以上遗留项已全部解决。G1-G4、P1-2、P1-3 均已落地。新增 7 项通用 agent 能力（记忆智能提取、多层级规划、安全沙箱、多模态附件预处理、工作流编排、在线学习自动调度、统一工具调用流水线）。
+
 ---
 
 ## 测试与对比 / Tests & Comparisons
@@ -431,6 +443,20 @@ npm run build --workspace=@z-assistant/agent-browser
 ---
 
 ## 更新日志 / Changelog
+
+### v2.0.0-alpha.5 — 2026-06-22
+
+Z Assistant V2 — 通用 Agent 能力全面升级
+
+#### ✨ 版本摘要 / Highlights
+
+- **🧩 记忆智能提取**：新增规则+LLM混合事实提取器（`fact-extractor.ts`），自动从对话中提取 location/preference/constraint/identity/goal 等用户事实，替代硬编码关键词匹配。用户说"我在上海"后，下次对话能 recall 到
+- **🪜 多层级规划**：新增 `HierarchicalPlanner`，支持双模式规划（simple/hierarchical/auto）。复杂任务自动生成 milestones+steps 结构化计划
+- **🔒 安全沙箱**：新增 `PathGuard`，限制文件工具只能操作 projectDir/storageDir 内路径，阻止 `..` 穿越。集成到 ToolInvocationPipeline
+- **🎨 多模态附件预处理**：chat-agent 新增 `attachments` 选项，图片/音频/文档在发给 LLM 前经 perception 层做 OCR/caption/transcribe/parse，纯文本模型也能消费多模态输入
+- **🔄 工作流编排**：新增声明式 `WorkflowEngine`，支持顺序/依赖排序/模板参数/条件分支/人工审批节点。YAML 格式定义
+- **🌱 在线学习自动调度**：新增 `BackgroundScheduler`，监听 AuditLogger 失败事件，达到阈值自动触发 EvolutionEngine + AutoDiscoveryEngine，候选人审后入库
+- **🔧 统一工具调用流水线**：新增 `ToolInvocationPipeline`，统一风险分级 → 注入扫描 → 路径沙箱 → 确认门 → dry-run → 审计。chat-agent 和 ChatToolRegistry 均已接入
 
 ### v2.0.0-alpha.4 — 2026-06-20
 

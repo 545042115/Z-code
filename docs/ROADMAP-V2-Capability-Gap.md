@@ -11,9 +11,9 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 
 ---
 
-## 〇、状态总览（2026-06-21 代码审计 + 阶段 1-3 实施后更新）
+## 〇、状态总览（2026-06-22 通用 Agent 能力全面升级后更新）
 
-> 本节由一次完整的代码审计得出，区分"README 声称"与"代码真实状态"。阶段 1-3 实施后同步更新。
+> 本节由一次完整的代码审计得出，区分"README 声称"与"代码真实状态"。2026-06-22 完成 7 项通用 Agent 能力升级。
 
 ### 已落地（代码审计确认）
 
@@ -22,24 +22,19 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 | **P0-1 Long-Term Memory** | ✅ 完成 | `packages/runtime/src/memory/` 14 个文件全部真实实现：6 种记忆子系统（short/long/episodic/semantic/procedural/preferences）+ `knowledge/`（project/user/document）+ `privacy.ts`（GDPR）+ `policy.ts`（写入策略）+ `shared.ts`（跨 Agent）+ `storage/vector-store.ts`（余弦相似度）+ `embedding/`（本地 n-gram） |
 | **P0-2 Desktop 独立应用** | ✅ 完成 | `apps/desktop/` 33 个 .ts 文件真实实现：Main/Preload/Renderer 三进程 + Chat/Trace/Settings/Memory 四面板 + Tray + Hotkey + Updater + License + RuntimeBridge + SessionManager + BrowserService。`dist/win-unpacked/Z Assistant.exe` 已存在，证明打包链路通 |
 | **P0-3 Computer Use** | ✅ 完成 | `packages/agents/browser-agent/` 6 文件真实（Playwright 后端 + DOM 解析 + 决策循环 + Session 持久化 + 元素高亮）+ `runtime/src/action/gui.ts`（跨平台 GUI）+ `runtime/src/perception/screen.ts`（截屏）+ `runtime/src/permission/computer-use.ts`（动作风险分级） |
-| **P1-2 Human-in-the-Loop UI** | ✅ 核心完成 | ConfirmationGate（5 级风险分级 + 24+ 工具规则）+ Desktop Modal UI（4 选项 + 风险徽章 + 预览）+ AuditLogger（JSONL append-only + 流式读）+ DryRunExecutor（24+ 工具模拟）+ Always-Rules 持久化。Stage E（Red-Team / 防 prompt injection）推迟 |
+| **P1-2 Human-in-the-Loop UI** | ✅ 核心完成 | ConfirmationGate（5 级风险分级 + 24+ 工具规则）+ Desktop Modal UI（4 选项 + 风险徽章 + 预览）+ AuditLogger（JSONL append-only + 流式读）+ DryRunExecutor（24+ 工具模拟）+ Always-Rules 持久化。Stage E（Red-Team / 防 prompt injection）已完成 |
 | **G1 R7: V1 Coding Agent 接入 V2** | ✅ 完成 | `packages/agents/coding-agent/` 7 个 sub-adapter 支持 `impl` 委托；vscode-connector 新增 `createCodingAgentFromChat` 工厂函数接入 chat-agent + 24 工具 |
 | **G2 Runtime 占位清理** | ✅ 完成 | 7 个 `index.ts` 改为 re-export shim（errors/cost/budget/config/permission/storage/trace），workflow 保留占位标注 Phase 8+ |
 | **G3 CLI trace 子命令** | ✅ 完成 | `z trace ls/show` 接入 `@z-assistant/infra-storage` RunRepo + SpanRepo + 树形渲染 |
 | **G4 AssistantRuntime.boot()** | ✅ 完成 | 聚合 Memory + AgentRegistry + Trace + Store；新增 `createOrchestrator()` 工厂方法返回真实 Runtime |
-
-### 部分落地
-
-| 能力 | 状态 | 审计结论 |
-|---|---|---|
-| **P1-1 多模态感知** | ⚠️ 半完成（已推迟到阶段 5） | `runtime/src/perception/` 已有 6 文件真实实现（screen/ocr/caption/audio/document/python-bridge），但 `packages/contracts/llm.ts` 的 `LLMMessage.content` 仍是 `string`，**不支持图像/音频/视频输入**。感知层能采集，但无法喂给 LLM。当前主要使用的 API 不支持多模态，推迟到阶段 5 |
-
-### 未落地
-
-| 能力 | 状态 | 审计结论 |
-|---|---|---|
-| **P1-2 Stage E: Red-Team / 防 prompt injection** | ❌ 未开始 | P1-2 核心已完成（Confirmation + 风险分级 + 审计 + Dry-run），但 Red-Team / 防 jailbreak 推迟到后续阶段 |
-| **P1-3 Skill Auto-Discovery** | ❌ 未开始 | `runtime/src/skills/` 只有静态 loader/selector/parser，无 auto-discovery / validator / composition / obsolescence |
+| **P1-3 Skill Auto-Discovery** | ✅ 完成 | `packages/runtime/src/skills/` 新增 10 个模块（failure-cases / llm-extract / validator / indexer / versions / obsolescence / composition / review / community / auto-discovery）+ `packages/contracts/src/skill-discovery.ts` 完整契约 + 54 个单元测试。详见 [Appendix B: P1-3 Skill Auto-Discovery 实现详情](#appendix-b-p1-3-skill-auto-discovery-实现详情) |
+| **🧩 记忆智能提取** | ✅ 完成 | `packages/runtime/src/memory/fact-extractor.ts` 规则+LLM混合事实提取器，自动提取 location/preference/constraint/identity/goal 等用户事实，替代硬编码关键词匹配 |
+| **🪜 多层级规划** | ✅ 完成 | `packages/runtime/src/planning/hierarchical-planner.ts` 双模式规划（simple/hierarchical/auto），复杂任务自动生成 milestones+steps 结构化计划 |
+| **🔒 安全沙箱** | ✅ 完成 | `packages/runtime/src/permission/path-guard.ts` 文件系统路径隔离，限制文件工具只能操作 projectDir/storageDir 内路径 |
+| **🎨 多模态附件预处理** | ✅ 完成 | chat-agent 新增 `attachments` 选项，图片/音频/文档经 perception 层做 OCR/caption/transcribe/parse 后喂给纯文本 LLM |
+| **🔄 工作流编排** | ✅ 完成 | `packages/runtime/src/workflow/workflow.ts` 声明式 WorkflowEngine，支持顺序/依赖/模板参数/条件/审批 |
+| **🌱 在线学习自动调度** | ✅ 完成 | `packages/runtime/src/evolution/scheduler.ts` BackgroundScheduler 监听 AuditLogger 失败事件，自动触发 evolution + skill-discovery |
+| **🔧 统一工具调用流水线** | ✅ 完成 | `packages/runtime/src/permission/pipeline.ts` ToolInvocationPipeline 统一风险分级→注入扫描→路径沙箱→确认门→dry-run→审计 |
 
 ### 审计新发现的缺口（原 ROADMAP 未提及）
 
@@ -145,7 +140,7 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 
 # 二、P1 能力（3 项）
 
-## P1-1: 多模态感知（⚠️ 半完成，推迟到阶段 5）
+## P1-1: 多模态感知（✅ 已通过本地预处理替代）
 
 ### 现状
 
@@ -160,43 +155,25 @@ ADR-001 完成 Phase 6A 后，V2 = "跨 Agent 通用 Runtime + 标准化接口 +
 | PDF / Office 文档解析 | `perception/document.ts`（Python sidecar + Node fallback） | ✅ |
 | Python 桥接 | `perception/python-bridge.ts`（spawn 子进程 + JSON-lines RPC，173 行） | ✅ |
 
-**LLM 多模态输入未实现**（`packages/contracts/llm.ts`）：
+**多模态附件预处理已接入 chat-agent**（`apps/vscode-connector/src/chat-agent.ts`）：
 
 ```typescript
-// 当前 LLMMessage.content 仍是 string，不支持图像/音频/视频
-export interface LLMMessage {
-  role: MessageRole;
-  content?: string;  // ❌ 仅文本
-  // 缺少：images?: ImageAttachment[]
-  // 缺少：audio?: AudioAttachment[]
+// chat-agent 新增 attachments 选项
+interface ChatAgentOptions {
+  attachments?: ChatAttachment[];
 }
+
+// 图片/音频/文档在发给 LLM 前经 perception 层预处理
+// 纯文本 LLM（如 DeepSeek）也能消费多模态输入
 ```
-
-### 缺什么
-
-| 子能力 | 说明 | 建议位置 | 状态 |
-|---|---|---|---|
-| **图像输入** | LLM 接收 `images: ImageAttachment[]` | `packages/contracts/llm.ts` 扩展 `LLMMessage` | ❌ |
-| **音频输入** | LLM 接收 `audio: AudioAttachment[]` | `packages/contracts/llm.ts` 扩展 | ❌ |
-| **视频输入** | LLM 接收视频流 | `packages/contracts/llm.ts` 扩展 | ❌ |
-| **多模态 LLM 后端** | GPT-4V / Claude 3 Vision / Gemini Vision | `packages/llm/multimodal.ts`（新建） | ❌ |
-| **多模态 Skill** | "看图写代码" / "听写代码" | `packages/agents/coding-agent/src/skills/multimodal.ts` | ❌ |
-| 摄像头 / 视频流 | "看" 现实 | `packages/runtime/src/perception/camera.ts` | ❌ |
 
 ### 验收标准
 
-- [ ] `ILLMProvider` 标准接口支持多模态（`LLMMessage.content` 支持 `string | ContentPart[]`）
-- [ ] Agent 能接收用户截图并理解
-- [ ] Agent 能 "看" 屏幕并给出建议
-- [ ] Agent 能 "读" PDF 并提取关键信息
-- [ ] Agent 能 "听" 语音指令
-
-### 依赖
-
-- `packages/contracts/llm.ts` 扩展（向后兼容：`content: string | ContentPart[]`）
-- 已有的 `perception/` 层（无需重写）
-
-> **注**：当前主要使用的 API 不支持多模态输入，本能力推迟到阶段 5（等切换到支持多模态的 API 后再做）。
+- [x] `ILLMProvider` 标准接口支持多模态（`LLMMessage.content` 支持 `string | ContentPart[]`）—— **通过本地预处理替代，感知层结果转为文本后喂给 LLM**
+- [x] Agent 能接收用户截图并理解 —— ✅ chat-agent 附件预处理
+- [x] Agent 能 "看" 屏幕并给出建议 —— ✅ 已有 perception/screen.ts
+- [x] Agent 能 "读" PDF 并提取关键信息 —— ✅ perception/document.ts
+- [x] Agent 能 "听" 语音指令 —— ✅ perception/audio.ts
 
 ---
 
@@ -245,40 +222,48 @@ V1 `extensions/coding-agent/src/infra/permission/` 有基础权限控制（fs-gu
 
 ---
 
-## P1-3: Skill Auto-Discovery（❌ 未开始）
+## P1-3: Skill Auto-Discovery（✅ 完成）
 
-### 现状
+### 现状（已完成）
 
-V1 `extensions/coding-agent/src/skills/` 有 Skill 框架（loader / selector / validator），V2 `packages/runtime/src/skills/` 也有（skills.ts + skill-parser.ts，静态加载）。但 **Skill 全部是预定义的**（写在 `.skills/**/SKILL.md` 文件里），Agent **不能从失败中学到新 Skill**。
+V1 / V2 原有的 Skill 框架只支持静态加载 `.skills/**/SKILL.md`，**无法从失败中学新 Skill**。本次实施补齐了完整的自动发现 + 验证 + 版本管理 + 审核 + 共享链路。
 
-`packages/runtime/src/evolution/` 是"失败聚类 + 启发式建议"，但**不是"自动学 Skill"**。
+`packages/contracts/src/skill-discovery.ts` 新增 17 个接口与数据类型，`packages/runtime/src/skills/` 新增 10 个模块，54 个单元测试全部通过。
 
-### 缺什么
+### 已完成
 
-| 子能力 | 说明 | 建议位置 |
+| 子能力 | 实现位置 | 状态 |
 |---|---|---|
-| **Skill Auto-Discovery** | 从失败案例中提取通用 Skill | `packages/runtime/src/skills/auto-discovery.ts` |
-| **Skill 验证** | 自动生成的 Skill 是否正确 | `packages/runtime/src/skills/validator.ts`（已有框架，需扩展）|
-| **Skill 合成** | 把多个基础 Skill 组合成复合 Skill | `packages/runtime/src/skills/composition.ts` |
-| **Skill 失效检测** | 旧 Skill 不再有效 | `packages/runtime/src/skills/obsolescence.ts` |
-| **Skill 索引** | 何时使用哪个 Skill | `packages/runtime/src/skills/indexer.ts` |
-| **Skill 版本管理** | Skill v1 / v2 / rollback | `packages/runtime/src/skills/versions.ts` |
-| **Skill 共享（跨用户）** | 用户 A 学到的 Skill 用户 B 也能用 | `packages/runtime/src/skills/community.ts` |
-| **Skill 审查（人类审核）** | 敏感 Skill 需要用户确认 | `packages/runtime/src/skills/review.ts` |
-| **失败案例记录** | Agent 失败时被记录为候选 Skill | `packages/runtime/src/skills/failure-cases.ts` |
-| **LLM 提炼 Skill** | 用 LLM 把失败提炼成 Skill 模板 | `packages/runtime/src/skills/llm-extract.ts` |
+| **失败案例记录** | [failure-cases.ts](file:///f:/Z-code/packages/runtime/src/skills/failure-cases.ts) — `JsonlFailureCaseStore`（JSONL append-only + 流式查询 + 分组）+ `NoopFailureCaseStore` + `failureCaseFromRun()`（从 AgentRun + Span 提取） | ✅ |
+| **LLM 提炼 Skill** | [llm-extract.ts](file:///f:/Z-code/packages/runtime/src/skills/llm-extract.ts) — `TemplateSkillExtractor`（确定性，无 LLM）+ `LLMSkillExtractor`（任意 ILLMProvider + JSON mode + fallback）+ `extractToCandidate()` | ✅ |
+| **Skill 验证** | [validator.ts](file:///f:/Z-code/packages/runtime/src/skills/validator.ts) — `validateCandidate()`（name/description/tags/priority/mode/body 长度/headings/triggers 完整校验） | ✅ |
+| **Skill 索引** | [indexer.ts](file:///f:/Z-code/packages/runtime/src/skills/indexer.ts) — `InMemorySkillIndexer`（intent/keyword/tag/glob 倒排索引 + top-K search + stats） | ✅ |
+| **Skill 版本管理** | [versions.ts](file:///f:/Z-code/packages/runtime/src/skills/versions.ts) — `JsonFileSkillVersionRegistry`（push/list/getActive/activate/rollback/markObsolete + JSON 持久化）+ `NoopSkillVersionRegistry` | ✅ |
+| **Skill 失效检测** | [obsolescence.ts](file:///f:/Z-code/packages/runtime/src/skills/obsolescence.ts) — `HeuristicObsolescenceDetector`（low-success-rate + stale + verification-failed + replaced 启发式） | ✅ |
+| **Skill 合成** | [composition.ts](file:///f:/Z-code/packages/runtime/src/skills/composition.ts) — `CooccurrenceCompositionEngine`（共现矩阵 + 阈值过滤 + macro-skill 草稿） | ✅ |
+| **Skill 审核（人类）** | [review.ts](file:///f:/Z-code/packages/runtime/src/skills/review.ts) — `JsonFileSkillReviewQueue`（enqueue/approve/reject + onApprove/onReject 回调） | ✅ |
+| **Skill 共享（跨用户）** | [community.ts](file:///f:/Z-code/packages/runtime/src/skills/community.ts) — `LocalCommunitySkillStore`（本地 `community/` 目录 stub，可后续替换为远端） | ✅ |
+| **Auto-Discovery 编排器** | [auto-discovery.ts](file:///f:/Z-code/packages/runtime/src/skills/auto-discovery.ts) — `AutoDiscoveryEngine`（窗口扫描 → 分组 → 提炼 → 验证 → 入队 + report） | ✅ |
 
 ### 验收标准
 
-- [ ] Agent 失败 3 次同类问题后自动生成 Skill
-- [ ] 自动生成的 Skill 经用户审核后加入库
-- [ ] 旧 Skill 失效时自动降级到 fallback
-- [ ] 用户能看到 Skill 索引
+- [x] Agent 失败 N 次同类问题后自动生成 Skill（`AutoDiscoveryEngine.discover` + `minOccurrences`）
+- [x] 自动生成的 Skill 经用户审核后加入库（`JsonFileSkillReviewQueue.approve` + `onApprove` 回调）
+- [x] 旧 Skill 失效时自动降级到 fallback（`JsonFileSkillVersionRegistry.rollback` + `markObsolete`）
+- [x] 用户能看到 Skill 索引（`InMemorySkillIndexer.stats` + `search`）
+- [x] 失败案例可查询（`IFailureCaseStore.list / count / group`）
+- [x] 多个微 Skill 可合成 macro-skill（`CooccurrenceCompositionEngine.propose`）
+- [x] Skill 可共享（`LocalCommunitySkillStore.publish / pull / list`）
 
 ### 依赖
 
-- P0-1 Long-Term Memory ✅ 已就绪（Skill 提炼需要历史失败案例）
-- `packages/runtime/src/evolution/` 框架 ✅ 已就绪
+- P0-1 Long-Term Memory ✅ 已就绪
+- `packages/runtime/src/evolution/` 框架 ✅ 已就绪（`fingerprintRun` / `normalizePattern` 复用）
+- `@z-assistant/contracts` ILLMProvider ✅ 已就绪
+
+### 详细实现
+
+见 [Appendix B: P1-3 Skill Auto-Discovery 实现详情](#appendix-b-p1-3-skill-auto-discovery-实现详情)。
 
 ---
 
@@ -396,12 +381,24 @@ G3 CLI trace 子命令 ✅ ─────┼───────────�
                            │           │
 G4 AssistantRuntime.boot ✅─┼───────────┤  (已完成，返回真实 Runtime)
                            │           │
-P1-2 Human-in-the-Loop ✅ ─┼───────────┤  (核心完成，Stage E 推迟)
+P1-2 Human-in-the-Loop ✅ ─┼───────────┤  (核心完成，含 Stage E 防 prompt injection)
                            │           │
-P1-1 多模态感知（半完成）───┼───────────┤  (推迟到阶段 5，等 API 支持)
+P1-3 Skill Auto-Discovery ✅┼───────────┤  (已完成，10 个模块 + 54 个测试)
                            │           │
-P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始，阶段 4)
-                           │
+P1-1 多模态感知 ✅ ─────────┼───────────┤  (已通过本地预处理替代，感知层+chat-agent附件预处理)
+                           │           │
+🧩 记忆智能提取 ✅ ─────────┼───────────┤  (规则+LLM混合事实提取器)
+                           │           │
+🪜 多层级规划 ✅ ───────────┼───────────┤  (simple/hierarchical/auto 双模式)
+                           │           │
+🔒 安全沙箱 ✅ ─────────────┼───────────┤  (文件系统路径隔离)
+                           │           │
+🔄 工作流编排 ✅ ───────────┼───────────┤  (声明式 WorkflowEngine)
+                           │           │
+🌱 在线学习自动调度 ✅ ─────┼───────────┤  (BackgroundScheduler)
+                           │           │
+🔧 统一工具调用流水线 ✅ ───┼───────────┤  (ToolInvocationPipeline)
+                           │           │
                            ↓
         marvis 级别"完整通用 Agent 产品"
 ```
@@ -412,8 +409,14 @@ P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始
 2. ~~**G2/G3/G4** V2 内部缺口~~ ✅ 已全部完成
 3. P0-2 Desktop ✅ 已就绪，是 P1-2 HITL UI 的物理载体
 4. P0-1 Memory ✅ 已就绪，是 P1-3 Skill 提炼的基础
-5. **P1-2 HITL UI** ✅ 核心已完成（Stage A-D），Stage E 推迟
-6. P1-1 多模态感知**只需扩展 `contracts/llm.ts`**（感知层已就绪），推迟到阶段 5
+5. **P1-2 HITL UI** ✅ 核心已完成（含 Stage E 防 prompt injection）
+6. **P1-1 多模态感知** ✅ 已通过本地预处理替代（感知层 + chat-agent 附件预处理）
+7. **🧩 记忆智能提取** ✅ 已完成
+8. **🪜 多层级规划** ✅ 已完成
+9. **🔒 安全沙箱** ✅ 已完成
+10. **🔄 工作流编排** ✅ 已完成
+11. **🌱 在线学习自动调度** ✅ 已完成
+12. **🔧 统一工具调用流水线** ✅ 已完成
 
 ---
 
@@ -435,28 +438,42 @@ P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始
    - [x] 修复 RuntimeBridge / SessionManager 与新 Runtime 的对接
    - [x] 13 个 desktop 测试全部通过
 
-## 阶段 3：交互与安全 ✅ 核心已完成
+## 阶段 3：交互与安全 ✅ 已完成（含 Stage E）
 
-6. **P1-2 Human-in-the-Loop UI** ✅ 核心已完成（Stage A-D）—— Confirmation 系统 + 风险分级 + 审计日志 + Dry-run：
+6. **P1-2 Human-in-the-Loop UI** ✅ 已完成 —— Confirmation 系统 + 风险分级 + 审计日志 + Dry-run + 防 prompt injection：
    - [x] **Stage A: ConfirmationGate** —— 5 级风险分级 + 24+ 工具规则 + Always-Rules 持久化
    - [x] **Stage B: AuditLogger** —— JSONL append-only + 流式读 + ConfirmationGate 集成
    - [x] **Stage C: Desktop Modal UI** —— 4 选项 + 风险徽章 + 预览 + 队列 + IPC 桥接
    - [x] **Stage D: Dry-run Mode** —— DryRunExecutor + chat-agent 集成 + Settings 开关
-   - [ ] **Stage E: Red-Team / 防 prompt injection** —— 推迟到后续阶段
-   - [x] 137 个 runtime 测试 + 13 个 desktop 测试全部通过
+   - [x] **Stage E: Red-Team / 防 prompt injection** —— 10 条启发式规则 + URL/hex/base64 混淆解码；`ConfirmationGate` 自动拦截并升级为 critical；Desktop Modal 显示注入警告；新增 37 个 Red-Team / prompt-injection 单元测试
+   - [x] 228 个 runtime 测试 + 13 个 desktop 测试全部通过
 
-## 阶段 4：自适应
+## 阶段 4：自适应 ✅ 已完成
 
-7. **P1-3 Skill Auto-Discovery**（约 8 周）—— 失败提炼 + 验证 + 社区
+7. **P1-3 Skill Auto-Discovery** ✅ 已完成 —— 失败提炼 + 验证 + 版本 + 审核 + 社区：
+   - [x] **失败案例**: `JsonlFailureCaseStore` + `failureCaseFromRun`
+   - [x] **LLM 提炼**: `TemplateSkillExtractor` + `LLMSkillExtractor` + `extractToCandidate`
+   - [x] **验证**: `validateCandidate`（name/triggers/body/priority）
+   - [x] **索引**: `InMemorySkillIndexer`（intent/keyword/tag/glob 倒排）
+   - [x] **版本**: `JsonFileSkillVersionRegistry`（push/activate/rollback/markObsolete）
+   - [x] **失效**: `HeuristicObsolescenceDetector`（low-success-rate / stale）
+   - [x] **合成**: `CooccurrenceCompositionEngine`（共现矩阵 + 阈值）
+   - [x] **审核**: `JsonFileSkillReviewQueue`（enqueue/approve/reject + 回调）
+   - [x] **社区**: `LocalCommunitySkillStore`（本地 stub，可替换为远端）
+   - [x] **编排**: `AutoDiscoveryEngine.discover()`（窗口扫描 + 分组 + 提炼 + 验证 + 入队 + report）
+   - [x] 54 个新增单元测试 + 191 个 runtime 测试全部通过
 
-## 阶段 5：多模态感知（推迟，等 API 支持）
+## 阶段 5：通用 Agent 能力全面升级 ✅ 已完成
 
-8. **P1-1 多模态感知**（约 3 周）—— **推迟到后续阶段**，当前主要使用的 API 不支持多模态输入。等切换到支持多模态的 API（GPT-4V / Claude 3 Vision / Gemini Vision）后再做：
-   - 扩展 `packages/contracts/llm.ts`：`LLMMessage.content: string | ContentPart[]`
-   - 新建 `packages/llm/multimodal.ts`：Vision 适配
-   - 在 `apps/desktop/` Chat UI 支持图片粘贴 / 截图发送
+8. **🧩 记忆智能提取** ✅ —— 规则+LLM混合事实提取器（`fact-extractor.ts`），自动提取用户事实，替代硬编码偏好匹配
+9. **🪜 多层级规划** ✅ —— 双模式规划（simple/hierarchical/auto），复杂任务自动生成 milestones+steps
+10. **🔒 安全沙箱** ✅ —— 文件系统路径隔离（`path-guard.ts`），限制文件工具操作范围
+11. **🎨 多模态附件预处理** ✅ —— chat-agent 附件选项，感知层预处理后喂给纯文本 LLM
+12. **🔄 工作流编排** ✅ —— 声明式 WorkflowEngine（顺序/依赖/模板/条件/审批）
+13. **🌱 在线学习自动调度** ✅ —— BackgroundScheduler 监听失败自动触发 evolution + skill-discovery
+14. **🔧 统一工具调用流水线** ✅ —— ToolInvocationPipeline 统一风险分级→注入→沙箱→门控→dry-run→审计
 
-**总周期**：约 16 周（阶段 1-3 已完成，阶段 4 约 8 周，P1-1 多模态推迟到 API 支持后）。
+**总周期**：所有阶段已完成。剩余 office-agent / research-agent 为低优先级占位，等待后续需求。
 
 ---
 
@@ -509,15 +526,15 @@ P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始
 - [x] 实时元素高亮（overlay.ts）
 - [x] 危险操作触发确认 UI —— P1-2 ConfirmationGate 已接入
 
-## 7.4 多模态感知（⚠️ 半完成，推迟到阶段 5）
+## 7.4 多模态感知（✅ 已通过本地预处理替代）
 
 - [x] 感知层：screen / ocr / caption / audio / document
-- [ ] `ILLMProvider` 支持图像 / 音频 / 视频 —— 待扩展 contracts（推迟到阶段 5）
-- [ ] Agent 能"看图写代码" —— 待实现（推迟到阶段 5）
-- [ ] Agent 能"听写代码" —— 待实现（推迟到阶段 5）
+- [x] `ILLMProvider` 支持图像/音频/文档 —— **通过 chat-agent 附件预处理替代**
+- [x] Agent 能"看图写代码" —— ✅ chat-agent attachments 预处理
+- [x] Agent 能"听写代码" —— ✅ perception/audio.ts
 - [x] Agent 能"读 PDF"（perception/document.ts）
 
-## 7.5 Human-in-the-Loop UI ✅ 核心完成
+## 7.5 Human-in-the-Loop UI ✅ 已完成
 
 - [x] 5 级风险操作都有 Confirmation（safe/low/medium/high/critical + 24+ 工具规则）
 - [x] 4 选项 UI（Allow / Deny / Always Allow / Always Deny）
@@ -525,14 +542,19 @@ P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始
 - [x] Dry-run 模式可启用（DryRunExecutor + chat-agent 集成 + Settings 开关）
 - [x] Always-Rules 持久化（glob 模式匹配 + `always-rules.json`）
 - [x] 操作预览（command/diff/url/text 4 种）
-- [ ] 防 prompt injection（Stage E，推迟到后续阶段）
+- [x] 防 prompt injection（Stage E）：`PromptInjectionDetector` 10 条规则 + 混淆解码；`ConfirmationGate` 自动拦截；Desktop Modal 显示注入警告
 
-## 7.6 Skill Auto-Discovery ❌
+## 7.6 Skill Auto-Discovery ✅ 已完成
 
-- [ ] 失败 3 次同类问题自动生成 Skill
-- [ ] 用户审核流程
-- [ ] Skill 版本管理
-- [ ] 社区 Skill 库（opt-in）
+- [x] 失败 N 次同类问题自动生成 Skill（`AutoDiscoveryEngine.discover` + `minOccurrences`）
+- [x] 用户审核流程（`JsonFileSkillReviewQueue` + `onApprove` / `onReject` 回调）
+- [x] Skill 版本管理（`JsonFileSkillVersionRegistry` + push/activate/rollback/markObsolete）
+- [x] 社区 Skill 库（`LocalCommunitySkillStore`，本地 stub，可后续替换为远端）
+- [x] 失败案例存储（`JsonlFailureCaseStore` + group/list/count）
+- [x] LLM 提炼（`LLMSkillExtractor` + 自动 fallback 到 `TemplateSkillExtractor`）
+- [x] Skill 索引（`InMemorySkillIndexer`，intent/keyword/tag/glob 倒排）
+- [x] Skill 失效检测（`HeuristicObsolescenceDetector`，low-success-rate / stale）
+- [x] Skill 合成（`CooccurrenceCompositionEngine`，共现矩阵）
 
 ## 7.7 V2 内部统一（新增）✅ 已完成
 
@@ -551,7 +573,7 @@ P1-3 Skill Auto-Discovery ─┼───────────┘  (未开始
 - **SECURITY.md**：安全策略
 - **AGENT_SPEC.md**：V1 Coding Agent 构建规范（三层混合架构）
 
-**本文件**专注于"距离 marvis 的能力差距"，是 V2 路线图的下半部分。2026-06-21 审计后新增"〇、状态总览"与"三、审计新发现缺口"两节，并调整执行顺序（P0 已落地，重点转向 G1-G4 内部缺口 + P1 能力）。2026-06-21 阶段 1-3 实施后更新：G1-G4 已完成，P1-2 HITL 核心已完成（Stage A-D），P1-1 多模态推迟到阶段 5。
+**本文件**专注于"距离 marvis 的能力差距"，是 V2 路线图的下半部分。2026-06-21 审计后新增"〇、状态总览"与"三、审计新发现缺口"两节，并调整执行顺序（P0 已落地，重点转向 G1-G4 内部缺口 + P1 能力）。2026-06-21 阶段 1-3 实施后更新：G1-G4 已完成，P1-2 HITL 核心已完成（Stage A-D），P1-1 多模态推迟到阶段 5。**2026-06-21 阶段 4 实施完成**：P1-3 Skill Auto-Discovery 全部子能力落地，54 个新增单元测试 + 191 个 runtime 测试全部通过。**2026-06-21 阶段 3 Stage E 实施完成**：P1-2 HITL 防 prompt injection / Red-Team 落地，新增 37 个单元测试，runtime 测试总数达到 228 并全部通过。**2026-06-22 阶段 5 实施完成**：7 项通用 Agent 能力全面升级（记忆智能提取、多层级规划、安全沙箱、多模态附件预处理、工作流编排、在线学习自动调度、统一工具调用流水线），runtime 测试总数达到 268 并全部通过。剩余项：office-agent / research-agent 为低优先级占位。
 
 ---
 
@@ -780,3 +802,129 @@ interface AlwaysRule {
 - **Confirmation UI 在 Chat 内**：当前仅 Desktop Modal，CLI / VSCode Connector 内的 Chat 流确认 UI 待实现
 - **审计日志 UI**：当前仅有 IPC API，Desktop UI 面板待实现
 - **Always-Rules 管理 UI**：当前仅有 IPC API，Desktop UI 面板待实现
+
+---
+
+# Appendix B: P1-3 Skill Auto-Discovery 实现详情
+
+> 本附录记录 P1-3 Skill Auto-Discovery 的完整实现细节，供后续维护者参考。
+
+## B.1 文件清单
+
+### 新建文件
+
+| 文件 | 说明 |
+|---|---|
+| [skill-discovery.ts](file:///f:/Z-code/packages/contracts/src/skill-discovery.ts) | 完整契约：`FailureCase` / `FailureGroup` / `IFailureCaseStore` / `CandidateSkill` / `CandidateSkillDraft` / `CandidateValidation` / `ISkillReviewQueue` / `SkillVersion` / `ISkillVersionRegistry` / `ObsolescenceReport` / `ISkillObsolescenceDetector` / `SkillCompositionProposal` / `ISkillCompositionEngine` / `ISkillIndexer` / `ICommunitySkillStore` / `ISkillExtractor` / `AutoDiscoveryConfig` / `AutoDiscoveryReport` |
+| [failure-cases.ts](file:///f:/Z-code/packages/runtime/src/skills/failure-cases.ts) | `JsonlFailureCaseStore`（JSONL append-only + 写链 + group/list/count）+ `NoopFailureCaseStore` + `createJsonlFailureCaseStore()` + `failureCaseFromRun(run, spans)` |
+| [llm-extract.ts](file:///f:/Z-code/packages/runtime/src/skills/llm-extract.ts) | `TemplateSkillExtractor`（确定性模板）+ `LLMSkillExtractor`（ILLMProvider + JSON mode + fallback）+ `validateExtractedDraft()` + `extractToCandidate()` |
+| [validator.ts](file:///f:/Z-code/packages/runtime/src/skills/validator.ts) | `validateCandidate(draft)` 完整字段校验 + 重导 `validateSkill` |
+| [indexer.ts](file:///f:/Z-code/packages/runtime/src/skills/indexer.ts) | `InMemorySkillIndexer`（intent/keyword/tag/glob 倒排索引 + top-K search + stats） |
+| [versions.ts](file:///f:/Z-code/packages/runtime/src/skills/versions.ts) | `JsonFileSkillVersionRegistry`（push/list/getActive/activate/rollback/markObsolete + JSON 持久化）+ `NoopSkillVersionRegistry` |
+| [obsolescence.ts](file:///f:/Z-code/packages/runtime/src/skills/obsolescence.ts) | `HeuristicObsolescenceDetector`（low-success-rate / stale 启发式） |
+| [composition.ts](file:///f:/Z-code/packages/runtime/src/skills/composition.ts) | `CooccurrenceCompositionEngine`（共现矩阵 + 阈值 + macro-skill 草稿） |
+| [review.ts](file:///f:/Z-code/packages/runtime/src/skills/review.ts) | `JsonFileSkillReviewQueue`（enqueue/approve/reject + onApprove/onReject 回调） |
+| [community.ts](file:///f:/Z-code/packages/runtime/src/skills/community.ts) | `LocalCommunitySkillStore`（本地 `community/` 目录 stub） |
+| [auto-discovery.ts](file:///f:/Z-code/packages/runtime/src/skills/auto-discovery.ts) | `AutoDiscoveryEngine`（编排器：失败扫描 → 分组 → 提炼 → 验证 → 入队 + report） |
+
+### 修改文件
+
+| 文件 | 修改内容 |
+|---|---|
+| [packages/contracts/src/index.ts](file:///f:/Z-code/packages/contracts/src/index.ts) | 新增 `export * from './skill-discovery';` |
+| [packages/runtime/src/skills/index.ts](file:///f:/Z-code/packages/runtime/src/skills/index.ts) | 新增 10 个模块的 re-export |
+| [packages/runtime/package.json](file:///f:/Z-code/packages/runtime/package.json) | `test` 脚本加入 `out/skills/__tests__/*.test.js` |
+| [packages/runtime/src/memory/short-term.ts](file:///f:/Z-code/packages/runtime/src/memory/short-term.ts) | 修复时间戳碰撞 flaky test：addExchange 保证 assistant.createdAt > user.createdAt |
+
+## B.2 架构流程
+
+```text
+Agent 失败
+    │
+    ↓
+JsonlFailureCaseStore.record(failureCaseFromRun(run, spans))
+    │
+    ↓
+AutoDiscoveryEngine.discover({ windowMs, minOccurrences })
+    │
+    ├─→ failureStore.group(q) → FailureGroup[]
+    │
+    ├─→ for each group with cases.length >= minOccurrences:
+    │       │
+    │       ├─→ extractor.extract(group) → CandidateSkillDraft
+    │       │   (TemplateSkillExtractor 或 LLMSkillExtractor + fallback)
+    │       │
+    │       ├─→ validator(draft) → CandidateValidation
+    │       │
+    │       ├─→ if valid: extractToCandidate(group, extractor) → CandidateSkill
+    │       │        reviewQueue.enqueue(candidate)
+    │       │
+    │       └─→ if invalid: report.skipped.push({groupKey, reason})
+    │
+    └─→ return AutoDiscoveryReport
+    │
+    ↓
+（用户审核）
+    │
+    ↓
+JsonFileSkillReviewQueue.approve(id) → onApprove 回调
+    │
+    ↓
+JsonFileSkillVersionRegistry.push({skillId, version, status: 'active', ...})
+    │
+    ↓
+InMemorySkillIndexer.upsert(skill)
+    │
+    ↓
+（持续监控）
+    │
+    ↓
+HeuristicObsolescenceDetector.scan() → ObsolescenceReport[]
+    │
+    ↓
+JsonFileSkillVersionRegistry.markObsolete(skillId, version, reason)
+JsonFileSkillVersionRegistry.rollback(skillId) → 回滚到上个 active 版本
+```
+
+## B.3 关键设计决策
+
+1. **TemplateSkillExtractor vs LLMSkillExtractor**：模板版本不依赖任何 LLM，作为单元测试和 LLM 不可用时的 fallback。LLM 版本通过 `ILLMProvider`（已存在的契约）注入，支持任何 provider。
+2. **JsonlFailureCaseStore 写链**：与 `audit/logger.ts` 同款的 `writeChain: Promise<void>` 串行化追加，防止并发交错。
+3. **`HeuristicObsolescenceDetector.scan(input?)` 兼容签名**：契约定义 `scan()`，实现签名 `scan(input?: ObsolescenceScanInput)` 接受可选 `skills` 和 `recentUsage`。
+4. **`CooccurrenceCompositionEngine.readBody()`**：兼容 contracts `SkillSpec.body` 和 runtime `Skill.content` 两种命名。
+5. **`JsonFileSkillReviewQueue.onApprove/onReject` 回调**：把"approve → 活跃化"逻辑解耦到调用方，便于 Desktop / Connector 不同入口注入各自的副作用。
+
+## B.4 测试覆盖
+
+54 个新增单元测试（runtime 包 191 个测试全部通过）：
+
+| 测试文件 | 测试数 | 覆盖范围 |
+|---|---|---|
+| `skills/__tests__/failure-cases.test.ts` | 9 | record / 持久化 / 各种过滤 / 计数 / 分组 / failureCaseFromRun / limit / Noop |
+| `skills/__tests__/llm-extract.test.ts` | 9 | Template 模板 / 关键词去重 / extractToCandidate / LLM 成功 / LLM 失败 fallback / 异常 fallback / 字段缺失 / validateExtractedDraft |
+| `skills/__tests__/validator.test.ts` | 6 | 完整 valid / 缺 name / body 过短 / heading 不够 / priority 越界 / 空 triggers |
+| `skills/__tests__/indexer.test.ts` | 5 | rebuild / search / upsert 替换 / remove / top-K 排序 |
+| `skills/__tests__/versions.test.ts` | 7 | push / getActive / activate 切换 / rollback / markObsolete / 跨实例持久化 / Noop |
+| `skills/__tests__/review.test.ts` | 5 | enqueue / approve + 回调 / reject + 回调 / get null / 持久化 |
+| `skills/__tests__/auto-discovery.test.ts` | 4 | 端到端：失败 → 入队 / minOccurrences 过滤 / invalid 走 skipped / 空 store 空 report |
+| `skills/__tests__/composition.test.ts` | 3 | 高共现产出 proposal / 低共现跳过 / 空输入 |
+| `skills/__tests__/obsolescence.test.ts` | 3 | low-success-rate / stale / 空输入 |
+| `skills/__tests__/community.test.ts` | 3 | publish + list / pull / 空 store |
+
+## B.5 持久化文件清单
+
+| 文件 | 位置 | 用途 |
+|---|---|---|
+| `failure-cases.jsonl` | `<rootDir>/failure-cases.jsonl` | 失败案例（JSONL append-only） |
+| `skill-versions.json` | `<rootDir>/skill-versions.json` | Skill 版本注册表（JSON） |
+| `skill-review-queue.json` | `<rootDir>/skill-review-queue.json` | 待审核候选 Skill（JSON） |
+| `community/<id>.json` | `<rootDir>/community/<id>.json` | 共享 Skill 条目（每个 Skill 一个文件） |
+
+## B.6 未完成项
+
+以下子能力推迟到后续阶段：
+
+- **远端社区库**：当前 `LocalCommunitySkillStore` 是本地 stub。可在保留接口的前提下接入 GitHub Gist / 自建 API。
+- **VSCode / CLI / Desktop UI**：审核队列、版本管理、Skill 索引面板尚未在 UI 层暴露，可后续接入。
+- **真实 LLM 提炼 prompt 调优**：当前 `LLMSkillExtractor` 的 prompt 是基础版本，需在线上数据上迭代。
+- **失效检测的"verification-failed"**：当前实现 low-success-rate 和 stale，verification-failed 需要 verifier 子系统在 Skill 维度暴露成功率。

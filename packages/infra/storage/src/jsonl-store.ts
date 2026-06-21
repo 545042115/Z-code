@@ -494,7 +494,10 @@ function matchRun(r: AgentRun, q: RunQuery): boolean {
 }
 
 function matchSpan(s: AgentSpan, q: SpanQuery): boolean {
-  if (q.runId && s.runId !== q.runId) return false;
+  if (q.runId) {
+    const allowed = Array.isArray(q.runId) ? q.runId : [q.runId];
+    if (!allowed.includes(s.runId)) return false;
+  }
   if (q.type) {
     const allowed = Array.isArray(q.type) ? q.type : [q.type];
     if (!allowed.includes(s.type)) return false;

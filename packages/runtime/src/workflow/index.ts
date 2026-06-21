@@ -1,5 +1,16 @@
-// workflow/ — Placeholder for future Workflow Engine (Phase 8+).
+// @z-assistant/runtime — workflow
 //
-// Per ADR §二, Phase 6A is NOT allowed to implement it. This directory
-// remains an empty placeholder until the Workflow Engine phase begins.
-export {};
+// Declarative workflow engine for multi-step agent tasks with dependencies,
+// templated arguments, conditional steps, and human-approval checkpoints.
+
+export {
+  runWorkflow,
+  type WorkflowDefinition,
+  type WorkflowStep,
+  type ToolWorkflowStep,
+  type HumanApprovalStep,
+  type SubWorkflowStep,
+  type WorkflowContext,
+  type StepExecutor,
+  type WorkflowResult,
+} from './workflow';

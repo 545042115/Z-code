@@ -222,21 +222,25 @@ vscode-connector/index.ts
   └─ preferences: "用户偏好简洁回答"（用户偏好）
 ```
 
-#### Phase 2: Planning（规划，1 次 LLM 调用）
+#### Phase 2: Planning（规划）
+
+**双模式规划**（`planningMode: 'simple' | 'hierarchical' | 'auto'`）：
+
+- **simple 模式**（默认）：LLM 生成 2-4 步的简短计划，注入 system prompt
+- **hierarchical 模式**：LLM 生成 milestones + steps 结构化计划，渲染为 markdown 注入 system prompt
+- **auto 模式**：根据任务长度和关键词自动选择（含"plan"/"方案"/"步骤"等关键词或长任务自动走 hierarchical）
 
 ```text
-系统提示："Analyze the user's request and create a brief plan (2-4 steps). Output ONLY a JSON object with a 'plan' array"
+simple 模式：
+  LLM 生成: {"plan": ["搜索北京天气", "保存到桌面"]}
+  → 注入 system prompt 作为参考
 
-LLM 输出：
-{
-  "plan": [
-    "使用 web_search 搜索北京天气",
-    "用 web_fetch 抓取天气详情页面",
-    "用 write_file 将结果保存到桌面 weather.md"
-  ]
-}
-
-→ plan 文本拼接到 system prompt，指导后续 ReAct 循环
+hierarchical 模式：
+  LLM 生成:
+    milestones: [{id:"m1", name:"信息收集", objective:"获取天气数据"}]
+    steps: [{id:"s1", milestoneId:"m1", name:"搜索天气", instruction:"搜索北京天气"}]
+  → 渲染为 markdown 计划注入 system prompt
+  → 后续 ReAct 循环按步骤执行
 ```
 
 #### Phase 3: ReAct 循环（Think → Act → Observe，最多 8 轮）
@@ -275,8 +279,24 @@ LLM 输出：
 
 #### Phase 4: Memory Save（记忆保存，异步非阻塞）
 
+**记忆智能提取**（替代硬编码关键词匹配）：
+
+```text
+旧方案：硬编码关键词 ['我喜欢', 'I like', 'I prefer', ...]
+  → 只能抓"我喜欢咖啡"这种显式偏好
+  → 抓不住"我在上海"、"我明天要出差"、"我对花生过敏"
+
+新方案：规则 + LLM 混合提取器（fact-extractor.ts）
+  → 启发式规则：快速匹配 location / preference / constraint / identity / goal
+     "我住在上海" → { factType: 'location', value: '上海', confidence: 0.92 }
+     "I am allergic to peanuts" → { factType: 'constraint', value: 'peanuts', confidence: 0.9 }
+  → LLM 回退：规则未命中时，用一次轻量 LLM 调用提取
+  → 结果存入 long-term memory，下次 recall 能命中
+```
+
 ```text
 记录 episode:    "用户问了北京天气，我搜索并保存到桌面"
+提取事实:       "用户 location 是 上海"（存入 long-term memory）
 推断 preferences: "用户喜欢把结果保存到桌面"（可选）
 ```
 
@@ -312,12 +332,18 @@ vscode-connector/index.ts
        ↓
        chat-agent.execute()
          ├─ Phase 1: Memory Recall
-         ├─ Phase 2: Planning (LLM × 1)
+         ├─ Phase 1.5: 多模态附件预处理 (可选，图片/音频/文档→文本)
+         ├─ Phase 2: Planning (simple 或 hierarchical)
          ├─ Phase 3: ReAct 循环 (LLM × N, Tool × N)
-         │    ├─ ConfirmationGate.confirm() → Desktop Modal UI
-         │    ├─ executeTool() → web_search / web_fetch / write_file
-         │    └─ DryRunExecutor (可选，模拟执行)
-         └─ Phase 4: Memory Save (异步)
+         │    ├─ ToolInvocationPipeline (统一流水线)
+         │    │    ├─ 风险分级 (classifyRisk)
+         │    │    ├─ 注入扫描 (PromptInjectionDetector)
+         │    │    ├─ 路径沙箱 (PathGuard)
+         │    │    ├─ ConfirmationGate.confirm() → Desktop Modal UI
+         │    │    ├─ DryRunExecutor (可选，模拟执行)
+         │    │    └─ AuditLogger (记录审计日志)
+         │    └─ executeTool() → web_search / web_fetch / write_file
+         └─ Phase 4: Memory Save (异步，含事实提取器)
        ↓
      tracker.flush() → 持久化 Trace (JSONL)
   ↓
@@ -336,7 +362,7 @@ Z Code 不是单一的 ReAct 或 Plan-and-Execute，而是**三者混合**：
 
 | 阶段 | 方法 | 作用 | 触发条件 |
 |---|---|---|---|
-| **Plan** | Plan-and-Execute | 先生成 2-4 步计划，指导后续行动 | 每次任务开始时 1 次 LLM 调用 |
+| **Plan** | Plan-and-Execute | 先生成 2-4 步计划（simple 模式）或 milestones+steps（hierarchical 模式），指导后续行动 | 每次任务开始时 1 次 LLM 调用 |
 | **ReAct** | ReAct（Reasoning + Acting） | Think → Act → Observe 循环 | Plan 之后，最多 8 轮 |
 | **Reflect** | Reflection | 复盘失败原因，生成修复计划 | **仅当 Verify 失败时**（V1），或通过 Memory Save 软反思（V2） |
 

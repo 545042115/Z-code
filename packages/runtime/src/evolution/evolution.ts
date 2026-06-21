@@ -221,11 +221,20 @@ export class EvolutionEngine {
     const q: RunQuery = { status: 'failed', fromTs, limit: 500 };
     const runs = await this.store.runs.list(q);
 
-    // Collect fingerprints
+    // Collect fingerprints in one batch query instead of N+1.
+    const runIds = runs.map((r) => r.id);
+    const spansByRun = new Map<string, AgentSpan[]>();
+    if (runIds.length > 0) {
+      const spans = await this.store.spans.list({ runId: runIds });
+      for (const s of spans) {
+        const list = spansByRun.get(s.runId) ?? [];
+        list.push(s);
+        spansByRun.set(s.runId, list);
+      }
+    }
     const allFp: FailureFingerprint[] = [];
     for (const r of runs) {
-      const spans = await this.store.spans.listByRun(r.id);
-      allFp.push(...fingerprintRun(r, spans));
+      allFp.push(...fingerprintRun(r, spansByRun.get(r.id) ?? []));
     }
 
     // Cluster

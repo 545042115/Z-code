@@ -21,6 +21,7 @@ import type {
   ConfirmationRequest,
   Decision,
   IConfirmationGate,
+  RiskLevel,
   ToolInvocation,
   ToolPreview,
 } from '@z-assistant/contracts';
@@ -31,6 +32,7 @@ import {
   type ToolRiskRule,
 } from './risk-levels';
 import type { IAuditLogger } from '../audit/logger';
+import { PromptInjectionDetector } from './prompt-injection';
 
 // ── Options ──────────────────────────────────────────────────────────
 
@@ -63,6 +65,8 @@ export interface ConfirmationGateOptions {
   riskRules?: ToolRiskRule[];
   /** Optional: generate preview for the confirmation UI. */
   previewGenerator?: (toolName: string, args: Record<string, unknown>) => ToolPreview | undefined;
+  /** Optional: prompt-injection detector. Default: new PromptInjectionDetector(). */
+  promptInjectionDetector?: PromptInjectionDetector;
   /** Optional: run id for audit correlation. */
   runId?: string;
   /** Optional: user id for audit. */
@@ -73,11 +77,20 @@ export interface ConfirmationGateOptions {
 
 // ── Glob matching for always-rules ───────────────────────────────────
 
+const MAX_GLOB_PATTERN_LEN = 200;
+const MAX_GLOB_VALUE_LEN = 4000;
+
 /**
  * Minimal glob matcher: supports `*` (any chars) and `?` (one char).
  * Used to match arg values in AlwaysRule.argPatterns.
+ *
+ * Bounded lengths prevent ReDoS / memory blow-up if a persisted rule file
+ * is tampered with.
  */
 function globMatch(pattern: string, value: string): boolean {
+  if (pattern.length > MAX_GLOB_PATTERN_LEN || value.length > MAX_GLOB_VALUE_LEN) {
+    return false;
+  }
   // Convert glob to regex: * → .*, ? → ., escape everything else.
   let regex = '^';
   for (const ch of pattern) {
@@ -102,6 +115,62 @@ function ruleMatches(rule: AlwaysRule, toolName: string, args: Record<string, un
   return true;
 }
 
+/**
+ * Generate sensible arg patterns from a concrete tool invocation.
+ *
+ * - Commands (run_terminal / run_shell): first token + `*` so "git status"
+ *   becomes "git *" and matches other git subcommands.
+ * - Browser URLs: scheme + host + `*` so navigations within the same site
+ *   are covered.
+ * - File paths: exact path (safety-first).
+ * - Other string args: exact value.
+ */
+function generateArgPatterns(toolName: string, args: Record<string, unknown>): Record<string, string> | undefined {
+  const patterns: Record<string, string> = {};
+  let hasPattern = false;
+
+  const command = extractString(args, 'command');
+  if (command && (toolName === 'run_terminal' || toolName === 'run_shell')) {
+    const first = command.trim().split(/\s+/)[0] ?? '';
+    patterns.command = first ? `${first} *` : command;
+    hasPattern = true;
+  }
+
+  const url = extractString(args, 'url');
+  if (url && toolName === 'browser_navigate') {
+    try {
+      const u = new URL(url);
+      patterns.url = `${u.protocol}//${u.host}/*`;
+      hasPattern = true;
+    } catch {
+      patterns.url = url;
+      hasPattern = true;
+    }
+  }
+
+  const filePath = extractString(args, 'filePath') ?? extractString(args, 'path');
+  if (filePath && (toolName === 'write_file' || toolName === 'read_file' || toolName === 'append_text' || toolName === 'insert_text')) {
+    patterns.filePath = filePath;
+    hasPattern = true;
+  }
+
+  // Fallback: exact-match any remaining string args (skipping objects/arrays).
+  for (const [key, val] of Object.entries(args)) {
+    if (key in patterns) continue;
+    if (typeof val === 'string') {
+      patterns[key] = val;
+      hasPattern = true;
+    }
+  }
+
+  return hasPattern ? patterns : undefined;
+}
+
+function extractString(args: Record<string, unknown>, key: string): string | undefined {
+  const val = args[key];
+  return typeof val === 'string' ? val : undefined;
+}
+
 // ── ConfirmationGate ─────────────────────────────────────────────────
 
 /**
@@ -115,10 +184,12 @@ function ruleMatches(rule: AlwaysRule, toolName: string, args: Record<string, un
 export class ConfirmationGate implements IConfirmationGate {
   private readonly opts: ConfirmationGateOptions;
   private readonly rules: AlwaysRule[];
+  private readonly detector: PromptInjectionDetector;
 
   constructor(opts: ConfirmationGateOptions) {
     this.opts = opts;
     this.rules = opts.rules ? [...opts.rules] : [];
+    this.detector = opts.promptInjectionDetector ?? new PromptInjectionDetector();
   }
 
   /** Add an always-rule at runtime (e.g. loaded from disk later). */
@@ -152,12 +223,21 @@ export class ConfirmationGate implements IConfirmationGate {
       userId: this.opts.userId,
     };
 
-    // 1. Classify risk.
+    // 1. Prompt-injection scan on tool arguments (fast path + full detector).
+    const injectionReport = this.detector.scanArgs(args);
+
+    // 2. Classify risk.
     const classification = classifyToolCall(toolName, args, this.opts.riskRules);
 
-    // 2. Critical → blocked unconditionally.
-    if (classification.blocked) {
-      audit?.logPending({ ...auditBase, risk: classification.risk, blocked: true, matchedRuleId: classification.matchedRule });
+    // 3. Critical → blocked unconditionally.
+    if (classification.blocked || injectionReport.injected) {
+      const risk: RiskLevel = injectionReport.injected ? 'critical' : classification.risk;
+      audit?.logPending({
+        ...auditBase,
+        risk,
+        blocked: true,
+        matchedRuleId: injectionReport.injected ? 'prompt.injection' : classification.matchedRule,
+      });
       return 'deny';
     }
 
@@ -185,6 +265,7 @@ export class ConfirmationGate implements IConfirmationGate {
       reason: classification.warning ?? `Tool '${toolName}' has risk level '${classification.risk}'.`,
       preview,
       createdAt: Date.now(),
+      promptInjectionReport: injectionReport.matches.length > 0 ? injectionReport : undefined,
     };
 
     const decision = await this.opts.onRequest(request);
@@ -192,12 +273,14 @@ export class ConfirmationGate implements IConfirmationGate {
     // 6. Audit the user's decision.
     audit?.logPending({ ...auditBase, risk: classification.risk, decision });
 
-    // 7. Persist 'always' decisions.
+    // 7. Persist 'always' decisions with arg patterns so the rule is
+    // precise rather than a global tool-wide allow/deny.
     if (decision === 'always-allow' || decision === 'always-deny') {
       const rule: AlwaysRule = {
         id: randomUUID(),
         decision,
         toolName,
+        argPatterns: generateArgPatterns(toolName, args),
         createdAt: Date.now(),
       };
       this.rules.push(rule);

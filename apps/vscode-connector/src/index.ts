@@ -13,17 +13,29 @@ import {
   registerExampleAgents,
   MemoryManager,
   JsonlMemoryProvider,
+  EvolutionEngine,
+  BackgroundScheduler,
+  AuditLogger,
   type OrchestratorMode,
   type OrchestratorResult,
+  type EvolutionReport,
 } from '@z-assistant/runtime';
+
+import {
+  AutoDiscoveryEngine,
+  JsonlFailureCaseStore,
+  TemplateSkillExtractor,
+  JsonFileSkillReviewQueue,
+} from '@z-assistant/runtime/skills';
 import { TraceManager, type RunTracker } from '@z-assistant/trace';
 import { createFileStore } from '@z-assistant/infra-storage';
 import { BudgetGuard } from '@z-assistant/infra-cost';
 
 import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult, IConfirmationGate } from '@z-assistant/contracts';
+import type { AgentResult, IConfirmationGate, AutoDiscoveryReport } from '@z-assistant/contracts';
 
 import { OpenAIProvider } from './llm-provider';
+import { DryRunExecutor } from '@z-assistant/runtime/permission';
 import { createChatAgent, CHAT_HISTORY_KEY } from './chat-agent';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
@@ -63,6 +75,11 @@ export interface VSCodeConnectorConfig {
    * any side effects, so the user can preview before committing.
    */
   dryRun?: boolean;
+  /**
+   * Optional audit logger (P1-2 HITL). When provided, direct V2 tool
+   * invocations via ChatToolRegistry are logged.
+   */
+  auditLogger?: AuditLogger;
   /** WeChat Hook configuration (optional) — uses WeChatFerry DLL injection for full message access. */
   wechatHook?: WeChatHookConfig;
   /** QQ OneBot configuration (optional) — connects to NapCat via OneBot protocol. */
@@ -133,6 +150,7 @@ export class VSCodeConnector {
     this._runtime = await AssistantRuntime.boot({
       storageDir: this.config.storageDir,
       projectKey: this.config.projectKey,
+      auditLogger: this.config.auditLogger,
     });
   }
 
@@ -373,6 +391,10 @@ export class VSCodeConnector {
       // G4 wiring: pass runtime.memory so the chat agent shares the
       // runtime's MemoryManager (single provider + userId) instead of
       // creating its own.
+      // P1-2 HITL: also wire the dry-run executor and audit logger into
+      // ChatToolRegistry so direct V2 tool invocations cannot bypass the
+      // confirmation gate / dry-run mode / audit trail.
+      const dryRunExecutor = this.config.dryRun ? new DryRunExecutor() : undefined;
       const loop = createCodingAgentFromChat({
         chatAgent: {
           llmProvider,
@@ -395,6 +417,11 @@ export class VSCodeConnector {
           },
         },
         defaultModel: model,
+        confirmationGate: this.config.confirmationGate,
+        dryRunExecutor,
+        auditLogger: this.config.auditLogger ?? this._runtime?.auditLogger,
+        runId: '',
+        userId: 'desktop-user',
       });
       reg.register(loop.asIAgent());
     };
@@ -425,6 +452,30 @@ export class VSCodeConnector {
     return this._runtime?.memory ?? null;
   }
 
+  auditLogger(): AuditLogger | null {
+    return this._runtime?.auditLogger ?? null;
+  }
+
+  /**
+   * Run the evolution engine over recent failed runs and emit a
+   * 'evolutionReport' event if recurring failures are found.
+   */
+  async runEvolution(windowMs?: number): Promise<EvolutionReport | null> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    const report = await this._runtime.evolution.generate({ windowMs });
+    this.emit({ type: 'evolutionReport', reportId: `evo-${Date.now()}`, readyToApply: report.readyToApply });
+    return report;
+  }
+
+  /**
+   * Run a skill auto-discovery sweep over recent failure cases.
+   * Proposed candidates are enqueued for human review.
+   */
+  async runSkillDiscovery(cfg?: { windowMs?: number; minOccurrences?: number }): Promise<AutoDiscoveryReport | null> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    return this._runtime.skillDiscovery.discover(cfg);
+  }
+
   private emit(e: ConnectorEvent): void {
     for (const l of this.listeners) {
       try { l(e); } catch { /* swallow */ }
@@ -443,6 +494,8 @@ export interface AssistantRuntimeBootOptions {
   userId?: string;
   /** Optional agent registrar; defaults to `registerExampleAgents`. */
   registerAgents?: (registry: AgentRegistry) => void;
+  /** Optional shared audit logger. If omitted, one is created automatically. */
+  auditLogger?: AuditLogger;
 }
 
 /**
@@ -459,15 +512,25 @@ export class AssistantRuntime {
 
   readonly memory: MemoryManager;
   readonly registry: AgentRegistry;
+  readonly evolution: EvolutionEngine;
+  readonly skillDiscovery: AutoDiscoveryEngine;
+  readonly auditLogger: AuditLogger;
+  private scheduler?: BackgroundScheduler;
 
   private constructor(
     public readonly trace: TraceManager,
     public readonly store: Store,
     memory: MemoryManager,
     registry: AgentRegistry,
+    evolution: EvolutionEngine,
+    skillDiscovery: AutoDiscoveryEngine,
+    auditLogger: AuditLogger,
   ) {
     this.memory = memory;
     this.registry = registry;
+    this.evolution = evolution;
+    this.skillDiscovery = skillDiscovery;
+    this.auditLogger = auditLogger;
   }
 
   static async boot(opts: AssistantRuntimeBootOptions): Promise<AssistantRuntime> {
@@ -494,7 +557,34 @@ export class AssistantRuntime {
     const registry = new AgentRegistry();
     (opts.registerAgents ?? registerExampleAgents)(registry);
 
-    return new AssistantRuntime(trace, store, memory, registry);
+    // Framework layer: evolution + skill auto-discovery. Wired to the same
+    // store and storage dir so they are usable by callers instead of sitting
+    // unused.
+    const evolution = new EvolutionEngine(store, trace);
+    const failureStore = new JsonlFailureCaseStore({ rootDir: dataDir });
+    const reviewQueue = new JsonFileSkillReviewQueue({ rootDir: dataDir });
+    const extractor = new TemplateSkillExtractor();
+    const skillDiscovery = new AutoDiscoveryEngine({ failureStore, extractor, reviewQueue });
+
+    // P1-2 HITL: shared audit logger. Sub-systems that need auditing should
+    // use this instance so the background scheduler can observe failures.
+    const auditLogger = opts.auditLogger ?? new AuditLogger({ rootDir: dataDir });
+
+    const runtime = new AssistantRuntime(trace, store, memory, registry, evolution, skillDiscovery, auditLogger);
+
+    // Phase 5: background evolution scheduler observes audit failures and
+    // automatically triggers evolution + skill discovery when thresholds are met.
+    runtime.scheduler = new BackgroundScheduler({
+      auditLogger,
+      evolution,
+      skillDiscovery,
+      reviewQueue,
+      failureThreshold: 2,
+      cooldownMs: 5 * 60 * 1000,
+    });
+    runtime.scheduler.start();
+
+    return runtime;
   }
 
   /**
@@ -542,8 +632,10 @@ export class AssistantRuntime {
   }
 
   async shutdown(): Promise<void> {
-    // Trace events are flushed per-tracker; FileStore has no global handle.
-    // JsonlMemoryProvider flushes on write; no global handle to close.
+    this.scheduler?.stop();
+    // Close the storage backend and memory provider to release file handles.
+    await this.store.close();
+    await this.memory.provider.close();
   }
 }
 

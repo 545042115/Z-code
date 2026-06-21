@@ -35,6 +35,11 @@ export interface JsonlMemoryProviderOptions {
   vectorStore?: IVectorStore;
   /** Filename for the memory log; default 'memories.jsonl'. */
   memoriesFile?: string;
+  /**
+   * Max number of records for which keyword fallback is performed in recall().
+   * Above this threshold only vector search is used. Default 1000.
+   */
+  keywordFallbackThreshold?: number;
 }
 
 async function ensureDir(p: string): Promise<void> {
@@ -66,6 +71,10 @@ function isTombstone(r: MemoryRecord | { __deleted: true; id: string }): r is { 
   return (r as { __deleted?: boolean }).__deleted === true;
 }
 
+function tokenSet(content?: string): Set<string> {
+  return new Set((content ?? '').toLowerCase().split(/\W+/).filter(Boolean));
+}
+
 /** Default production memory provider for V2. */
 export class JsonlMemoryProvider implements IMemoryProvider {
   readonly name = 'jsonl-memory-provider';
@@ -74,27 +83,37 @@ export class JsonlMemoryProvider implements IMemoryProvider {
   private readonly embedding: IEmbeddingProvider;
   private readonly vectors: IVectorStore;
   private readonly records = new Map<string, MemoryRecord>();
+  private readonly keywordFallbackThreshold: number;
+  private readonly contentTokens = new Map<string, Set<string>>();
   private loaded = false;
 
   constructor(opts: JsonlMemoryProviderOptions) {
     this.file = join(opts.rootDir, opts.memoriesFile ?? 'memories.jsonl');
     this.embedding = opts.embedding ?? createLocalEmbeddingProvider();
     this.vectors = opts.vectorStore ?? createInMemoryVectorStore();
+    this.keywordFallbackThreshold = opts.keywordFallbackThreshold ?? 1000;
   }
 
   private async load(): Promise<void> {
     if (this.loaded) return;
     const rows = await readJsonl<MemoryRecord | { __deleted: true; id: string }>(this.file);
+    const toUpsert: VectorRecord[] = [];
     for (const r of rows) {
       if (isTombstone(r)) {
         this.records.delete(r.id);
+        this.contentTokens.delete(r.id);
         await this.vectors.delete(r.id).catch(() => undefined);
       } else {
         this.records.set(r.id, r);
+        this.contentTokens.set(r.id, tokenSet(r.content));
         if (r.vector && !r.deleted) {
-          await this.vectors.upsert(vectorRecordFromMemory(r));
+          toUpsert.push(vectorRecordFromMemory(r));
         }
       }
+    }
+    // Batch-upsert in parallel to avoid N sequential vector-store round trips.
+    if (toUpsert.length) {
+      await Promise.all(toUpsert.map((v) => this.vectors.upsert(v)));
     }
     this.loaded = true;
   }
@@ -118,6 +137,7 @@ export class JsonlMemoryProvider implements IMemoryProvider {
       rec.vector = await this.embedding.embed(rec.content);
     }
     this.records.set(rec.id, rec);
+    this.contentTokens.set(rec.id, tokenSet(rec.content));
     await this.vectors.upsert(vectorRecordFromMemory(rec));
     await this.persist(rec);
     return rec;
@@ -152,13 +172,15 @@ export class JsonlMemoryProvider implements IMemoryProvider {
       hits.set(rec.id, { memory: rec, score: vh.score, reasons });
     }
 
-    // 2) Keyword fallback for small corpora or when vector misses
-    if (hits.size < limit) {
+    // 2) Keyword fallback for small corpora or when vector misses.
+    // Only run when the corpus is small enough to keep latency predictable.
+    if (hits.size < limit && this.records.size <= this.keywordFallbackThreshold) {
       for (const rec of this.records.values()) {
         if (rec.deleted) continue;
         if (!matchesFilters(rec, q)) continue;
         if (hits.has(rec.id)) continue;
-        const kw = keywordScore(q.query, rec.content);
+        const tokens = this.contentTokens.get(rec.id) ?? tokenSet(rec.content);
+        const kw = keywordScore(q.query, tokens);
         if (kw > 0.2) {
           const score = kw * 0.9;
           hits.set(rec.id, {
@@ -201,6 +223,7 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     if (!rec) return false;
     rec.deleted = true;
     this.records.set(id, rec);
+    this.contentTokens.delete(id);
     await this.vectors.delete(id);
     await this.tombstone(id);
     return true;
@@ -212,6 +235,7 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     for (const [id, r] of this.records.entries()) {
       if (matchPurgeFilter(r, filter)) {
         this.records.delete(id);
+        this.contentTokens.delete(id);
         await this.vectors.delete(id);
         await this.tombstone(id);
         count++;

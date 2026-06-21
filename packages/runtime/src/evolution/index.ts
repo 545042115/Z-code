@@ -28,3 +28,5 @@ export {
   type ConfigSuggestion,
   type SuggestionKind,
 } from './evolution';
+
+export { BackgroundScheduler, type BackgroundSchedulerOptions } from './scheduler';

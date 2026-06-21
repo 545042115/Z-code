@@ -55,3 +55,12 @@ export { recall, type RecallOptions } from './recall';
 export { MemoryPolicy } from './policy';
 export { SharedMemory, type SharedMemoryOptions } from './shared';
 export { PrivacyManager, type PrivacyExport } from './privacy';
+
+export {
+  extractFacts,
+  heuristicFactExtract,
+  type FactType,
+  type ExtractedFact,
+  type FactExtractorOptions,
+  type LLMFactExtractor,
+} from './fact-extractor';

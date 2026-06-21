@@ -133,6 +133,7 @@ export class RuntimeBridge {
       projectDir: this.settings.projectDir,
       confirmationGate: this.confirmationGate,
       dryRun: this.settings.dryRun,
+      auditLogger: this.auditLogger ?? undefined,
     };
     this.connector = new VSCodeConnector(config);
     this.connector.onEvent((e) => {
@@ -157,6 +158,17 @@ export class RuntimeBridge {
   async runTask(task: string, sessionId?: string): Promise<{ runId: string; result?: string }> {
     if (!this.connector) throw new Error('Runtime not started');
     return this.connector.runTask(task, 'desktop', sessionId);
+  }
+
+  async runEvolution(windowMs?: number): Promise<{ reportId: string; readyToApply: boolean }> {
+    if (!this.connector) throw new Error('Runtime not started');
+    const report = await this.connector.runEvolution(windowMs);
+    return { reportId: `evo-${Date.now()}`, readyToApply: report?.readyToApply ?? false };
+  }
+
+  async runSkillDiscovery(cfg?: { windowMs?: number; minOccurrences?: number }): Promise<unknown> {
+    if (!this.connector) throw new Error('Runtime not started');
+    return this.connector.runSkillDiscovery(cfg);
   }
 
   async listRuns(limit = 50, sessionId?: string): Promise<AgentRun[]> {

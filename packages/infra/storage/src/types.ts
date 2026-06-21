@@ -64,7 +64,7 @@ export interface RunRepo {
 // ── SpanRepo ──────────────────────────────────────────────────────────
 
 export interface SpanQuery extends ListQuery {
-  runId?: string;
+  runId?: string | string[];
   type?: AgentSpan['type'] | AgentSpan['type'][];
   status?: SpanStatus | SpanStatus[];
   agent?: string;
