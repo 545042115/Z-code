@@ -170,7 +170,8 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   // Unified tool invocation pipeline (P1-2 HITL + sandbox): risk → injection
   // scan → path guard → confirmation gate → dry-run/execute → audit.
   const dryRunExecutor = opts.dryRun ? new DryRunExecutor() : undefined;
-  const allowedRoots = [opts.projectDir ?? process.cwd(), opts.storageDir].filter(Boolean) as string[];
+  const userHome = process.env.USERPROFILE ?? process.env.HOME ?? '';
+  const allowedRoots = [opts.projectDir ?? process.cwd(), opts.storageDir, userHome].filter(Boolean) as string[];
   const toolPipeline = new ToolInvocationPipeline({
     confirmationGate: opts.confirmationGate,
     dryRunExecutor,
