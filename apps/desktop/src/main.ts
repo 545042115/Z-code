@@ -179,9 +179,9 @@ function showSettings(): void {
 }
 
 function registerIpcHandlers(): void {
-  ipcMain.handle(IPC_CHANNELS.RUN_TASK, async (_event, task: string, sessionId?: string) => {
+  ipcMain.handle(IPC_CHANNELS.RUN_TASK, async (_event, task: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto') => {
     await bridge.start();
-    return bridge.runTask(task, sessionId);
+    return bridge.runTask(task, sessionId, planningMode);
   });
   ipcMain.handle(IPC_CHANNELS.LIST_RUNS, async (_event, limit?: number, sessionId?: string) => {
     await bridge.start();

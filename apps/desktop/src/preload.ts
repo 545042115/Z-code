@@ -10,7 +10,7 @@ import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
 export interface ZDesktopAPI {
-  runTask: (task: string, sessionId?: string) => Promise<{ runId: string; result?: string }>;
+  runTask: (task: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto') => Promise<{ runId: string; result?: string }>;
   listRuns: (limit?: number, sessionId?: string) => Promise<AgentRun[]>;
   getRun: (runId: string) => Promise<AgentRun | undefined>;
   getSpans: (runId: string) => Promise<AgentSpan[]>;
@@ -77,7 +77,7 @@ interface QQStatus {
 }
 
 const api: ZDesktopAPI = {
-  runTask: (task, sessionId) => ipcRenderer.invoke(IPC_CHANNELS.RUN_TASK, task, sessionId),
+  runTask: (task, sessionId, planningMode) => ipcRenderer.invoke(IPC_CHANNELS.RUN_TASK, task, sessionId, planningMode),
   listRuns: (limit, sessionId) => ipcRenderer.invoke(IPC_CHANNELS.LIST_RUNS, limit, sessionId),
   getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.GET_RUN, runId),
   getSpans: (runId) => ipcRenderer.invoke(IPC_CHANNELS.GET_SPANS, runId),

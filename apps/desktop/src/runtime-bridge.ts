@@ -155,9 +155,9 @@ export class RuntimeBridge {
 
   isReady(): boolean { return this.connector?.isReady() ?? false; }
 
-  async runTask(task: string, sessionId?: string): Promise<{ runId: string; result?: string }> {
+  async runTask(task: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto'): Promise<{ runId: string; result?: string }> {
     if (!this.connector) throw new Error('Runtime not started');
-    return this.connector.runTask(task, 'desktop', sessionId);
+    return this.connector.runTask(task, 'desktop', sessionId, planningMode);
   }
 
   async runEvolution(windowMs?: number): Promise<{ reportId: string; readyToApply: boolean }> {

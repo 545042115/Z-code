@@ -61,6 +61,26 @@ function renderMarkdown(text: string): string {
 
 let currentSessionId: string | null = null;
 
+// ── Planning mode state ───────────────────────────────────────────────
+// User-selectable planning mode: 'auto' (default, auto-detect based on
+// task complexity), 'simple' (native ReAct), or 'hierarchical' (LLM
+// generates milestones + steps). Switchable via slash commands.
+type PlanningMode = 'simple' | 'hierarchical' | 'auto';
+let currentPlanningMode: PlanningMode = 'auto';
+
+const PLANNING_MODE_COMMANDS: Record<string, PlanningMode> = {
+  '/simple': 'simple',
+  '/hierarchical': 'hierarchical',
+  '/plan': 'hierarchical',
+  '/auto': 'auto',
+};
+
+const PLANNING_MODE_LABELS: Record<PlanningMode, string> = {
+  simple: 'Simple (ReAct)',
+  hierarchical: 'Hierarchical (milestones)',
+  auto: 'Auto (detect)',
+};
+
 // ── Confirm dialog helpers ────────────────────────────────────────────
 
 let pendingDeleteId: string | null = null;
@@ -136,6 +156,10 @@ export async function mountChat(container: HTMLElement): Promise<void> {
         <div id="chat-messages"></div>
         <div id="chat-memory-context" style="display:none;padding:4px 8px;border-top:1px solid var(--border-light);background:var(--bg-soft);font-size:0.78em;max-height:80px;overflow-y:auto"></div>
         <div id="chat-input-area">
+          <div id="chat-mode-indicator" style="display:flex;align-items:center;gap:6px;padding:2px 8px;font-size:0.75em;color:var(--text-secondary);border-top:1px solid var(--border-light)">
+            <span id="chat-mode-label">${t('chat.mode')}: <strong id="chat-mode-current">auto</strong></span>
+            <span class="muted">${t('chat.mode_hint')}</span>
+          </div>
           <textarea id="chat-input" rows="2" placeholder="${t('chat.placeholder')}"></textarea>
           <button id="chat-recall-btn" class="secondary" title="${t('memory.recall_hint')}" style="padding:10px 12px;min-height:42px;font-size:0.85em">${t('memory.recall')}</button>
           <button id="chat-send" class="primary">${t('chat.send')}</button>
@@ -182,6 +206,22 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+  }
+
+  // ── Helper: add a system (non-agent) message bubble ──────────────
+  function addSystemMessage(content: string): void {
+    const div = document.createElement('div');
+    div.className = 'message system';
+    div.style.cssText = 'text-align:center;font-size:0.82em;color:var(--text-secondary);background:var(--bg-soft);border-radius:var(--radius-md);padding:6px 10px;margin:4px 0';
+    div.textContent = content;
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  // ── Helper: update the planning mode indicator ───────────────────
+  function updateModeIndicator(): void {
+    const el = document.getElementById('chat-mode-current');
+    if (el) el.textContent = PLANNING_MODE_LABELS[currentPlanningMode];
   }
 
   // ── Helper: show/hide progress indicator ─────────────────────────
@@ -342,6 +382,37 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     input.value = '';
     sendBtn.disabled = true;
 
+    // ── Parse planning mode slash commands ───────────────────────
+    // /simple /hierarchical /plan /auto → switch mode (bare) or send
+    //   the remaining text with the new mode (command + text).
+    // /mode → show the current planning mode.
+    const firstToken = text.split(/\s+/)[0].toLowerCase();
+    if (PLANNING_MODE_COMMANDS[firstToken]) {
+      currentPlanningMode = PLANNING_MODE_COMMANDS[firstToken];
+      updateModeIndicator();
+      const restText = text.slice(firstToken.length).trim();
+      if (!restText) {
+        addSystemMessage(`${t('chat.mode_switched')} ${PLANNING_MODE_LABELS[currentPlanningMode]}`);
+        sendBtn.disabled = false;
+        input.focus();
+        return;
+      }
+      // Command + text: send the rest with the new mode
+      await runAgentTask(restText);
+      return;
+    }
+    if (firstToken === '/mode') {
+      addSystemMessage(`${t('chat.mode_current')} ${PLANNING_MODE_LABELS[currentPlanningMode]}`);
+      sendBtn.disabled = false;
+      input.focus();
+      return;
+    }
+
+    await runAgentTask(text);
+  }
+
+  // ── Run agent task with the current planning mode ────────────────
+  async function runAgentTask(task: string): Promise<void> {
     // Ensure we have a session
     if (!currentSessionId) {
       try {
@@ -355,12 +426,12 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
 
     // Save & display user message
-    await zApi.appendMessage(currentSessionId, { role: 'user', content: text, timestamp: Date.now() });
-    addMessage('user', text);
+    await zApi.appendMessage(currentSessionId, { role: 'user', content: task, timestamp: Date.now() });
+    addMessage('user', task);
     renderSessionList();
 
     // Store user message as episodic memory (fire-and-forget)
-    storeMemory(`User asked: ${text.slice(0, 200)}`, 'episodic');
+    storeMemory(`User asked: ${task.slice(0, 200)}`, 'episodic');
 
     // Call LLM
     try {
@@ -368,7 +439,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       const unsubProgress = zApi.onProgress((e) => {
         showProgress(e.phase, e.detail);
       });
-      const { runId, result } = await zApi.runTask(text, currentSessionId);
+      const { runId, result } = await zApi.runTask(task, currentSessionId, currentPlanningMode);
       unsubProgress();
       hideProgress();
       const reply = result || `${t('chat.submitted')} ${runId}`;

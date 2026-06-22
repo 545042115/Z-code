@@ -278,7 +278,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
         const planSpan = startSpan?.('planning', 'planner', { task: ctx.task.slice(0, 200) });
         progress('plan', 'Analyzing request and creating execution plan...');
 
-        const mode = selectPlanningMode(ctx.task, opts.planningMode ?? 'simple');
+        const mode = selectPlanningMode(ctx.task, opts.planningMode ?? 'auto');
         let planText = '';
 
         if (mode === 'hierarchical') {

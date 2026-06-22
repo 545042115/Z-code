@@ -31,6 +31,10 @@ const TRANSLATIONS: TranslationMap = {
   'chat.confirmDelete': { 'zh-CN': '确定要删除此对话吗？', en: 'Delete this conversation?' },
   'chat.yes':           { 'zh-CN': '确定',         en: 'Yes' },
   'chat.no':            { 'zh-CN': '取消',         en: 'No' },
+  'chat.mode':          { 'zh-CN': '规划模式',     en: 'Planning Mode' },
+  'chat.mode_hint':     { 'zh-CN': '输入 /simple /hierarchical /plan /auto 切换，/mode 查看', en: 'Type /simple /hierarchical /plan /auto to switch, /mode to show' },
+  'chat.mode_switched': { 'zh-CN': '已切换规划模式为', en: 'Planning mode switched to' },
+  'chat.mode_current':  { 'zh-CN': '当前规划模式:',  en: 'Current planning mode:' },
 
   // Trace
   'trace.runs':         { 'zh-CN': '运行记录',     en: 'Runs' },

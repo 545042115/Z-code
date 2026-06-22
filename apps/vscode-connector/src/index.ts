@@ -355,7 +355,7 @@ export class VSCodeConnector {
     return this._runtime !== null;
   }
 
-  async runTask(task: string, _projectKey?: string, sessionId?: string): Promise<{ runId: string; result?: string }> {
+  async runTask(task: string, _projectKey?: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto'): Promise<{ runId: string; result?: string }> {
     const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
     const apiKey = this.config.apiKey;
     const apiEndpoint = this.config.apiEndpoint;
@@ -404,6 +404,7 @@ export class VSCodeConnector {
           memoryManager: this._runtime?.memory,
           confirmationGate: this.config.confirmationGate,
           dryRun: this.config.dryRun,
+          planningMode,
           onProgress: (phase, detail) => {
             this.emit({ type: 'progress', runId: '', phase, detail });
           },

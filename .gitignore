@@ -50,3 +50,8 @@ packages/runtime/python/build/
 packages/runtime/python/dist/
 packages/runtime/python/.deps-installed
 packages/runtime/python/.requirements-hash
+
+# Build artifacts
+Z-Assistant-portable.zip
+apps/desktop/dist/
+
