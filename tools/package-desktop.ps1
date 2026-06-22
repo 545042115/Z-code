@@ -67,8 +67,12 @@ $buildOrder = @(
   "@z-assistant/infra-errors",
   "@z-assistant/infra-storage",
   "@z-assistant/infra-cost",
+  "@z-assistant/infra-config",
+  "@z-assistant/infra-permission",
   "@z-assistant/trace",
   "@z-assistant/runtime",
+  "@z-assistant/agent-coding",
+  "@z-assistant/agent-browser",
   "@z-assistant/app-vscode-connector"
 )
 
@@ -144,11 +148,15 @@ $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 $zAssistantDst = Join-Path $appNodeModules "@z-assistant"
 $neededPackages = @(
   @{Name="app-vscode-connector"; Source="apps\vscode-connector"}
+  @{Name="agent-browser";       Source="packages\agents\browser-agent"}
+  @{Name="agent-coding";        Source="packages\agents\coding-agent"}
   @{Name="runtime";             Source="packages\runtime"}
   @{Name="trace";               Source="packages\trace"}
   @{Name="infra-storage";       Source="packages\infra\storage"}
   @{Name="infra-cost";          Source="packages\infra\cost"}
   @{Name="infra-errors";        Source="packages\infra\errors"}
+  @{Name="infra-config";        Source="packages\infra\config"}
+  @{Name="infra-permission";    Source="packages\infra\permission"}
   @{Name="contracts";           Source="packages\contracts"}
 )
 
@@ -165,37 +173,78 @@ foreach ($pkg in $neededPackages) {
   }
 }
 
-# Step D2: install third-party dependencies for app-vscode-connector
-# npm workspaces hoist everything to root; we need them in the app's node_modules
-Write-Host "  Installing runtime dependencies..."
+# Step D2: recursively copy all third-party dependencies
+# npm workspaces hoist everything to root; we need them in the app's node_modules.
+# Instead of manually listing deps (which misses transitive ones like universalify),
+# we read each package's dependencies and recursively copy them from root node_modules.
+Write-Host "  Installing runtime dependencies (recursive)..."
 $rootNodeModules = Join-Path $RootDir "node_modules"
 $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 
-# Copy third-party deps from root node_modules into app's node_modules
-$thirdPartyDeps = @("ws", "wechatferry", "electron-updater", "koffi", "@wechatferry", "@rustup")
+# Track copied packages to avoid infinite loops
+$script:copiedPkgs = @{}
 
-foreach ($dep in $thirdPartyDeps) {
-  $src = Join-Path $rootNodeModules $dep
-  $dst = Join-Path $appNodeModules $dep
-  if (Test-Path $src) {
-    New-Item -ItemType Directory -Force -Path $dst | Out-Null
-    Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "    Copied $dep" -ForegroundColor Gray
+function Copy-PkgRecursive {
+  param([string]$PkgName, [string]$PkgSubDir = "")
+  $srcPath = if ($PkgSubDir) { Join-Path $rootNodeModules "$PkgSubDir\$PkgName" } else { Join-Path $rootNodeModules $PkgName }
+  $dstPath = if ($PkgSubDir) { Join-Path $appNodeModules "$PkgSubDir\$PkgName" } else { Join-Path $appNodeModules $PkgName }
+  $cacheKey = if ($PkgSubDir) { "$PkgSubDir/$PkgName" } else { $PkgName }
+
+  if ($script:copiedPkgs.ContainsKey($cacheKey)) { return }
+  $script:copiedPkgs[$cacheKey] = $true
+
+  if (-not (Test-Path $srcPath)) { return }
+
+  # Copy the package directory
+  New-Item -ItemType Directory -Force -Path $dstPath | Out-Null
+  Copy-Item -Path "$srcPath\*" -Destination $dstPath -Recurse -Force -ErrorAction SilentlyContinue
+  Write-Host "    $cacheKey" -ForegroundColor Gray
+
+  # Read package.json to find dependencies
+  $pkgJson = Join-Path $srcPath "package.json"
+  if (Test-Path $pkgJson) {
+    try {
+      $json = Get-Content $pkgJson -Raw | ConvertFrom-Json
+      foreach ($depField in @('dependencies', 'optionalDependencies')) {
+        $deps = $json.$depField
+        if ($deps) {
+          foreach ($prop in $deps.PSObject.Properties) {
+            $depName = $prop.Name
+            # Skip workspace packages (already copied in Step D)
+            if ($depName -like '@z-assistant/*') { continue }
+            # Handle scoped packages (@scope/name)
+            if ($depName -like '@*/*') {
+              $scope = $depName.Split('/')[0]
+              $name = $depName.Split('/')[1]
+              Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
+            } else {
+              Copy-PkgRecursive -PkgName $depName
+            }
+          }
+        }
+      }
+    } catch {}
   }
 }
 
-# Also copy @types/ws if present (needed for type references)
-$typesDeps = @("ws")
-foreach ($dep in $typesDeps) {
-  $src = Join-Path $rootNodeModules "@types\$dep"
-  $dst = Join-Path $appNodeModules "@types\$dep"
-  if (Test-Path $src) {
-    New-Item -ItemType Directory -Force -Path $dst | Out-Null
-    Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+# Start from the app's direct production dependencies
+$appPkgJson = Join-Path $RootDir "apps\desktop\package.json"
+if (Test-Path $appPkgJson) {
+  $appJson = Get-Content $appPkgJson -Raw | ConvertFrom-Json
+  foreach ($prop in $appJson.dependencies.PSObject.Properties) {
+    $depName = $prop.Name
+    if ($depName -like '@z-assistant/*') { continue }
+    if ($depName -like '@*/*') {
+      $scope = $depName.Split('/')[0]
+      $name = $depName.Split('/')[1]
+      Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
+    } else {
+      Copy-PkgRecursive -PkgName $depName
+    }
   }
 }
 
-Write-Host "  [OK] Runtime dependencies installed" -ForegroundColor Green
+Write-Host "  [OK] Runtime dependencies installed ($($script:copiedPkgs.Count) packages)" -ForegroundColor Green
 
 # Re-name the exe
 $targetExe = Join-Path $unpackedDir "Z Assistant.exe"

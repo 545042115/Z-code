@@ -186,7 +186,14 @@ $env:WIN_CSC_KEY_PASSWORD = ''
 $env:ELECTRON_BUILDER_BINARIES_MIRROR = 'https://npmmirror.com/mirrors/electron-builder-binaries/'
 $pkgs = @(
     "$rootDir\packages\contracts",
+    "$rootDir\packages\infra\errors",
+    "$rootDir\packages\infra\storage",
+    "$rootDir\packages\infra\cost",
+    "$rootDir\packages\infra\config",
+    "$rootDir\packages\infra\permission",
+    "$rootDir\packages\trace",
     "$rootDir\packages\runtime",
+    "$rootDir\packages\agents\coding-agent",
     "$rootDir\packages\agents\browser-agent",
     "$rootDir\apps\vscode-connector",
     "$rootDir\apps\desktop"
