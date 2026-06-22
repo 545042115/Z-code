@@ -81,6 +81,14 @@ const PLANNING_MODE_LABELS: Record<PlanningMode, string> = {
   auto: 'Auto (detect)',
 };
 
+const PLANNING_MODE_SHORT_LABELS: Record<PlanningMode, string> = {
+  simple: 'Simple',
+  hierarchical: 'Plan',
+  auto: 'Auto',
+};
+
+const PLANNING_MODE_ORDER: PlanningMode[] = ['auto', 'simple', 'hierarchical'];
+
 // ── Confirm dialog helpers ────────────────────────────────────────────
 
 let pendingDeleteId: string | null = null;
@@ -156,9 +164,12 @@ export async function mountChat(container: HTMLElement): Promise<void> {
         <div id="chat-messages"></div>
         <div id="chat-memory-context" style="display:none;padding:4px 8px;border-top:1px solid var(--border-light);background:var(--bg-soft);font-size:0.78em;max-height:80px;overflow-y:auto"></div>
         <div id="chat-input-area">
-          <div id="chat-mode-indicator" style="display:flex;align-items:center;gap:6px;padding:2px 8px;font-size:0.75em;color:var(--text-secondary);border-top:1px solid var(--border-light)">
-            <span id="chat-mode-label">${t('chat.mode')}: <strong id="chat-mode-current">auto</strong></span>
-            <span class="muted">${t('chat.mode_hint')}</span>
+          <div id="chat-mode-indicator" style="display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:0.75em;color:var(--text-secondary);border-top:1px solid var(--border-light)">
+            <button id="chat-mode-btn" class="secondary" type="button" style="font-size:0.85em;padding:2px 8px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:4px" title="${t('chat.mode_hint')}">
+              <span>${t('chat.mode')}</span>
+              <strong id="chat-mode-current">Auto</strong>
+              <span style="opacity:0.6">▾</span>
+            </button>
           </div>
           <textarea id="chat-input" rows="2" placeholder="${t('chat.placeholder')}"></textarea>
           <button id="chat-recall-btn" class="secondary" title="${t('memory.recall_hint')}" style="padding:10px 12px;min-height:42px;font-size:0.85em">${t('memory.recall')}</button>
@@ -193,6 +204,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   const sendBtn = document.getElementById('chat-send') as HTMLButtonElement;
   const newBtn = document.getElementById('chat-new-btn') as HTMLButtonElement;
   const exportBtn = document.getElementById('chat-export-btn') as HTMLButtonElement;
+  const modeBtn = document.getElementById('chat-mode-btn') as HTMLButtonElement;
 
   // ── Helper: add a message bubble ─────────────────────────────────
   function addMessage(role: string, content: string): void {
@@ -221,7 +233,15 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   // ── Helper: update the planning mode indicator ───────────────────
   function updateModeIndicator(): void {
     const el = document.getElementById('chat-mode-current');
-    if (el) el.textContent = PLANNING_MODE_LABELS[currentPlanningMode];
+    if (el) el.textContent = PLANNING_MODE_SHORT_LABELS[currentPlanningMode];
+  }
+
+  // ── Helper: cycle to the next planning mode ──────────────────────
+  function cyclePlanningMode(): void {
+    const idx = PLANNING_MODE_ORDER.indexOf(currentPlanningMode);
+    currentPlanningMode = PLANNING_MODE_ORDER[(idx + 1) % PLANNING_MODE_ORDER.length];
+    updateModeIndicator();
+    addSystemMessage(`${t('chat.mode_switched')} ${PLANNING_MODE_LABELS[currentPlanningMode]}`);
   }
 
   // ── Helper: show/hide progress indicator ─────────────────────────
@@ -564,6 +584,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
 
   newBtn.addEventListener('click', newSession);
   exportBtn.addEventListener('click', exportCurrentSession);
+  modeBtn.addEventListener('click', cyclePlanningMode);
 
   // Click session item → switch
   sessionList.addEventListener('click', (e) => {

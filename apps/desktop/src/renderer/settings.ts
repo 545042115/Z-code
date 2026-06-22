@@ -157,7 +157,10 @@ function renderSettings(container: HTMLElement): void {
         <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.mcp_desc')}</p>
         <label class="stack" style="margin-top:8px">
           <span>${t('settings.mcd_token')}</span>
-          <input id="settings-mcd-token" type="password" placeholder="${t('settings.mcd_token_placeholder')}">
+          <div class="row" style="gap:4px">
+            <input id="settings-mcd-token" class="secured" type="text" placeholder="${t('settings.mcd_token_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
+            <button id="settings-mcd-token-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+          </div>
         </label>
         <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.mcd_token_hint')}</p>
       </div>
@@ -180,6 +183,7 @@ function renderSettings(container: HTMLElement): void {
   const saveBtn = document.getElementById('settings-save') as HTMLButtonElement;
   const status = document.getElementById('settings-status')!;
   const mcdToken = document.getElementById('settings-mcd-token') as HTMLInputElement;
+  const mcdTokenToggle = document.getElementById('settings-mcd-token-toggle') as HTMLButtonElement;
 
   // Profile elements
   const profileEnabled = document.getElementById('settings-profile-enabled') as HTMLInputElement;
@@ -446,6 +450,11 @@ function renderSettings(container: HTMLElement): void {
     } finally {
       browseProjectBtn.disabled = false;
     }
+  });
+
+  mcdTokenToggle.addEventListener('click', () => {
+    const secured = mcdToken.classList.toggle('secured');
+    mcdTokenToggle.textContent = secured ? '隐藏' : '显示';
   });
 
   saveBtn.addEventListener('click', async () => {

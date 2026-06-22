@@ -239,6 +239,10 @@ input::placeholder, textarea::placeholder {
   color: var(--text-muted);
 }
 
+input.secured {
+  -webkit-text-security: disc;
+}
+
 textarea {
   resize: vertical;
   min-height: 80px;
