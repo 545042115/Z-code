@@ -431,11 +431,20 @@ export class VSCodeConnector {
             this.emit({ type: 'progress', runId: '', phase, detail });
           },
           startSpan: (name, type, input) => {
-            const span = tracker?.startSpan({ name, type: type as any, input });
+            // Lazily resolve the active tracker when the span is actually
+            // used. registerChatAgent runs before runtime.createOrchestrator()
+            // starts the run, so tracker is null at construction time.
+            let span: ReturnType<NonNullable<RunTracker['startSpan']>> | undefined;
+            const getSpan = () => {
+              if (!span) {
+                span = this._runtime?.trace.active()?.startSpan({ name, type: type as any, input });
+              }
+              return span;
+            };
             return {
-              end: (output) => { span?.setOutput(output); span?.end(); },
-              fail: (err) => { span?.fail(TraceManager.errorOf(err)); },
-              addEvent: (name) => { span?.addEvent(name); },
+              end: (output) => { const s = getSpan(); s?.setOutput(output); s?.end(); },
+              fail: (err) => { const s = getSpan(); s?.fail(TraceManager.errorOf(err)); },
+              addEvent: (name) => { const s = getSpan(); s?.addEvent(name); },
             };
           },
         },
