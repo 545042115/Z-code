@@ -55,7 +55,7 @@ export const CHAT_TOOLS = [WEB_SEARCH_TOOL, WEB_FETCH_TOOL];
 
 // ── HTTP helpers ──────────────────────────────────────────────────────
 
-function fetchUrl(url: string, timeout = 15_000): Promise<string> {
+function fetchUrl(url: string, timeout = 30_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(
@@ -88,6 +88,25 @@ function fetchUrl(url: string, timeout = 15_000): Promise<string> {
       reject(new Error(`Request timeout after ${timeout}ms`));
     });
   });
+}
+
+async function fetchWithRetry(
+  url: string,
+  opts: { timeout?: number; retries?: number; delayMs?: number } = {}
+): Promise<string> {
+  const { timeout = 30_000, retries = 2, delayMs = 1_000 } = opts;
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetchUrl(url, timeout);
+    } catch (e: unknown) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      if (attempt < retries) {
+        await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError ?? new Error('fetch failed after retries');
 }
 
 // ── HTML stripping ────────────────────────────────────────────────────
@@ -201,7 +220,7 @@ export async function webSearch(query: string, maxResults = 5): Promise<string> 
   const encoded = encodeURIComponent(query);
   const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
   try {
-    const html = await fetchUrl(url);
+    const html = await fetchWithRetry(url, { timeout: 30_000, retries: 2, delayMs: 1_500 });
     const results = parseDuckDuckGo(html).slice(0, Math.min(maxResults, 10));
     if (results.length === 0) return `No results found for "${query}".`;
     return results
@@ -215,7 +234,7 @@ export async function webSearch(query: string, maxResults = 5): Promise<string> 
 
 export async function webFetch(url: string, maxLength = 5000): Promise<string> {
   try {
-    const html = await fetchUrl(url);
+    const html = await fetchWithRetry(url, { timeout: 30_000, retries: 1, delayMs: 1_000 });
     const text = stripHtml(html, maxLength);
     if (!text.trim()) return `No readable content found at ${url}.`;
     return text;
