@@ -55,7 +55,7 @@ export const CHAT_TOOLS = [WEB_SEARCH_TOOL, WEB_FETCH_TOOL];
 
 // ── HTTP helpers ──────────────────────────────────────────────────────
 
-function fetchUrl(url: string, timeout = 30_000): Promise<string> {
+function fetchUrl(url: string, timeout = 30_000, extraHeaders: Record<string, string> = {}): Promise<string> {
   return new Promise((resolve, reject) => {
     const mod = url.startsWith('https') ? https : http;
     const req = mod.get(
@@ -64,7 +64,11 @@ function fetchUrl(url: string, timeout = 30_000): Promise<string> {
         headers: {
           'User-Agent':
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml,text/plain',
+          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+          'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+          'Accept-Encoding': 'identity',
+          Referer: 'https://www.bing.com/',
+          ...extraHeaders,
         },
         timeout,
       },
@@ -92,13 +96,13 @@ function fetchUrl(url: string, timeout = 30_000): Promise<string> {
 
 async function fetchWithRetry(
   url: string,
-  opts: { timeout?: number; retries?: number; delayMs?: number } = {}
+  opts: { timeout?: number; retries?: number; delayMs?: number; headers?: Record<string, string> } = {}
 ): Promise<string> {
-  const { timeout = 30_000, retries = 2, delayMs = 1_000 } = opts;
+  const { timeout = 30_000, retries = 2, delayMs = 1_000, headers = {} } = opts;
   let lastError: Error | undefined;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
-      return await fetchUrl(url, timeout);
+      return await fetchUrl(url, timeout, headers);
     } catch (e: unknown) {
       lastError = e instanceof Error ? e : new Error(String(e));
       if (attempt < retries) {
@@ -150,9 +154,14 @@ interface SearchResult {
   snippet: string;
 }
 
-function parseBing(html: string): SearchResult[] {
+function parseBing(html: string, query: string): SearchResult[] {
   const results: SearchResult[] = [];
   const seen = new Set<string>();
+  const queryTerms = query
+    .toLowerCase()
+    .replace(/[^\u4e00-\u9fa5a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
 
   // Strategy 1: Bing desktop — <li class="b_algo">
   const algoRegex = /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/gi;
@@ -182,10 +191,16 @@ function parseBing(html: string): SearchResult[] {
       || /<p>([\s\S]*?)<\/p>/i.exec(block);
     const snippet = snippetMatch ? stripHtml(snippetMatch[1], 300) : '';
 
-    if (url && !seen.has(url)) {
-      seen.add(url);
-      results.push({ url, title, snippet });
+    if (!url || seen.has(url)) continue;
+
+    // Relevance guard: at least one query term (>=2 chars) should appear in title or snippet
+    const combined = `${title} ${snippet}`.toLowerCase();
+    if (queryTerms.length > 0 && !queryTerms.some((t) => combined.includes(t))) {
+      continue;
     }
+
+    seen.add(url);
+    results.push({ url, title, snippet });
   }
 
   return results;
@@ -260,13 +275,20 @@ function parseDuckDuckGo(html: string): SearchResult[] {
 export async function webSearch(query: string, maxResults = 5): Promise<string> {
   const encoded = encodeURIComponent(query);
 
-  // Try Bing first, then fallback to DuckDuckGo.
-  const bingUrl = `https://www.bing.com/search?q=${encoded}&setmkt=en-US&setlang=en&FORM=QBRE`;
+  // Try Bing first (Chinese market, real browser headers), then fallback to DuckDuckGo.
+  const bingUrl = `https://www.bing.com/search?q=${encoded}&setmkt=zh-CN&setlang=zh-Hans&FORM=QBRE`;
   const ddgUrl = `https://html.duckduckgo.com/html/?q=${encoded}`;
 
   try {
-    const html = await fetchWithRetry(bingUrl, { timeout: 30_000, retries: 2, delayMs: 1_500 });
-    const results = parseBing(html).slice(0, Math.min(maxResults, 10));
+    const html = await fetchWithRetry(bingUrl, {
+      timeout: 30_000,
+      retries: 2,
+      delayMs: 1_500,
+      headers: {
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+      },
+    });
+    const results = parseBing(html, query).slice(0, Math.min(maxResults, 10));
     if (results.length > 0) {
       return results
         .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
