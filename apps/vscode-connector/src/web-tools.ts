@@ -150,6 +150,47 @@ interface SearchResult {
   snippet: string;
 }
 
+function parseBing(html: string): SearchResult[] {
+  const results: SearchResult[] = [];
+  const seen = new Set<string>();
+
+  // Strategy 1: Bing desktop — <li class="b_algo">
+  const algoRegex = /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/gi;
+  let match;
+  while ((match = algoRegex.exec(html)) !== null) {
+    const block = match[1];
+
+    // Title + URL: <h2><a href="...">title</a></h2>
+    const headingMatch = /<h2[^>]*>(?:<a[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>|<a[^>]*>([\s\S]*?)<\/a>)<\/h2>/i.exec(block);
+    if (!headingMatch) continue;
+
+    let url = (headingMatch[1] ?? '').replace(/&amp;/g, '&');
+    const title = stripHtml(headingMatch[2] ?? headingMatch[3] ?? '', 200);
+
+    // Bing sometimes uses relative redirect URLs starting with /search?q=
+    if (url && !url.startsWith('http')) {
+      const redirectMatch = /[?&]url=([^&]+)/i.exec(url);
+      if (redirectMatch) {
+        url = decodeURIComponent(redirectMatch[1]);
+      } else if (url.startsWith('/')) {
+        url = 'https://www.bing.com' + url;
+      }
+    }
+
+    // Snippet: usually in <div class="b_caption"><p>...</p></div> or <p> directly
+    const snippetMatch = /<div class="b_caption"[^>]*>([\s\S]*?)<\/div>/i.exec(block)
+      || /<p>([\s\S]*?)<\/p>/i.exec(block);
+    const snippet = snippetMatch ? stripHtml(snippetMatch[1], 300) : '';
+
+    if (url && !seen.has(url)) {
+      seen.add(url);
+      results.push({ url, title, snippet });
+    }
+  }
+
+  return results;
+}
+
 function parseDuckDuckGo(html: string): SearchResult[] {
   const results: SearchResult[] = [];
   const seen = new Set<string>();
@@ -218,9 +259,25 @@ function parseDuckDuckGo(html: string): SearchResult[] {
 
 export async function webSearch(query: string, maxResults = 5): Promise<string> {
   const encoded = encodeURIComponent(query);
-  const url = `https://html.duckduckgo.com/html/?q=${encoded}`;
+
+  // Try Bing first, then fallback to DuckDuckGo.
+  const bingUrl = `https://www.bing.com/search?q=${encoded}&setmkt=en-US&setlang=en&FORM=QBRE`;
+  const ddgUrl = `https://html.duckduckgo.com/html/?q=${encoded}`;
+
   try {
-    const html = await fetchWithRetry(url, { timeout: 30_000, retries: 2, delayMs: 1_500 });
+    const html = await fetchWithRetry(bingUrl, { timeout: 30_000, retries: 2, delayMs: 1_500 });
+    const results = parseBing(html).slice(0, Math.min(maxResults, 10));
+    if (results.length > 0) {
+      return results
+        .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
+        .join('\n\n');
+    }
+  } catch {
+    // Fall through to DuckDuckGo.
+  }
+
+  try {
+    const html = await fetchWithRetry(ddgUrl, { timeout: 30_000, retries: 2, delayMs: 1_500 });
     const results = parseDuckDuckGo(html).slice(0, Math.min(maxResults, 10));
     if (results.length === 0) return `No results found for "${query}".`;
     return results
