@@ -399,8 +399,13 @@ Do NOT call any tools.`,
             const xmlCalls = parseXmlToolCalls(reply);
             if (xmlCalls && xmlCalls.length > 0) {
               // Execute XML tool calls (same as native tool calls)
-              // Strip the XML tags from the content for display
-              const cleanReply = reply.replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '').replace(/<invoke[\s\S]*?<\/invoke>/g, '').trim();
+              // Strip the XML/DSML tags from the content for display
+              const cleanReply = reply
+                .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '')
+                .replace(/<invoke[\s\S]*?<\/invoke>/g, '')
+                .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')
+                .replace(/<｜｜DSML｜｜invoke[\s\S]*?<\/｜｜DSML｜｜invoke>/g, '')
+                .trim();
 
               // Only keep the clean text as the assistant message
               if (cleanReply) {
@@ -671,8 +676,19 @@ Do NOT call any tools.`,
  * Supported formats:
  *   <invoke name="tool_name"><parameter name="arg">value</parameter></invoke>
  *   <tool_calls><invoke name="tool_name"><parameter name="arg">value</parameter></invoke></tool_calls>
+ *   DeepSeek DSML:
+ *     <｜｜DSML｜｜tool_calls>
+ *       <｜｜DSML｜｜invoke name="tool_name">
+ *         <｜｜DSML｜｜parameter name="arg" string="true">value</｜｜DSML｜｜parameter>
+ *       </｜｜DSML｜｜invoke>
+ *     </｜｜DSML｜｜tool_calls>
  */
 function parseXmlToolCalls(text: string): Array<{ name: string; arguments: Record<string, unknown> }> | null {
+  // DeepSeek DSML format uses <｜｜DSML｜｜tag> delimiters.
+  if (text.includes('<｜｜DSML｜｜tool_calls>')) {
+    return parseDsmlToolCalls(text);
+  }
+
   // Try to find <tool_calls> wrapper first, then individual <invoke> tags
   const wrapperMatch = text.match(/<tool_calls>([\s\S]*?)<\/tool_calls>/);
   const invokeContent = wrapperMatch ? wrapperMatch[1] : text;
@@ -696,6 +712,40 @@ function parseXmlToolCalls(text: string): Array<{ name: string; arguments: Recor
       const num = Number(value);
       if (!isNaN(num) && value !== '') value = num;
       args[pm[1]] = value;
+    }
+    calls.push({ name, arguments: args });
+  }
+
+  return calls.length > 0 ? calls : null;
+}
+
+/** Parse DeepSeek DSML-style tool calls. */
+function parseDsmlToolCalls(text: string): Array<{ name: string; arguments: Record<string, unknown> }> | null {
+  const wrapperMatch = text.match(/<｜｜DSML｜｜tool_calls>([\s\S]*?)<\/｜｜DSML｜｜tool_calls>/);
+  const invokeContent = wrapperMatch ? wrapperMatch[1] : text;
+
+  const invokeRegex = /<｜｜DSML｜｜invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/｜｜DSML｜｜invoke>/g;
+  const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = invokeRegex.exec(invokeContent)) !== null) {
+    const name = match[1];
+    const paramsText = match[2];
+
+    const args: Record<string, unknown> = {};
+    const paramRegex = /<｜｜DSML｜｜parameter\s+name="([^"]+)"(?:\s+(string|number)="true")?\s*>([\s\S]*?)<\/｜｜DSML｜｜parameter>/g;
+    let pm: RegExpExecArray | null;
+    while ((pm = paramRegex.exec(paramsText)) !== null) {
+      const paramName = pm[1];
+      const paramType = pm[2];
+      const rawValue = pm[3].trim();
+
+      if (paramType === 'number') {
+        const num = Number(rawValue);
+        args[paramName] = !isNaN(num) && rawValue !== '' ? num : rawValue;
+      } else {
+        args[paramName] = rawValue;
+      }
     }
     calls.push({ name, arguments: args });
   }

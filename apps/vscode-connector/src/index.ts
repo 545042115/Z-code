@@ -132,6 +132,8 @@ export class VSCodeConnector {
   /** Queue for bot task runs to avoid "Run already active" conflicts */
   private _taskQueue: Array<() => Promise<void>> = [];
   private _taskProcessing = false;
+  /** AbortController for the currently running user task */
+  private _currentRunAbort: AbortController | null = null;
   /** WeChat Hook service (WeChatFerry DLL injection — captures ALL messages) */
   readonly wechatHook: WeChatHookService;
   /** QQ OneBot service (NapCat + OneBot protocol) */
@@ -296,6 +298,14 @@ export class VSCodeConnector {
     const runtime = this._runtime;
     const sessionId = opts.sessionId ?? `ma-${Date.now()}`;
 
+    // Cancel any previous user-initiated run to avoid resource contention.
+    if (this._currentRunAbort) {
+      this._currentRunAbort.abort();
+      this._currentRunAbort = null;
+    }
+    const abortController = new AbortController();
+    this._currentRunAbort = abortController;
+
     // Per-task registry: callers can register task-specific agents
     // (e.g. the chat agent) via opts.registerAgents. Falls back to the
     // runtime's pre-registered example agents.
@@ -319,6 +329,7 @@ export class VSCodeConnector {
       initialState: opts.initialState,
       budgetGuard: guard,
       registry,
+      signal: abortController.signal,
     });
 
     this._runCounter++;
@@ -347,10 +358,18 @@ export class VSCodeConnector {
 
       return { runId: tracker.id, result, outputText };
     } catch (e) {
-      status = 'error';
+      if ((e as Error).message === 'run cancelled' || abortController.signal.aborted) {
+        status = 'cancelled';
+      } else {
+        status = 'error';
+      }
       try { await tracker.flush(); await tracker.finish(); } catch { /* ignore */ }
       this.emit({ type: 'runEnd', runId: tracker.id, status });
       throw e;
+    } finally {
+      if (this._currentRunAbort === abortController) {
+        this._currentRunAbort = null;
+      }
     }
   }
 
@@ -647,6 +666,8 @@ export class AssistantRuntime {
     budgetGuard?: BudgetGuard;
     /** Optional per-task registry; defaults to this.registry. */
     registry?: AgentRegistry;
+    /** Optional abort signal to cancel the run. */
+    signal?: AbortSignal;
   }): Promise<{ tracker: RunTracker; orchestrator: Orchestrator }> {
     const sessionId = opts.sessionId ?? `run-${Date.now()}`;
     const tracker = await this.trace.startRun({
@@ -665,6 +686,7 @@ export class AssistantRuntime {
       maxAgentCalls: opts.maxAgentCalls,
       initialState: opts.initialState,
       budgetGuard: opts.budgetGuard,
+      signal: opts.signal,
     });
     return { tracker, orchestrator };
   }

@@ -55,6 +55,8 @@ export interface OrchestratorOptions {
    *  - On exceed, remaining agents are skipped with error code 3003
    */
   budgetGuard?: BudgetGuard;
+  /** Optional abort signal for cancelling the run. */
+  signal?: AbortSignal;
 }
 
 export interface OrchestratorResult {
@@ -65,7 +67,7 @@ export interface OrchestratorResult {
 }
 
 export class Orchestrator {
-  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard'>;
+  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal'>;
 
   constructor(opts: OrchestratorOptions) {
     this.opts = {
@@ -95,8 +97,12 @@ export class Orchestrator {
     let firstError: ErrorRef | undefined;
     let agentCallCount = 0;
     let budgetExhausted = false;
+    const signal = this.opts.signal;
 
     try {
+      if (signal?.aborted) {
+        throw new Error('run cancelled');
+      }
       const order = this._resolveOrder();
       root.setAttribute('agent.count', order.length);
       root.addEvent('orchestrator.start', { count: order.length });
@@ -128,6 +134,9 @@ export class Orchestrator {
       switch (this.opts.mode) {
         case 'sequential': {
           for (const name of order) {
+            if (signal?.aborted) {
+              throw new Error('run cancelled');
+            }
             if (agentCallCount >= this.opts.maxAgentCalls) {
               throw new Error(`max agent calls (${this.opts.maxAgentCalls}) exceeded`);
             }
@@ -144,6 +153,9 @@ export class Orchestrator {
           break;
         }
         case 'parallel': {
+          if (signal?.aborted) {
+            throw new Error('run cancelled');
+          }
           const tasks = order.map((name) =>
             wrapped(name).then((r) => {
               agentCallCount++;
@@ -162,6 +174,9 @@ export class Orchestrator {
         case 'dag': {
           const waves = this._toWaves(order);
           for (const wave of waves) {
+            if (signal?.aborted) {
+              throw new Error('run cancelled');
+            }
             if (agentCallCount >= this.opts.maxAgentCalls) {
               throw new Error(`max agent calls (${this.opts.maxAgentCalls}) exceeded`);
             }
@@ -272,6 +287,7 @@ export class Orchestrator {
         ? this.opts.budgetGuard.snapshot()
         : { tokensLeft: 0, costLeftUsd: 0 },
       metadata: this.opts.metadata ?? {},
+      signal: this.opts.signal,
     };
 
     const span = this.opts.tracker.startSpan({
