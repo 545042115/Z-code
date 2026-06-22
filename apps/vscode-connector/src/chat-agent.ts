@@ -78,6 +78,17 @@ export interface ChatAgentOptions {
    * DeepSeek to consume multimodal input.
    */
   attachments?: ChatAttachment[];
+  /**
+   * Optional extra tools (e.g. from MCP servers) injected into the ReAct loop.
+   * Each entry provides the tool definition sent to the LLM and an invoke
+   * handler that returns plain text for the chat history.
+   */
+  extraTools?: Array<{
+    name: string;
+    description: string;
+    argsSchema?: Record<string, unknown>;
+    invoke: (args: Record<string, unknown>) => Promise<string>;
+  }>;
 }
 
 export type ChatAttachment =
@@ -91,7 +102,7 @@ export const CHAT_HISTORY_KEY = 'chat.history';
 const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversation with the user.
 
 ## Capabilities
-- **web_search(query, maxResults?)** — Search the web for real-time information (news, weather, current events)
+- **web_search(query, maxResults?)** — Search the web for real-time information (news, weather, current events, live prices for hotels/flights/trains)
 - **web_fetch(url, maxLength?)** — Fetch and read the full content of a web page
 - **read_file(filePath, startLine?, lineCount?)** — Read file content with line numbers
 - **write_file(filePath, content)** — Write full content to a file (creates new files or overwrites)
@@ -117,6 +128,11 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 ## Guidelines
 - Be conversational, natural, and concise
 - When asked about current events, weather, or real-time info → use web_search
+- For live price queries (hotels, flights, high-speed trains), follow this workflow:
+  1. Use **web_search** with a specific query including the platform, route/location, and date, e.g. "携程 上海外滩W酒店 2025-06-25 价格" or "北京到上海 高铁票 2025-06-25".
+  2. Use **web_fetch** on a promising search result to extract price details quickly.
+  3. If web_fetch returns a login wall, CAPTCHA, missing dynamic content, or stale data, switch to **browser_navigate** to open the page in a real browser, then use **browser_screenshot**, **browser_click**, and **browser_scroll** to interact with search forms and result lists until the price appears.
+  4. Always tell the user the source, query time, and any limitations (e.g. "价格来自携程搜索结果，实际下单可能变动").
 - Always cite your sources for web results
 - Respond in the same language the user used
 - You can use web_search multiple times to find the best answer
@@ -137,8 +153,20 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     systemPrompt += `\n\n## Your Chat Style\n${opts.profileDescription}\nWhen replying to chat messages (especially via QQ/WeChat auto-reply), imitate the above style. Keep your responses natural and consistent with this tone.`;
   }
   const maxIterations = opts.maxToolIterations ?? 8;
-  const allTools = [...WEB_TOOLS, ...TASK_TOOLS, ...BROWSER_TOOLS, ...PERCEPTION_TOOLS];
+  const extraTools = opts.extraTools ?? [];
+  const allTools: Array<{ name: string; description: string; argsSchema: Record<string, unknown> }> = [
+    ...WEB_TOOLS,
+    ...TASK_TOOLS,
+    ...BROWSER_TOOLS,
+    ...PERCEPTION_TOOLS,
+    ...extraTools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      argsSchema: (t.argsSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>,
+    })),
+  ];
   const allToolNames = new Set(allTools.map((t) => t.name));
+  const extraToolMap = new Map(extraTools.map((t) => [t.name, t.invoke]));
 
   // Create MemoryManager if storageDir is provided OR an external
   // memoryManager is supplied (from AssistantRuntime.memory). Preferring
@@ -393,7 +421,7 @@ Do NOT call any tools.`,
                 const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
                 const inv = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
                 progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments));
+                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap));
                 const result = pipelineResult.ok
                   ? String(pipelineResult.output ?? '')
                   : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
@@ -499,7 +527,7 @@ Do NOT call any tools.`,
             const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
             const inv: ToolInvocation = { id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
             progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments));
+            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap));
             const result = pipelineResult.ok
               ? String(pipelineResult.output ?? '')
               : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
@@ -613,7 +641,11 @@ function parseXmlToolCalls(text: string): Array<{ name: string; arguments: Recor
   return calls.length > 0 ? calls : null;
 }
 
-async function executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+async function executeTool(
+  name: string,
+  args: Record<string, unknown>,
+  extraTools?: Map<string, (args: Record<string, unknown>) => Promise<string>>,
+): Promise<string> {
   switch (name) {
     // Web tools
     case 'web_search':
@@ -707,8 +739,18 @@ async function executeTool(name: string, args: Record<string, unknown>): Promise
       return transcribeAudio(String(args.filePath ?? ''));
     case 'parse_document':
       return parseDocument(String(args.filePath ?? ''));
-    default:
+    default: {
+      const extra = extraTools?.get(name);
+      if (extra) {
+        try {
+          return await extra(args);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return `Error: ${msg}`;
+        }
+      }
       return `Unknown tool: ${name}`;
+    }
   }
 }
 

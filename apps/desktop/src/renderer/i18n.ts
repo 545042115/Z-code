@@ -106,6 +106,11 @@ const TRANSLATIONS: TranslationMap = {
   'settings.profile_rebuild': { 'zh-CN': '重新生成', en: 'Rebuild' },
   'settings.profile_clear': { 'zh-CN': '清空数据', en: 'Clear' },
   'settings.profile_clear_confirm': { 'zh-CN': '确定清空所有已收集的聊天风格数据吗？', en: 'Clear all collected style data?' },
+  'settings.mcp_title': { 'zh-CN': 'MCP 外部工具', en: 'MCP External Tools' },
+  'settings.mcp_desc': { 'zh-CN': '配置外部 MCP 服务所需的密钥；留空则使用同名环境变量。', en: 'Configure keys for external MCP servers; leave empty to use environment variables of the same name.' },
+  'settings.mcd_token': { 'zh-CN': '麦当劳 MCP Token', en: "McDonald's MCP Token" },
+  'settings.mcd_token_placeholder': { 'zh-CN': '输入你的麦当劳 MCP Token', en: "Enter your McDonald's MCP token" },
+  'settings.mcd_token_hint': { 'zh-CN': '保存后会注入为 MCD_MCP_TOKEN 环境变量，供 mcpServers headers 中的 ${env:MCD_MCP_TOKEN} 使用。', en: 'Saved value is injected as MCD_MCP_TOKEN env var for ${env:MCD_MCP_TOKEN} placeholders in mcpServers headers.' },
 
   // Providers
   'provider.sglang':    { 'zh-CN': 'SGLang',       en: 'SGLang' },

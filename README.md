@@ -1,12 +1,50 @@
-# Z Code / Z Assistant
+# Ziner
 
+> **品牌迁移说明 / Rebranding Notice**
+> 本项目正在从旧名称 **"Z Code / Z Assistant"** 逐步迁移到 **"Ziner"**。README 与对外文档已提前使用新名称，但当前 GitHub 仓库名（`Z-code`）和本地文件夹名（`Z Code`）暂未变更，后续会统一处理。
+>
 > **项目定位 / Project Positioning**
 > 本项目是一个**面向学习的 Agent 流程实现**，核心目标是逐步构建和理解 Coding Agent 的完整工作流。从 v0.3.0 到最新版本，每个版本的迭代都对应一个可学习的里程碑，适合**按版本顺序逐步阅读代码、理解演进过程**。
 >
 > **注意事项 / Caveats**
 > - 随着功能持续叠加，部分模块之间可能出现边界模糊或轻微 Bug
-> - 目前**缺少 MCP (Model Context Protocol) 类型的外部工具调用**，所有工具均为内置实现
+> - 已支持 MCP (Model Context Protocol) 外部工具：在 `VSCodeConnectorConfig.mcpServers` 中配置，agent 启动时会自动连接并把 server 的工具注入到 ReAct 循环和 V2 `IToolRegistry`
 > - 不以生产级稳定性为目标，而以**可理解、可扩展、可教学**为优先
+>
+> **MCP 配置示例 / MCP Configuration Example**
+> ```js
+> {
+>   mcpServers: [
+>     {
+>       name: 'filesystem',
+>       transport: 'stdio',
+>       command: 'npx',
+>       args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/workspace'],
+>     },
+>     {
+>       name: 'sse-example',
+>       transport: 'sse',
+>       url: 'http://localhost:3000/sse',
+>     },
+>     {
+>       name: 'mcdonalds',
+>       transport: 'streamablehttp',
+>       url: 'https://mcp.mcd.cn',
+>       headers: {
+>         Authorization: 'Bearer ${env:MCD_MCP_TOKEN}',
+>       },
+>     },
+>   ],
+> }
+> ```
+> 每个 MCP 工具在 agent 中会被命名为 `mcp_<serverName>_<toolName>`，避免与内置工具冲突。
+>
+> 麦当劳中国 MCP 接入文档：`https://open.mcd.cn/mcp/doc`
+>
+> Token 配置方式（三选一）：
+> 1. **Desktop 设置面板**：设置 → MCP 外部工具 → 麦当劳 MCP Token（保存后自动注入为 `MCD_MCP_TOKEN`）。
+> 2. **环境变量**：启动前设置 `MCD_MCP_TOKEN=...`。
+> 3. **直接替换**：把配置里的 `${env:MCD_MCP_TOKEN}` 替换为真实 token（不推荐，容易泄露）。
 >
 > 仓库是一个 **V1 + V2 双轨 Monorepo**：
 > - **V1 = `extensions/coding-agent/`**：VSCode Coding Agent 扩展（v1.2.0，三层混合架构 + 完整流水线，**当前唯一可用的 Coding 能力**）

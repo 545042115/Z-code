@@ -174,15 +174,20 @@ foreach ($pkg in $neededPackages) {
 }
 
 # Step D2: recursively copy all third-party dependencies
-# npm workspaces hoist everything to root; we need them in the app's node_modules.
-# Instead of manually listing deps (which misses transitive ones like universalify),
-# we read each package's dependencies and recursively copy them from root node_modules.
-Write-Host "  Installing runtime dependencies (recursive)..."
+# Walks the FULL dependency closure of apps/desktop, including workspace
+# packages (e.g. @z-assistant/app-vscode-connector) and their deps.
+# This catches transitive deps like @modelcontextprotocol/sdk which are
+# declared by workspace packages but not by apps/desktop directly.
+Write-Host "  Installing runtime dependencies (recursive closure)..."
 $rootNodeModules = Join-Path $RootDir "node_modules"
 $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 
 # Track copied packages to avoid infinite loops
 $script:copiedPkgs = @{}
+# Track missing third-party packages (so we can warn at the end)
+$script:missingPkgs = @{}
+# Directories we have already visited to read package.json
+$script:visitedDirs = @{}
 
 function Copy-PkgRecursive {
   param([string]$PkgName, [string]$PkgSubDir = "")
@@ -191,49 +196,82 @@ function Copy-PkgRecursive {
   $cacheKey = if ($PkgSubDir) { "$PkgSubDir/$PkgName" } else { $PkgName }
 
   if ($script:copiedPkgs.ContainsKey($cacheKey)) { return }
-  $script:copiedPkgs[$cacheKey] = $true
 
-  if (-not (Test-Path $srcPath)) { return }
+  if (-not (Test-Path $srcPath)) {
+    # If a third-party package is missing in root node_modules, remember it
+    # and skip — workspace packages may be missing because they live only
+    # in their source directory.
+    if ($PkgSubDir -and $PkgSubDir.StartsWith('@')) {
+      $script:missingPkgs[$cacheKey] = $true
+    } elseif ($PkgName -notlike '@*') {
+      $script:missingPkgs[$cacheKey] = $true
+    }
+    return
+  }
+
+  # Mark as copied BEFORE copying so nested calls don't recurse forever
+  $script:copiedPkgs[$cacheKey] = $true
 
   # Copy the package directory
   New-Item -ItemType Directory -Force -Path $dstPath | Out-Null
   Copy-Item -Path "$srcPath\*" -Destination $dstPath -Recurse -Force -ErrorAction SilentlyContinue
-  Write-Host "    $cacheKey" -ForegroundColor Gray
 
-  # Read package.json to find dependencies
-  $pkgJson = Join-Path $srcPath "package.json"
-  if (Test-Path $pkgJson) {
-    try {
-      $json = Get-Content $pkgJson -Raw | ConvertFrom-Json
-      foreach ($depField in @('dependencies', 'optionalDependencies')) {
-        $deps = $json.$depField
-        if ($deps) {
-          foreach ($prop in $deps.PSObject.Properties) {
-            $depName = $prop.Name
-            # Skip workspace packages (already copied in Step D)
-            if ($depName -like '@z-assistant/*') { continue }
-            # Handle scoped packages (@scope/name)
-            if ($depName -like '@*/*') {
-              $scope = $depName.Split('/')[0]
-              $name = $depName.Split('/')[1]
-              Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
-            } else {
-              Copy-PkgRecursive -PkgName $depName
+  # Read package.json to find dependencies (declare once per directory)
+  if (-not $script:visitedDirs.ContainsKey($srcPath)) {
+    $script:visitedDirs[$srcPath] = $true
+    $pkgJson = Join-Path $srcPath "package.json"
+    if (Test-Path $pkgJson) {
+      try {
+        $json = Get-Content $pkgJson -Raw | ConvertFrom-Json
+        foreach ($depField in @('dependencies', 'optionalDependencies', 'peerDependencies')) {
+          $deps = $json.$depField
+          if ($deps) {
+            foreach ($prop in $deps.PSObject.Properties) {
+              $depName = $prop.Name
+              # Skip only known irrelevant top-level tools (e.g. @types/*)
+              if ($depName -like '@types/*') { continue }
+              if ($depName -like '@*/*') {
+                $scope = $depName.Split('/')[0]
+                $name = $depName.Split('/')[1]
+                Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
+              } else {
+                Copy-PkgRecursive -PkgName $depName
+              }
             }
           }
         }
-      }
-    } catch {}
+      } catch {}
+    }
   }
 }
 
-# Start from the app's direct production dependencies
-$appPkgJson = Join-Path $RootDir "apps\desktop\package.json"
-if (Test-Path $appPkgJson) {
-  $appJson = Get-Content $appPkgJson -Raw | ConvertFrom-Json
-  foreach ($prop in $appJson.dependencies.PSObject.Properties) {
+# Start from apps/desktop's package.json AND recurse into every workspace
+# package it transitively depends on. This is required because workspace
+# packages (e.g. @z-assistant/app-vscode-connector) declare their own
+# runtime deps which won't be visible from apps/desktop alone.
+$rootPkg = Join-Path $RootDir "package.json"
+$rootJson = if (Test-Path $rootPkg) { Get-Content $rootPkg -Raw | ConvertFrom-Json } else { $null }
+$workspaceDirs = @()
+if ($rootJson -and $rootJson.workspaces) {
+  $workspaceDirs = @($rootJson.workspaces)
+}
+
+$entryPoints = @(
+  Join-Path $RootDir "apps/desktop/package.json"
+)
+foreach ($ws in $workspaceDirs) {
+  foreach ($p in @(Get-Item (Join-Path $RootDir $ws) -ErrorAction SilentlyContinue)) {
+    $pkgJson = Join-Path $p.FullName "package.json"
+    if (Test-Path $pkgJson) { $entryPoints += $pkgJson }
+  }
+}
+
+foreach ($entry in $entryPoints) {
+  if (-not (Test-Path $entry)) { continue }
+  $json = Get-Content $entry -Raw | ConvertFrom-Json
+  foreach ($prop in $json.dependencies.PSObject.Properties) {
     $depName = $prop.Name
-    if ($depName -like '@z-assistant/*') { continue }
+    if ($depName -like '@types/*') { continue }
     if ($depName -like '@*/*') {
       $scope = $depName.Split('/')[0]
       $name = $depName.Split('/')[1]
@@ -245,6 +283,10 @@ if (Test-Path $appPkgJson) {
 }
 
 Write-Host "  [OK] Runtime dependencies installed ($($script:copiedPkgs.Count) packages)" -ForegroundColor Green
+if ($script:missingPkgs.Count -gt 0) {
+  Write-Host "  [WARN] Missing packages (not found in root node_modules):" -ForegroundColor Yellow
+  $script:missingPkgs.Keys | Sort-Object | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
+}
 
 # Re-name the exe
 $targetExe = Join-Path $unpackedDir "Z Assistant.exe"

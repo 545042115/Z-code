@@ -152,6 +152,15 @@ function renderSettings(container: HTMLElement): void {
           <button id="settings-profile-clear" class="secondary danger" style="white-space:nowrap">${t('settings.profile_clear')}</button>
         </div>
       </div>
+      <div class="card">
+        <h3>${t('settings.mcp_title')}</h3>
+        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.mcp_desc')}</p>
+        <label class="stack" style="margin-top:8px">
+          <span>${t('settings.mcd_token')}</span>
+          <input id="settings-mcd-token" type="password" placeholder="${t('settings.mcd_token_placeholder')}">
+        </label>
+        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.mcd_token_hint')}</p>
+      </div>
       <button id="settings-save" class="primary">${t('settings.save')}</button>
       <span id="settings-status" class="muted"></span>
     </div>
@@ -170,6 +179,7 @@ function renderSettings(container: HTMLElement): void {
   const browseProjectBtn = document.getElementById('settings-browse-project') as HTMLButtonElement;
   const saveBtn = document.getElementById('settings-save') as HTMLButtonElement;
   const status = document.getElementById('settings-status')!;
+  const mcdToken = document.getElementById('settings-mcd-token') as HTMLInputElement;
 
   // Profile elements
   const profileEnabled = document.getElementById('settings-profile-enabled') as HTMLInputElement;
@@ -189,6 +199,7 @@ function renderSettings(container: HTMLElement): void {
     storage.value = s.storageDir;
     projectDir.value = s.projectDir || '';
     dryRun.checked = !!s.dryRun;
+    mcdToken.value = s.mcdMcpToken || '';
     // Load profile data
     await updateProfileDisplay();
   }
@@ -448,6 +459,7 @@ function renderSettings(container: HTMLElement): void {
         storageDir: storage.value.trim() || undefined,
         projectDir: projectDir.value.trim() || undefined,
         dryRun: dryRun.checked,
+        mcdMcpToken: mcdToken.value.trim() || undefined,
       } as any);
       status.textContent = t('settings.saved');
     } catch (err: unknown) {

@@ -7,6 +7,7 @@ import {
   VSCodeConnector,
   type VSCodeConnectorConfig,
   type ConnectorEvent,
+  type McpServerConfig,
 } from '@z-assistant/app-vscode-connector';
 import type {
   AgentRun,
@@ -43,6 +44,10 @@ export interface DesktopSettings {
   wechatHook: { enabled: boolean };
   /** QQ OneBot configuration (NapCat + OneBot protocol) */
   qq: { enabled: boolean };
+  /** MCP server list — exposed as additional tools to the agent. */
+  mcpServers?: McpServerConfig[];
+  /** McDonald's China MCP token (injected as MCD_MCP_TOKEN env var for MCP headers). */
+  mcdMcpToken?: string;
 }
 
 const DEFAULT_SETTINGS: DesktopSettings = {
@@ -56,6 +61,7 @@ const DEFAULT_SETTINGS: DesktopSettings = {
   dryRun: false,
   wechatHook: { enabled: false },
   qq: { enabled: false },
+  mcdMcpToken: '',
 };
 
 export class RuntimeBridge {
@@ -113,6 +119,10 @@ export class RuntimeBridge {
     if (!this.auditLogger) {
       this.auditLogger = new AuditLogger({ rootDir: this.settings.storageDir });
     }
+    // Inject McDonald's MCP token as env var so ${env:MCD_MCP_TOKEN} placeholders resolve.
+    if (this.settings.mcdMcpToken) {
+      process.env.MCD_MCP_TOKEN = this.settings.mcdMcpToken;
+    }
     // Build the confirmation gate first so it can be injected into the connector.
     if (!this.confirmationGate) {
       this.confirmationGate = new ConfirmationGate({
@@ -134,6 +144,7 @@ export class RuntimeBridge {
       confirmationGate: this.confirmationGate,
       dryRun: this.settings.dryRun,
       auditLogger: this.auditLogger ?? undefined,
+      mcpServers: this.settings.mcpServers,
     };
     this.connector = new VSCodeConnector(config);
     this.connector.onEvent((e) => {

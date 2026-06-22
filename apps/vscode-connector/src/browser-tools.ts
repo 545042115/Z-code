@@ -54,7 +54,9 @@ async function closeBrowser(): Promise<void> {
 
 export const BROWSER_NAVIGATE_TOOL = {
   name: 'browser_navigate',
-  description: 'Open a URL in the browser. Use this when the user asks you to visit a website.',
+  description:
+    'Open a URL in a real browser. Use this when the user asks you to visit a website, or when web_fetch fails to retrieve a dynamic page (e.g. hotel/flight/train price pages that require JavaScript, login, or interaction). ' +
+    'After navigating, use browser_screenshot to see what is on the page, then browser_click/browser_scroll to interact with forms and result lists.',
   argsSchema: {
     type: 'object',
     properties: {
@@ -92,7 +94,10 @@ export const BROWSER_SCROLL_TOOL = {
 
 export const BROWSER_SCREENSHOT_TOOL = {
   name: 'browser_screenshot',
-  description: 'Take a screenshot of the current page. Returns a description of what is visible.',
+  description:
+    'Take a screenshot of the current page and return a description of what is visible, including interactive elements and visible text. ' +
+    'Use this after browser_navigate or browser_click to inspect dynamic content such as hotel listings, flight results, or train ticket prices. ' +
+    'If the price is visible in the screenshot description, report it to the user; otherwise click or scroll to reveal more results.',
   argsSchema: {
     type: 'object',
     properties: {},

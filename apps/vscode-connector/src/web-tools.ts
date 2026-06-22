@@ -11,7 +11,8 @@ import * as https from 'node:https';
 export const WEB_SEARCH_TOOL = {
   name: 'web_search',
   description:
-    'Search the web for real-time information. Use this when the user asks about current events, weather, news, or any topic that requires up-to-date information beyond your knowledge cutoff.',
+    'Search the web for real-time information. Use this when the user asks about current events, weather, news, live prices (hotels, flights, trains), or any topic that requires up-to-date information beyond your knowledge cutoff. ' +
+    'For price lookups, search with a specific query such as "携程 上海外滩W酒店 今日价格" or "北京到上海 机票 2025-06-25".',
   argsSchema: {
     type: 'object',
     properties: {
@@ -31,7 +32,9 @@ export const WEB_SEARCH_TOOL = {
 export const WEB_FETCH_TOOL = {
   name: 'web_fetch',
   description:
-    'Fetch and extract text content from a web page URL. Use this to read the full content of a page found via web_search.',
+    'Fetch and extract text content from a web page URL. Use this to read the full content of a page found via web_search. ' +
+    'When looking for live prices (hotels, flights, trains), first use web_search to find a current results page, then use web_fetch to extract price details. ' +
+    'If the fetched page is blocked, requires login, or lacks the price, switch to browser_navigate to interact with the site.',
   argsSchema: {
     type: 'object',
     properties: {

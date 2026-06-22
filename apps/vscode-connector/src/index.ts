@@ -32,7 +32,7 @@ import { createFileStore } from '@z-assistant/infra-storage';
 import { BudgetGuard } from '@z-assistant/infra-cost';
 
 import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult, IConfirmationGate, AutoDiscoveryReport } from '@z-assistant/contracts';
+import type { AgentResult, IConfirmationGate, AutoDiscoveryReport, ITool } from '@z-assistant/contracts';
 
 import { OpenAIProvider } from './llm-provider';
 import { DryRunExecutor } from '@z-assistant/runtime/permission';
@@ -45,6 +45,7 @@ import {
   ChatToolRegistry,
   type CodingAgentFactoryOptions,
 } from './coding-agent-factory';
+import { connectMcpServers, type McpServerConfig } from './mcp-tools';
 
 // ── Configuration shape coming from V1 ─────────────────────────────────
 
@@ -84,6 +85,8 @@ export interface VSCodeConnectorConfig {
   wechatHook?: WeChatHookConfig;
   /** QQ OneBot configuration (optional) — connects to NapCat via OneBot protocol. */
   qq?: QQOneBotConfig;
+  /** MCP server list (optional) — exposed as additional tools to the agent. */
+  mcpServers?: McpServerConfig[];
 }
 
 // ── Lifecycle event types ──────────────────────────────────────────────
@@ -382,6 +385,23 @@ export class VSCodeConnector {
       name: providerName,
     });
 
+    // G6 wiring: connect optional MCP servers and expose their tools
+    // alongside built-in tools.
+    let mcpCleanup: (() => Promise<void>) | undefined;
+    let mcpTools: ITool[] = [];
+    if (this.config.mcpServers && this.config.mcpServers.length > 0) {
+      try {
+        this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: 'Connecting MCP servers...' });
+        const mcp = await connectMcpServers(this.config.mcpServers);
+        mcpTools = mcp.tools;
+        mcpCleanup = mcp.close;
+        this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: `Loaded ${mcp.tools.length} MCP tool(s)` });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: `MCP connection failed: ${msg}` });
+      }
+    }
+
     const registerChatAgent = (reg: AgentRegistry) => {
       const tracker = this._runtime?.trace.active();
       // G1 wiring: use createCodingAgentFromChat so the chat agent is
@@ -394,8 +414,10 @@ export class VSCodeConnector {
       // P1-2 HITL: also wire the dry-run executor and audit logger into
       // ChatToolRegistry so direct V2 tool invocations cannot bypass the
       // confirmation gate / dry-run mode / audit trail.
+      // G6 wiring: pass MCP tools into the agent loop and V2 registry.
       const dryRunExecutor = this.config.dryRun ? new DryRunExecutor() : undefined;
       const loop = createCodingAgentFromChat({
+        extraTools: mcpTools,
         chatAgent: {
           llmProvider,
           projectDir: this.config.projectDir,
@@ -427,17 +449,23 @@ export class VSCodeConnector {
       reg.register(loop.asIAgent());
     };
 
-    const fullResult = await this.runMultiAgentTask({
-      task,
-      mode: 'sequential' as OrchestratorMode,
-      model,
-      registerAgents: registerChatAgent,
-      maxAgentCalls: 1,
-      initialState: this._conversationHistory,
-      sessionId,
-    });
+    try {
+      const fullResult = await this.runMultiAgentTask({
+        task,
+        mode: 'sequential' as OrchestratorMode,
+        model,
+        registerAgents: registerChatAgent,
+        maxAgentCalls: 1,
+        initialState: this._conversationHistory,
+        sessionId,
+      });
 
-    return { runId: fullResult.runId, result: fullResult.outputText };
+      return { runId: fullResult.runId, result: fullResult.outputText };
+    } finally {
+      if (mcpCleanup) {
+        await mcpCleanup().catch(() => {});
+      }
+    }
   }
 
   trace(): TraceManager | null {
@@ -646,3 +674,5 @@ export { RUNTIME_VERSION };
 export type { AgentResult, Store, TraceManager, OrchestratorMode, OrchestratorResult };
 export { createCodingAgentFromChat, ChatToolRegistry };
 export type { CodingAgentFactoryOptions };
+export { connectMcpServer, connectMcpServers } from './mcp-tools';
+export type { McpServerConfig, ConnectedMcpServer } from './mcp-tools';

@@ -76,6 +76,8 @@ export interface ChatToolRegistryOptions {
   userId?: string;
   /** Optional V2 tool policy (allow/deny lists). */
   toolPolicy?: ToolPolicy;
+  /** Optional extra tools (e.g. from MCP servers) registered alongside built-ins. */
+  extraTools?: ITool[];
 }
 
 /**
@@ -108,6 +110,9 @@ export class ChatToolRegistry implements IToolRegistry {
     });
     for (const def of ALL_CHAT_TOOLS) {
       this._tools.set(def.name, this._wrapTool(def));
+    }
+    for (const tool of opts.extraTools ?? []) {
+      this._tools.set(tool.name, tool);
     }
   }
 
@@ -182,6 +187,8 @@ export interface CodingAgentFactoryOptions {
   runId?: string;
   /** Optional user id for audit. */
   userId?: string;
+  /** Optional extra tools (e.g. from MCP servers) injected into both the chat ReAct loop and the V2 tool registry. */
+  extraTools?: ITool[];
 }
 
 /**
@@ -201,7 +208,24 @@ export interface CodingAgentFactoryOptions {
 export function createCodingAgentFromChat(
   opts: CodingAgentFactoryOptions,
 ): CodingAgentLoop {
-  const chatAgent: IAgent = createChatAgent(opts.chatAgent);
+  const extraTools = opts.extraTools ?? [];
+  // Convert V2 ITool instances into chat-agent extra tool definitions so the
+  // internal ReAct loop can also call them through executeToolByName.
+  const chatExtraTools = extraTools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    argsSchema: tool.argsSchema,
+    invoke: async (args: Record<string, unknown>): Promise<string> => {
+      const result = await tool.invoke({ id: `extra_${tool.name}`, toolName: tool.name, args });
+      if (result.ok) return String(result.output ?? '');
+      return `Error: ${result.error?.message ?? 'unknown'}`;
+    },
+  }));
+
+  const chatAgent: IAgent = createChatAgent({
+    ...opts.chatAgent,
+    extraTools: [...(opts.chatAgent.extraTools ?? []), ...chatExtraTools],
+  });
   const toolRegistry = new ChatToolRegistry({
     toolPolicy: opts.toolPolicy,
     confirmationGate: opts.confirmationGate,
@@ -209,6 +233,7 @@ export function createCodingAgentFromChat(
     auditLogger: opts.auditLogger,
     runId: opts.runId,
     userId: opts.userId,
+    extraTools,
   });
 
   return createCodingAgentLoop({
