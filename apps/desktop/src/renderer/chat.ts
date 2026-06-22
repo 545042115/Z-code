@@ -354,11 +354,6 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
   }
 
-  // ── Helper: store a memory (fire-and-forget) ────────────────────
-  function storeMemory(content: string, kind: string): void {
-    zApi.storeMemory(content, kind, 'user').catch(() => {});
-  }
-
   // ── Memory context hint ─────────────────────────────────────────
   const memoryContextEl = document.getElementById('chat-memory-context')!;
   let memoryContextTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -450,9 +445,6 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     addMessage('user', task);
     renderSessionList();
 
-    // Store user message as episodic memory (fire-and-forget)
-    storeMemory(`User asked: ${task.slice(0, 200)}`, 'episodic');
-
     // Call LLM
     try {
       showProgress('plan', 'Starting...');
@@ -467,9 +459,6 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: reply, timestamp: Date.now() });
       addMessage('assistant', reply);
       renderSessionList();
-
-      // Store assistant reply as episodic memory (fire-and-forget)
-      storeMemory(`Assistant replied: ${reply.slice(0, 200)}`, 'episodic');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errorText = `${t('chat.error')}: ${msg}`;
