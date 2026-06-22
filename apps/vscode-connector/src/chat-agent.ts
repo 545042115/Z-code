@@ -13,6 +13,7 @@ import {
   LongTermMemory,
   EpisodicMemory,
   PreferencesMemory,
+  SemanticMemory,
   recall,
   DryRunExecutor,
   ToolInvocationPipeline,
@@ -148,6 +149,18 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   let systemPrompt = (opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
     .replace('[username]', homeDir ? homeDir.split('\\').pop()! : 'username')
     .replace('C:\\\\Users\\\\[username]\\\\Desktop', desktopPath.replace(/\\/g, '\\\\'));
+
+  // Build a concise semantic summary from a user task + assistant reply.
+  // Avoids an extra LLM call; uses simple heuristics.
+  function buildChatSummary(task: string, reply: string): { concept: string; description: string } {
+    const t = task.trim();
+    const r = reply.trim();
+    // Concept: first clause of the task, capped at 40 chars.
+    const concept = t.split(/[，。,!?！？;；]|\n/)[0].slice(0, 40) || 'Chat';
+    const replyHead = r.split(/\n/)[0].slice(0, 120);
+    const description = `User: ${t.slice(0, 160)} | Assistant: ${replyHead}${r.length > replyHead.length ? '…' : ''}`;
+    return { concept, description };
+  }
   // Append style profile if available
   if (opts.profileDescription) {
     systemPrompt += `\n\n## Your Chat Style\n${opts.profileDescription}\nWhen replying to chat messages (especially via QQ/WeChat auto-reply), imitate the above style. Keep your responses natural and consistent with this tone.`;
@@ -177,6 +190,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   let longTermMem: LongTermMemory | undefined;
   let episodicMem: EpisodicMemory | undefined;
   let preferencesMem: PreferencesMemory | undefined;
+  let semanticMem: SemanticMemory | undefined;
 
   if (opts.memoryManager) {
     memoryManager = opts.memoryManager;
@@ -184,6 +198,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     longTermMem = new LongTermMemory(memoryManager);
     episodicMem = new EpisodicMemory(memoryManager);
     preferencesMem = new PreferencesMemory(memoryManager);
+    semanticMem = new SemanticMemory(memoryManager);
   } else if (opts.storageDir) {
     const provider = new JsonlMemoryProvider({
       rootDir: opts.storageDir,
@@ -193,6 +208,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     longTermMem = new LongTermMemory(memoryManager);
     episodicMem = new EpisodicMemory(memoryManager);
     preferencesMem = new PreferencesMemory(memoryManager);
+    semanticMem = new SemanticMemory(memoryManager);
   }
 
   // Unified tool invocation pipeline (P1-2 HITL + sandbox): risk → injection
@@ -448,7 +464,7 @@ Do NOT call any tools.`,
             ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
 
             // ── Phase 4: Memory Save (async, non-blocking) ──────────
-          if (shortTermMem && episodicMem && longTermMem && preferencesMem) {
+          if (shortTermMem && episodicMem && longTermMem && preferencesMem && semanticMem) {
             // Save as episode (fire-and-forget)
             episodicMem.record({
               task: ctx.task.slice(0, 200),
@@ -457,10 +473,20 @@ Do NOT call any tools.`,
               tags: ['chat'],
             }).catch(() => {});
 
+            // Save a concise semantic summary so the conversation topic is
+            // retrievable by meaning in future sessions (no extra LLM call).
+            const summary = buildChatSummary(ctx.task, reply);
+            semanticMem.learn(
+              { concept: summary.concept, description: summary.description, runId: ctx.parentRunId },
+              'user',
+            ).catch(() => {});
+
             // Extract durable facts about the user using rules + optional LLM.
-            // Heuristics catch "我在上海", "I prefer dark mode", etc.
-            // LLM fallback handles implicit or complex statements.
-            extractFacts(ctx.task, { minConfidence: 0.7 }).then(async (facts) => {
+            // Scan both the user task and the assistant reply so facts mentioned
+            // in either side (e.g. weather results containing a location) are
+            // captured as long-term memory.
+            const combinedText = `${ctx.task}\n${reply}`;
+            extractFacts(combinedText, { minConfidence: 0.7 }).then(async (facts) => {
               for (const f of facts) {
                 await longTermMem!.remember(
                   {
@@ -571,12 +597,48 @@ Do NOT call any tools.`,
         ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
 
         // ── Phase 4: Memory Save (async, non-blocking) ──────────
-        if (shortTermMem && episodicMem) {
+        if (shortTermMem && episodicMem && longTermMem && preferencesMem && semanticMem) {
           episodicMem.record({
             task: ctx.task.slice(0, 200),
             story: reply.slice(0, 500),
             outcome: 'partial',
             tags: ['chat', 'max-iterations'],
+          }).catch(() => {});
+
+          const summary = buildChatSummary(ctx.task, reply);
+          semanticMem.learn(
+            { concept: summary.concept, description: summary.description, runId: ctx.parentRunId },
+            'user',
+          ).catch(() => {});
+
+          const combinedText = `${ctx.task}\n${reply}`;
+          extractFacts(combinedText, { minConfidence: 0.7 }).then(async (facts) => {
+            for (const f of facts) {
+              await longTermMem!.remember(
+                {
+                  content: `${f.entity ?? 'user'} ${f.factType}: ${f.value}`,
+                  payload: {
+                    factType: f.factType,
+                    entity: f.entity ?? 'user',
+                    value: f.value,
+                    statement: f.statement,
+                    confidence: f.confidence,
+                    source: f.source,
+                  },
+                  importance: f.confidence,
+                },
+                'user',
+              ).catch(() => {});
+
+              if (f.factType === 'preference') {
+                await preferencesMem!.learn({
+                  key: `inferred-${f.factType}`,
+                  value: f.value,
+                  statement: f.statement,
+                  confidence: f.confidence,
+                }).catch(() => {});
+              }
+            }
           }).catch(() => {});
         }
 
