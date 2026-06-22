@@ -78,6 +78,9 @@ export interface BrowserAction {
   type: BrowserActionType;
   /** Element id to act upon (for click/type/hover/select). */
   elementId?: number;
+  /** Screen coordinates for mouse actions (click fallback). */
+  x?: number;
+  y?: number;
   /** Text to type (for type action). */
   text?: string;
   /** URL to navigate to (for navigate / new_tab). */
@@ -86,9 +89,12 @@ export interface BrowserAction {
   key?: string;
   /** Tab index or id (for switch_tab). */
   tabIndex?: number;
-  /** Scroll offset in pixels. */
+  /** Absolute scroll position (scrollTo). */
   scrollX?: number;
   scrollY?: number;
+  /** Relative scroll delta (scrollBy). */
+  deltaX?: number;
+  deltaY?: number;
   /** Wait duration in ms. */
   waitMs?: number;
 }
@@ -268,9 +274,16 @@ class PlaywrightBackend implements IBrowserBackend {
     const p = this.page as any;
     try {
       switch (action.type) {
-        case 'click':
-          await p.click(this.selector(action.elementId!), { timeout: 5000 });
+        case 'click': {
+          if (action.elementId !== undefined) {
+            await p.click(this.selector(action.elementId), { timeout: 5000 });
+          } else if (action.x !== undefined && action.y !== undefined) {
+            await p.mouse.click(action.x, action.y);
+          } else {
+            throw new Error('click requires elementId or x/y coordinates');
+          }
           break;
+        }
         case 'dblclick':
           await p.dblclick(this.selector(action.elementId!), { timeout: 5000 });
           break;
@@ -283,9 +296,19 @@ class PlaywrightBackend implements IBrowserBackend {
         case 'select':
           await p.selectOption(this.selector(action.elementId!), action.text ?? '');
           break;
-        case 'scroll':
-          await p.evaluate((opts: { x: number; y: number }) => window.scrollTo(opts.x, opts.y), { x: action.scrollX ?? 0, y: action.scrollY ?? 0 });
+        case 'scroll': {
+          // Prefer relative delta scroll; fall back to absolute scrollTo.
+          if (action.deltaX !== undefined || action.deltaY !== undefined) {
+            const dx = action.deltaX ?? 0;
+            const dy = action.deltaY ?? 0;
+            await p.evaluate((opts: { dx: number; dy: number }) => {
+              window.scrollBy(opts.dx, opts.dy);
+            }, { dx, dy });
+          } else {
+            await p.evaluate((opts: { x: number; y: number }) => window.scrollTo(opts.x, opts.y), { x: action.scrollX ?? 0, y: action.scrollY ?? 0 });
+          }
           break;
+        }
         case 'navigate':
           return await this.navigate(action.url!).then((snap) => ({ success: true, snapshot: snap }));
         case 'back':

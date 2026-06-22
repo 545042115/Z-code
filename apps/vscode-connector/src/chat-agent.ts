@@ -776,8 +776,9 @@ async function executeTool(
       return browserNavigate(String(args.url ?? ''));
     case 'browser_click':
       return browserClick(
-        typeof args.x === 'number' ? args.x : 0,
-        typeof args.y === 'number' ? args.y : 0
+        typeof args.elementId === 'number' ? args.elementId : undefined,
+        typeof args.x === 'number' ? args.x : undefined,
+        typeof args.y === 'number' ? args.y : undefined
       );
     case 'browser_scroll':
       return browserScroll(

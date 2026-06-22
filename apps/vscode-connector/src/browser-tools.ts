@@ -9,6 +9,23 @@ import { execSync } from 'node:child_process';
 // ── Lazy Playwright backend ──────────────────────────────────────────
 
 let _backend: any = null;
+let _lastSnapshot: any = null;
+let _idleTimer: ReturnType<typeof setTimeout> | null = null;
+const BROWSER_IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+function resetIdleTimer(): void {
+  if (_idleTimer) clearTimeout(_idleTimer);
+  _idleTimer = setTimeout(() => {
+    closeBrowser();
+  }, BROWSER_IDLE_TIMEOUT_MS);
+}
+
+function clearIdleTimer(): void {
+  if (_idleTimer) {
+    clearTimeout(_idleTimer);
+    _idleTimer = null;
+  }
+}
 
 function loadBrowserBackend(): any {
   // Use computed require string to prevent TypeScript from resolving
@@ -21,10 +38,14 @@ function loadBrowserBackend(): any {
 }
 
 async function ensureBrowser(): Promise<any> {
-  if (_backend) return _backend;
+  if (_backend) {
+    resetIdleTimer();
+    return _backend;
+  }
   try {
     _backend = loadBrowserBackend();
     await _backend.start(false);
+    resetIdleTimer();
     return _backend;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -34,6 +55,7 @@ async function ensureBrowser(): Promise<any> {
         execSync('npx playwright install chromium', { timeout: 120_000, windowsHide: true });
         _backend = loadBrowserBackend();
         await _backend.start(false);
+        resetIdleTimer();
         return _backend;
       } catch {
         throw new Error(`Browser not available. Install Playwright browsers:\n  npx playwright install chromium\n\nError: ${msg}`);
@@ -44,6 +66,7 @@ async function ensureBrowser(): Promise<any> {
 }
 
 async function closeBrowser(): Promise<void> {
+  clearIdleTimer();
   if (_backend) {
     try { await _backend.close(); } catch { /* ignore */ }
     _backend = null;
@@ -68,14 +91,17 @@ export const BROWSER_NAVIGATE_TOOL = {
 
 export const BROWSER_CLICK_TOOL = {
   name: 'browser_click',
-  description: 'Click at specific coordinates on the current page. Use after browser_screenshot to see the page.',
+  description:
+    'Click an interactive element on the current page. Use after browser_screenshot. ' +
+    'Prefer passing elementId from the screenshot output; fall back to x/y coordinates only when necessary.',
   argsSchema: {
     type: 'object',
     properties: {
-      x: { type: 'number', description: 'X coordinate to click' },
-      y: { type: 'number', description: 'Y coordinate to click' },
+      elementId: { type: 'number', description: 'Element id from browser_screenshot output (preferred)' },
+      x: { type: 'number', description: 'X coordinate to click (fallback)' },
+      y: { type: 'number', description: 'Y coordinate to click (fallback)' },
     },
-    required: ['x', 'y'],
+    required: [],
   },
 };
 
@@ -154,10 +180,27 @@ export async function browserNavigate(url: string): Promise<string> {
   return `Navigated to ${url}\nTitle: ${title}\nURL: ${snapshot.url || url}`;
 }
 
-export async function browserClick(x: number, y: number): Promise<string> {
+export async function browserClick(elementId?: number, x?: number, y?: number): Promise<string> {
   const backend = await ensureBrowser();
-  await backend.act({ type: 'click', x, y });
-  return `Clicked at (${x}, ${y})`;
+
+  // Prefer elementId from the last screenshot; map it to center coordinates.
+  if (elementId !== undefined && _lastSnapshot?.elements) {
+    const el = _lastSnapshot.elements.find((e: any) => e.id === elementId);
+    if (el) {
+      const cx = Math.round(el.box.x + el.box.width / 2);
+      const cy = Math.round(el.box.y + el.box.height / 2);
+      await backend.act({ type: 'click', x: cx, y: cy });
+      return `Clicked element [${elementId}] <${el.tag}> at (${cx}, ${cy})`;
+    }
+    return `Element [${elementId}] not found in last screenshot`;
+  }
+
+  if (x !== undefined && y !== undefined) {
+    await backend.act({ type: 'click', x, y });
+    return `Clicked at (${x}, ${y})`;
+  }
+
+  throw new Error('browser_click requires elementId or x/y coordinates');
 }
 
 export async function browserScroll(direction: string, amount = 500): Promise<string> {
@@ -173,12 +216,38 @@ export async function browserScroll(direction: string, amount = 500): Promise<st
 export async function browserScreenshot(): Promise<string> {
   const backend = await ensureBrowser();
   const snapshot = await backend.snapshot();
-  const hasScreenshot = !!snapshot.screenshotBase64;
-  const interactiveElements = snapshot.interactiveElements?.length ?? 0;
-  const textContent = snapshot.textContent?.slice(0, 500) ?? '';
-  let desc = `Screenshot captured (${hasScreenshot ? 'available' : 'not available'})`;
-  desc += `\nInteractive elements: ${interactiveElements}`;
-  if (textContent) desc += `\nVisible text: ${textContent}`;
+  _lastSnapshot = snapshot;
+
+  const title = snapshot.title || '(no title)';
+  const url = snapshot.url || '(no url)';
+  const viewport = snapshot.viewport || { width: 0, height: 0 };
+
+  // Build a concise but useful textual representation for the LLM.
+  let desc = `Page: ${title}\nURL: ${url}\nViewport: ${viewport.width}x${viewport.height}`;
+
+  const visibleText = snapshot.elements
+    ?.filter((e: any) => e.visible && e.text)
+    ?.map((e: any) => e.text)
+    ?.join(' ')
+    ?.slice(0, 800) ?? '';
+  if (visibleText) {
+    desc += `\n\nVisible text:\n${visibleText}`;
+  }
+
+  const interactive = snapshot.elements?.filter((e: any) => e.interactive && e.visible) ?? [];
+  if (interactive.length > 0) {
+    desc += `\n\nInteractive elements (use elementId or center coordinates to click):`;
+    for (const el of interactive.slice(0, 30)) {
+      const cx = Math.round(el.box.x + el.box.width / 2);
+      const cy = Math.round(el.box.y + el.box.height / 2);
+      const text = (el.text || '').replace(/\s+/g, ' ').slice(0, 60);
+      desc += `\n- [${el.id}] <${el.tag}> "${text}" at (${cx}, ${cy})`;
+    }
+    if (interactive.length > 30) {
+      desc += `\n... and ${interactive.length - 30} more`;
+    }
+  }
+
   return desc;
 }
 
