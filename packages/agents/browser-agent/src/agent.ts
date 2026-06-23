@@ -18,6 +18,13 @@ export interface BrowserAgentConfig {
   browser: IBrowserBackend;
   /** System prompt to prepend. */
   systemPrompt?: string;
+  /** Include a base64 screenshot in every snapshot. Default false (faster). */
+  includeScreenshots?: boolean;
+  /**
+   * Max number of recent page observations kept in full in the LLM context.
+   * Older observations are summarized. Default 3.
+   */
+  maxObservations?: number;
 }
 
 export interface BrowserStepResult {
@@ -76,7 +83,7 @@ Continue until the task is complete, then respond with {"done": true, "summary":
       // 1) Observe the page
       let snapshot: PageSnapshot;
       try {
-        snapshot = await this.config.browser.snapshot();
+        snapshot = await this.config.browser.snapshot({ includeScreenshot: this.config.includeScreenshots ?? false });
       } catch {
         return { done: false, summary: 'Browser error: failed to take snapshot', steps: step - 1 };
       }
@@ -112,12 +119,51 @@ Continue until the task is complete, then respond with {"done": true, "summary":
           content: `Action failed: ${actionResult.error}`,
         });
       }
+
+      this.compressConversation();
     }
 
     return { done: false, summary: `Reached max steps (${this.config.maxSteps})`, steps: this.config.maxSteps };
   }
 
-  private async decideAction(step: number): Promise<BrowserAction | null> {
+  /**
+   * Keep the LLM context bounded. Retain the system prompt, the original
+   * task, the most recent `maxObservations` observation/action pairs, and
+   * summarize everything older into a single compact message.
+   */
+  private compressConversation(): void {
+    const maxObservations = this.config.maxObservations ?? 3;
+    // System (1) + task (1) + N observation/action pairs (2 each).
+    const maxMessages = 2 + maxObservations * 2;
+    if (this.conversation.length <= maxMessages) return;
+
+    const tail = this.conversation.slice(-maxMessages);
+    const oldPart = this.conversation.slice(2, -maxMessages);
+
+    const summaryLines: string[] = [];
+    let currentUrl = '';
+    for (const m of oldPart) {
+      const content = m.content ?? '';
+      const urlMatch = content.match(/URL:\s*(.+)/);
+      if (urlMatch) currentUrl = urlMatch[1].trim();
+      const actionMatch = content.match(/\{"type":\s*"([^"]+)"/);
+      if (actionMatch) {
+        summaryLines.push(`- ${actionMatch[1]} at ${currentUrl || 'current page'}`);
+      }
+      if (content.startsWith('Action failed:')) {
+        summaryLines.push(`- ${content.slice(0, 120)}`);
+      }
+    }
+
+    const summary = summaryLines.length > 0
+      ? `Earlier browser actions summary:\n${summaryLines.join('\n')}`
+      : '[Earlier page observations omitted for brevity.]';
+
+    this.conversation = [this.conversation[0], this.conversation[1], { role: 'user', content: summary }, ...tail];
+  }
+
+  private async decideAction(step: number, attempt = 0): Promise<BrowserAction | null> {
+    const MAX_RETRIES = 2;
     const response = await this.config.llm.generate({
       model: { provider: 'unknown', name: this.config.model },
       messages: this.conversation,
@@ -153,12 +199,15 @@ Continue until the task is complete, then respond with {"done": true, "summary":
           // fall through
         }
       }
+      if (attempt >= MAX_RETRIES) {
+        return { type: 'wait', waitMs: 1000 } as BrowserAction;
+      }
       this.conversation.push({
         role: 'user',
         content: `Invalid response format. Please respond with a valid JSON action object. Error: ${err instanceof Error ? err.message : String(err)}`,
       });
-      // Retry recursively
-      return this.decideAction(step);
+      // Retry recursively with bounded attempts
+      return this.decideAction(step, attempt + 1);
     }
   }
 }

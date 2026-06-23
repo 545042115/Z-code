@@ -1,5 +1,6 @@
-// @z-assistant/agent-office
+// @z-assistant/agent-office — V2 Office Agent entry point.
 //
-// Placeholder for future V2 Office Agent. Phase 6A does NOT implement it.
-// See ADR-001 §二.
-export {};
+// Word / Excel / PowerPoint document generation from natural language.
+
+export { createOfficeAgent } from './agent';
+export type { OfficeAgentConfig, OfficeTask, OfficeResult } from './agent';

@@ -82,6 +82,42 @@ export function findElementByAttrs(snapshot: PageSnapshot, attrs: Record<string,
   );
 }
 
+/** Remove interactive elements whose text is fully contained in a larger one. */
+export function deduplicateElements(elements: ElementInfo[]): ElementInfo[] {
+  const sorted = [...elements].sort((a, b) => {
+    const lenDiff = (b.text?.length ?? 0) - (a.text?.length ?? 0);
+    if (lenDiff !== 0) return lenDiff;
+    const areaA = a.box.width * a.box.height;
+    const areaB = b.box.width * b.box.height;
+    return areaB - areaA;
+  });
+
+  const kept: ElementInfo[] = [];
+  const seenTexts = new Set<string>();
+  for (const el of sorted) {
+    const t = el.text?.trim().toLowerCase();
+    if (!t || t.length === 0) {
+      kept.push(el);
+      continue;
+    }
+    let redundant = false;
+    for (const seen of seenTexts) {
+      if (seen.includes(t) || t.includes(seen)) {
+        // If the new text is strictly shorter, treat it as redundant.
+        if (t.length <= seen.length) {
+          redundant = true;
+          break;
+        }
+      }
+    }
+    if (!redundant) {
+      kept.push(el);
+      seenTexts.add(t);
+    }
+  }
+  return kept;
+}
+
 /** Generate a compact text representation of the page for LLM consumption. */
 export function pageToText(snapshot: PageSnapshot, maxElements = 200): string {
   const lines: string[] = [
@@ -91,9 +127,9 @@ export function pageToText(snapshot: PageSnapshot, maxElements = 200): string {
     `Interactive elements (showing up to ${maxElements}):`,
     '',
   ];
-  const interactive = snapshot.elements
-    .filter((el) => el.interactive && el.visible)
-    .slice(0, maxElements);
+  const interactive = deduplicateElements(
+    snapshot.elements.filter((el) => el.interactive && el.visible),
+  ).slice(0, maxElements);
   for (const el of interactive) {
     const attrs = Object.entries(el.attrs)
       .filter(([k]) => ['id', 'class', 'name', 'type', 'placeholder', 'aria-label', 'role', 'href', 'src', 'alt'].includes(k))

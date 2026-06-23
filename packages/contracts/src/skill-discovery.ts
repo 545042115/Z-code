@@ -123,6 +123,80 @@ export interface FailureGroup {
   toolNames: string[];
 }
 
+// ── Success Case ─────────────────────────────────────────────────────
+
+/**
+ * A recorded "winding but successful" conversation. Captured when an
+ * agent run eventually succeeds after user corrections or multiple
+ * turns. Used as raw material for success-driven skill discovery.
+ */
+export interface SuccessCase {
+  /** Stable id. */
+  id: string;
+  /** When recorded. */
+  timestamp: number;
+  /** Associated AgentRun id, if known. */
+  runId?: string;
+  /** Agent that owned the run. */
+  agent?: string;
+  /** Task summary. */
+  task: string;
+  /** Full conversation as markdown (or plain text). */
+  conversationMarkdown: string;
+  /** Total number of user/assistant turns. */
+  turnCount: number;
+  /** Estimated number of user correction turns. */
+  correctionCount: number;
+  /** Optional final successful outcome summary. */
+  successOutcome?: string;
+  /** Optional tags. */
+  tags?: string[];
+}
+
+/** Filter for querying SuccessCaseStore. */
+export interface SuccessCaseQuery {
+  agent?: string;
+  taskPattern?: string;
+  fromTs?: number;
+  toTs?: number;
+  limit?: number;
+  /** Only cases with at least this many turns. */
+  minTurns?: number;
+  /** Only cases with at least this many corrections. */
+  minCorrections?: number;
+}
+
+/** Persisted store for winding-but-successful cases. */
+export interface ISuccessCaseStore {
+  record(sc: SuccessCase): Promise<void>;
+  list(q?: SuccessCaseQuery): Promise<SuccessCase[]>;
+  count(q?: SuccessCaseQuery): Promise<number>;
+  /** Group cases by task pattern / agent for batch extraction. */
+  group(q?: SuccessCaseQuery): Promise<SuccessGroup[]>;
+}
+
+export interface SuccessGroup {
+  /** Stable group key. */
+  key: string;
+  agent?: string;
+  taskPattern: string;
+  cases: SuccessCase[];
+  firstSeen: number;
+  lastSeen: number;
+}
+
+/** Result of extracting a skill from a success group. */
+export interface SuccessExtractionResult {
+  draft: CandidateSkillDraft;
+  /** Durable user facts discovered alongside the skill. */
+  facts: Array<{ type: string; value: string }>;
+}
+
+/** Extractor that turns a success group into a candidate skill draft. */
+export interface ISuccessSkillExtractor {
+  extract(group: SuccessGroup): Promise<SuccessExtractionResult>;
+}
+
 // ── Candidate Skill ─────────────────────────────────────────────────
 
 /**
@@ -354,12 +428,27 @@ export interface AutoDiscoveryConfig {
   alwaysReview?: boolean;
   /** Confidence threshold for auto-extraction. */
   minConfidence?: number;
+  /**
+   * Which sources to scan. 'failure' preserves the original behaviour;
+   * 'success' scans winding-but-successful cases; 'all' scans both.
+   * Default 'failure'.
+   */
+  source?: 'failure' | 'success' | 'all';
+  /** Minimum turns for a success case to be considered winding. */
+  successMinTurns?: number;
+  /** Minimum user corrections for a success case to be considered winding. */
+  successMinCorrections?: number;
 }
 
 export interface AutoDiscoveryReport {
   generatedAt: number;
   scannedCases: number;
   scannedGroups: number;
+  /** Success-only stats (present when source includes 'success'). */
+  scannedSuccessCases?: number;
+  scannedSuccessGroups?: number;
+  /** Durable facts extracted from success cases. */
+  discoveredFacts?: Array<{ type: string; value: string }>;
   proposedCandidates: CandidateSkill[];
   skipped: Array<{ groupKey: string; reason: string }>;
 }

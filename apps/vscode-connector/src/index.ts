@@ -16,6 +16,9 @@ import {
   EvolutionEngine,
   BackgroundScheduler,
   AuditLogger,
+  HistoryMarkdownSuccessCaseStore,
+  LlmSuccessSkillExtractor,
+  createLocalEmbeddingProvider,
   type OrchestratorMode,
   type OrchestratorResult,
   type EvolutionReport,
@@ -32,13 +35,17 @@ import { createFileStore } from '@z-assistant/infra-storage';
 import { BudgetGuard } from '@z-assistant/infra-cost';
 
 import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill } from '@z-assistant/contracts';
+import type { AgentResult, IAgent, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill, ModelSpec, ILLMProvider } from '@z-assistant/contracts';
+
+/** Factory supplied by the host (e.g. desktop app) to inject additional IAgents (P1-1). */
+export type AgentFactory = (deps: { llmProvider: ILLMProvider; model: ModelSpec; config: VSCodeConnectorConfig }) => IAgent;
 
 import { OpenAIProvider } from './llm-provider';
 import { DryRunExecutor } from '@z-assistant/runtime/permission';
 import { createChatAgent, CHAT_HISTORY_KEY } from './chat-agent';
 import { discoverChatSkills } from './skill-loader';
-import { discoverSuccessSkills } from './success-skill-discovery';
+import { selectAgentsForTask } from './agent-router';
+import { ResultCache, shouldCacheTask } from './result-cache';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
 import { QQOneBotService, type QQOneBotConfig, type QQOneBotStatus } from './qq-onebot-service';
@@ -89,6 +96,18 @@ export interface VSCodeConnectorConfig {
   qq?: QQOneBotConfig;
   /** MCP server list (optional) — exposed as additional tools to the agent. */
   mcpServers?: McpServerConfig[];
+  /**
+   * Optional V2 tool policy (P1-2). When set, restricts which tools the
+   * chat agent and V2 tool registry will invoke.
+   */
+  toolPolicy?: { allow: string[]; deny: string[] };
+  /**
+   * Optional agent factories supplied by the host (P1-1). The connector
+   * will instantiate them at task time so specialized agents (Browser,
+   * Research, etc.) can participate in routing without the connector
+   * depending on their packages.
+   */
+  agentFactories?: AgentFactory[];
 }
 
 // ── Lifecycle event types ──────────────────────────────────────────────
@@ -112,6 +131,8 @@ export interface RunMultiAgentTaskOptions {
   model: { provider: string; name: string };
   sessionId?: string;
   registerAgents?: (registry: AgentRegistry) => void;
+  /** Optional subset of agent names to run; defaults to all registered agents. */
+  agents?: string[];
   maxAgentCalls?: number;
   initialState?: Record<string, unknown>;
 }
@@ -136,6 +157,8 @@ export class VSCodeConnector {
   private _taskProcessing = false;
   /** AbortController for the currently running user task */
   private _currentRunAbort: AbortController | null = null;
+  /** Cache for repeated pure-query tasks. */
+  private _resultCache = new ResultCache<RunMultiAgentTaskResult>({ ttlMs: 5 * 60 * 1000, maxSize: 100 });
   /** WeChat Hook service (WeChatFerry DLL injection — captures ALL messages) */
   readonly wechatHook: WeChatHookService;
   /** QQ OneBot service (NapCat + OneBot protocol) */
@@ -151,13 +174,49 @@ export class VSCodeConnector {
     this.profile = new ChatProfile(config.storageDir);
   }
 
+  private createLlmProvider(): ILLMProvider {
+    const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
+    const apiKey = this.config.apiKey ?? '';
+    let baseURL: string;
+    if (this.config.apiEndpoint) {
+      baseURL = this.config.apiEndpoint;
+    } else {
+      switch (model.provider) {
+        case 'deepseek': baseURL = 'https://api.deepseek.com/v1'; break;
+        case 'openai':   baseURL = 'https://api.openai.com/v1'; break;
+        case 'anthropic': baseURL = 'https://api.anthropic.com/v1'; break;
+        case 'gemini':   baseURL = 'https://generativelanguage.googleapis.com/v1'; break;
+        case 'ollama':   baseURL = 'http://localhost:11434/v1'; break;
+        default:         baseURL = 'https://api.openai.com/v1'; break;
+      }
+    }
+    return new OpenAIProvider({
+      baseURL,
+      apiKey,
+      defaultModel: model.name,
+      name: model.provider,
+    });
+  }
+
   /** Wire the V2 runtime. Idempotent. */
   async start(): Promise<void> {
     if (this._runtime) return;
+
+    // F-1: success-driven skill discovery from History/*.md.
+    const historyDir = path.join(process.cwd(), 'History');
+    const successStore = new HistoryMarkdownSuccessCaseStore({ historyDir });
+    const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
+    const successExtractor = new LlmSuccessSkillExtractor({
+      llmProvider: this.createLlmProvider(),
+      model,
+    });
+
     this._runtime = await AssistantRuntime.boot({
       storageDir: this.config.storageDir,
       projectKey: this.config.projectKey,
       auditLogger: this.config.auditLogger,
+      successStore,
+      successExtractor,
     });
   }
 
@@ -320,8 +379,16 @@ export class VSCodeConnector {
       perDayUsd: this.config.budget?.perDayUsd ?? 50,
     });
 
-    // Use the G4 factory: it starts the Run on the trace and wires the
-    // Orchestrator to the runtime's trace + the per-task registry.
+    // P1-1: if the caller requested a subset of agents, build a filtered
+    // registry so the Orchestrator dispatches only those agents.
+    let effectiveRegistry = registry;
+    if (opts.agents && opts.agents.length > 0 && opts.agents.length < registry.list().length) {
+      effectiveRegistry = new AgentRegistry();
+      for (const name of opts.agents) {
+        effectiveRegistry.register(registry.get(name));
+      }
+    }
+
     const { tracker, orchestrator: orch } = await runtime.createOrchestrator({
       task: opts.task,
       model: opts.model,
@@ -330,7 +397,7 @@ export class VSCodeConnector {
       maxAgentCalls: opts.maxAgentCalls ?? 8,
       initialState: opts.initialState,
       budgetGuard: guard,
-      registry,
+      registry: effectiveRegistry,
       signal: abortController.signal,
     });
 
@@ -423,7 +490,7 @@ export class VSCodeConnector {
       }
     }
 
-    const registerChatAgent = (reg: AgentRegistry) => {
+    const registerAgents = (reg: AgentRegistry) => {
       const tracker = this._runtime?.trace.active();
       // G1 wiring: use createCodingAgentFromChat so the chat agent is
       // wrapped in the V2 CodingAgentLoop (agent.impl + tools.impl).
@@ -442,6 +509,7 @@ export class VSCodeConnector {
       const skillIndex = discoverChatSkills({ rootDir: skillRoot });
       const loop = createCodingAgentFromChat({
         extraTools: mcpTools,
+        toolPolicy: this.config.toolPolicy,
         chatAgent: {
           llmProvider,
           projectDir: this.config.projectDir,
@@ -457,7 +525,7 @@ export class VSCodeConnector {
           },
           startSpan: (name, type, input) => {
             // Lazily resolve the active tracker when the span is actually
-            // used. registerChatAgent runs before runtime.createOrchestrator()
+            // used. registerAgents runs before runtime.createOrchestrator()
             // starts the run, so tracker is null at construction time.
             let span: ReturnType<NonNullable<RunTracker['startSpan']>> | undefined;
             const getSpan = () => {
@@ -481,18 +549,51 @@ export class VSCodeConnector {
         userId: 'desktop-user',
       });
       reg.register(loop.asIAgent());
+
+      // P1-1: register any additional agents supplied by the host
+      // (e.g. Browser agent from the desktop app) so they can participate
+      // in task routing without adding heavy/optional deps to this package.
+      const extraAgents = (this.config.agentFactories ?? []).map((factory) =>
+        factory({ llmProvider, model, config: this.config }),
+      );
+      for (const agent of extraAgents) {
+        reg.register(agent);
+      }
     };
+
+    // P1-1: route the user task to the most appropriate registered agent(s).
+    const routingRegistry = new AgentRegistry();
+    registerAgents(routingRegistry);
+    const localEmbedding = createLocalEmbeddingProvider();
+    const selectedAgents = await selectAgentsForTask(routingRegistry, task, model, {
+      embeddingProvider: localEmbedding,
+    });
+    this.emit({ type: 'progress', runId: '', phase: 'routing', detail: `Dispatching to: ${selectedAgents.join(', ')}` });
+
+    const cacheKey = `${model.provider}:${model.name}|${selectedAgents.join(',')}|${task}`;
+    if (shouldCacheTask(task)) {
+      const cached = this._resultCache.get(cacheKey);
+      if (cached) {
+        this.emit({ type: 'progress', runId: cached.runId, phase: 'cache', detail: 'Returning cached result' });
+        return { runId: cached.runId, result: cached.outputText };
+      }
+    }
 
     try {
       const fullResult = await this.runMultiAgentTask({
         task,
-        mode: 'sequential' as OrchestratorMode,
+        mode: (selectedAgents.length > 1 ? 'dag' : 'sequential') as OrchestratorMode,
         model,
-        registerAgents: registerChatAgent,
-        maxAgentCalls: 1,
+        registerAgents,
+        agents: selectedAgents,
+        maxAgentCalls: selectedAgents.length,
         initialState: this._conversationHistory,
         sessionId,
       });
+
+      if (shouldCacheTask(task) && fullResult.result.status === 'success') {
+        this._resultCache.set(cacheKey, fullResult);
+      }
 
       return { runId: fullResult.runId, result: fullResult.outputText };
     } finally {
@@ -546,41 +647,14 @@ export class VSCodeConnector {
    */
   async runSuccessSkillDiscovery(cfg?: { historyDir?: string; minTurns?: number }): Promise<{ candidates: number; facts: number }> {
     if (!this._runtime) throw new Error('VSCodeConnector not started');
-    const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
-    const apiKey = this.config.apiKey;
-    const apiEndpoint = this.config.apiEndpoint;
-    const providerName = model.provider;
-
-    let baseURL: string;
-    if (apiEndpoint) {
-      baseURL = apiEndpoint;
-    } else {
-      switch (providerName) {
-        case 'deepseek': baseURL = 'https://api.deepseek.com/v1'; break;
-        case 'openai':   baseURL = 'https://api.openai.com/v1'; break;
-        case 'anthropic': baseURL = 'https://api.anthropic.com/v1'; break;
-        case 'gemini':   baseURL = 'https://generativelanguage.googleapis.com/v1'; break;
-        case 'ollama':   baseURL = 'http://localhost:11434/v1'; break;
-        default:         baseURL = 'https://api.openai.com/v1'; break;
-      }
-    }
-
-    const llmProvider = new OpenAIProvider({
-      baseURL,
-      apiKey: apiKey ?? '',
-      defaultModel: model.name,
-      name: providerName,
+    const report = await this._runtime.skillDiscovery.discover({
+      source: 'success',
+      successMinTurns: cfg?.minTurns ?? 4,
     });
-
-    const historyDir = cfg?.historyDir ?? path.join(process.cwd(), 'History');
-    const result = await discoverSuccessSkills({
-      historyDir,
-      llmProvider,
-      model,
-      reviewQueue: this._runtime.skillReviewQueue,
-      minTurns: cfg?.minTurns ?? 4,
-    });
-    return { candidates: result.candidates.length, facts: result.facts.length };
+    return {
+      candidates: report.proposedCandidates.length,
+      facts: report.discoveredFacts?.length ?? 0,
+    };
   }
 
   async listSkillCandidates(): Promise<CandidateSkill[]> {
@@ -618,6 +692,10 @@ export interface AssistantRuntimeBootOptions {
   registerAgents?: (registry: AgentRegistry) => void;
   /** Optional shared audit logger. If omitted, one is created automatically. */
   auditLogger?: AuditLogger;
+  /** Optional success case store for F-1 success-driven skill discovery. */
+  successStore?: import('@z-assistant/contracts').ISuccessCaseStore;
+  /** Optional success skill extractor for F-1. */
+  successExtractor?: import('@z-assistant/contracts').ISuccessSkillExtractor;
 }
 
 /**
@@ -689,7 +767,13 @@ export class AssistantRuntime {
     const failureStore = new JsonlFailureCaseStore({ rootDir: dataDir });
     const reviewQueue = new JsonFileSkillReviewQueue({ rootDir: dataDir });
     const extractor = new TemplateSkillExtractor();
-    const skillDiscovery = new AutoDiscoveryEngine({ failureStore, extractor, reviewQueue });
+    const skillDiscovery = new AutoDiscoveryEngine({
+      failureStore,
+      extractor,
+      reviewQueue,
+      successStore: opts.successStore,
+      successExtractor: opts.successExtractor,
+    });
 
     // P1-2 HITL: shared audit logger. Sub-systems that need auditing should
     // use this instance so the background scheduler can observe failures.
@@ -773,5 +857,7 @@ export { RUNTIME_VERSION };
 export type { AgentResult, Store, TraceManager, OrchestratorMode, OrchestratorResult };
 export { createCodingAgentFromChat, ChatToolRegistry };
 export type { CodingAgentFactoryOptions };
+export { webSearch, webSearchResults, webFetch, getLocation } from './web-tools';
+export type { SearchResult } from './web-tools';
 export { connectMcpServer, connectMcpServers } from './mcp-tools';
 export type { McpServerConfig, ConnectedMcpServer } from './mcp-tools';

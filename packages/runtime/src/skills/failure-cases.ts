@@ -42,6 +42,9 @@ export class JsonlFailureCaseStore implements IFailureCaseStore {
   private readonly filePath: string;
   /** Serialized write chain — each append awaits the previous. */
   private writeChain: Promise<void> = Promise.resolve();
+  private cache?: FailureCase[];
+  private cacheMtime = 0;
+  private cacheSize = 0;
 
   constructor(opts: JsonlFailureCaseStoreOptions) {
     if (!existsSync(opts.rootDir)) mkdirSync(opts.rootDir, { recursive: true });
@@ -67,6 +70,9 @@ export class JsonlFailureCaseStore implements IFailureCaseStore {
       .then(() => fsp.appendFile(this.filePath, line, 'utf8'))
       .catch((err) => {
         console.error('[JsonlFailureCaseStore] append error:', err);
+      })
+      .finally(() => {
+        this.cache = undefined;
       });
     return this.writeChain;
   }
@@ -131,6 +137,10 @@ export class JsonlFailureCaseStore implements IFailureCaseStore {
   private async readAll(): Promise<FailureCase[]> {
     await this.writeChain;
     if (!existsSync(this.filePath)) return [];
+    const stat = await fsp.stat(this.filePath);
+    if (this.cache && this.cacheMtime === stat.mtimeMs && this.cacheSize === stat.size) {
+      return this.cache;
+    }
     const raw = await fsp.readFile(this.filePath, 'utf8');
     const out: FailureCase[] = [];
     for (const line of raw.split(/\r?\n/)) {
@@ -141,6 +151,9 @@ export class JsonlFailureCaseStore implements IFailureCaseStore {
         // skip malformed
       }
     }
+    this.cache = out;
+    this.cacheMtime = stat.mtimeMs;
+    this.cacheSize = stat.size;
     return out;
   }
 }

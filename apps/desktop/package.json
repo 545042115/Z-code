@@ -18,6 +18,8 @@
   "dependencies": {
     "@z-assistant/app-vscode-connector": "0.1.0",
     "@z-assistant/agent-browser": "0.1.0",
+    "@z-assistant/agent-research": "0.1.0",
+    "@z-assistant/agent-office": "0.1.0",
     "@z-assistant/contracts": "0.1.0",
     "@z-assistant/runtime": "0.1.0",
     "electron-updater": "^6.1.0",

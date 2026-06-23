@@ -111,6 +111,45 @@ export type ChatAttachment =
 /** Key used in SharedState to persist conversation history. */
 export const CHAT_HISTORY_KEY = 'chat.history';
 
+const MAX_HISTORY_MESSAGES = 24;
+const MAX_TOOL_RESULT_CHARS = 2000;
+
+function truncateToolResult(text: string, max = MAX_TOOL_RESULT_CHARS): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max) + '\n...[truncated]';
+}
+
+/**
+ * Smarter compression for long tool outputs.
+ * - Terminal / search: keep start + tail, drop the noisy middle.
+ * - Web fetch / file read: keep headings, code blocks, and first/last chunks.
+ * Falls back to plain truncation if the output is not structured.
+ */
+function compressToolResult(name: string, text: string, max = MAX_TOOL_RESULT_CHARS): string {
+  if (text.length <= max) return text;
+
+  const lines = text.split('\n');
+  if (name === 'run_terminal' || name === 'web_search') {
+    const head = Math.ceil(max * 0.35 / lines.length) || 30;
+    const tail = 20;
+    if (lines.length > head + tail) {
+      const kept = [...lines.slice(0, head), `...[${lines.length - head - tail} lines omitted]...`, ...lines.slice(-tail)];
+      const compressed = kept.join('\n');
+      if (compressed.length <= max) return compressed;
+    }
+  }
+
+  if (name === 'web_fetch' || name === 'read_file' || name === 'search_code') {
+    // Preserve markdown/code headings and take the first usable chunk.
+    const headingLines = lines.filter((l) => /^#{1,6}\s+/.test(l) || /^```/.test(l));
+    const body = lines.slice(0, Math.floor(max / 80));
+    const compressed = [...headingLines.slice(0, 10), '---', ...body].join('\n');
+    if (compressed.length <= max) return compressed;
+  }
+
+  return truncateToolResult(text, max);
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversation with the user.
 
 ## Capabilities
@@ -306,8 +345,10 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
         }
         memorySpan?.end({ hits: memoryContext ? 'found' : 'none' });
 
-        // Load conversation history from shared state
-        const history = ctx.sharedState.get<LLMMessage[]>(CHAT_HISTORY_KEY) ?? [];
+        // Load conversation history from shared state. Trim to the most
+        // recent exchanges to keep LLM context small and latency low.
+        const fullHistory = ctx.sharedState.get<LLMMessage[]>(CHAT_HISTORY_KEY) ?? [];
+        const history = fullHistory.slice(-MAX_HISTORY_MESSAGES);
 
         // ── Phase 1.5: Multimodal attachment preprocessing ──────────
         // Convert images/audio/documents into text so text-only LLMs (e.g.
@@ -362,37 +403,9 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           llmCalls++;
           planSpan?.end({ plan: 'hierarchical', steps: hierarchicalPlan.steps.length });
         } else {
-          // Simple planning: native ReAct with a brief 2-4 step plan.
-          const planMessages: LLMMessage[] = [
-            {
-              role: 'system',
-              content: `You are a task planner. Analyze the user's request and create a brief plan (2-4 steps).
-Output ONLY a JSON object with a "plan" array of step descriptions.
-Do NOT call any tools.`,
-            },
-            { role: 'user', content: ctx.task },
-          ];
-
-          const planResponse = await opts.llmProvider.generate({
-            model: ctx.model,
-            messages: planMessages,
-            temperature: 0.3,
-            maxTokens: 1024,
-            signal: ctx.signal,
-          });
-          llmCalls++;
-          totalTokensIn += planResponse.usage.tokensIn;
-          totalTokensOut += planResponse.usage.tokensOut;
-
-          try {
-            const planJson = JSON.parse(planResponse.message.content ?? '{}');
-            if (Array.isArray(planJson.plan)) {
-              planText = '\n\n## Plan\n' + planJson.plan.map((s: string, i: number) => `${i + 1}. ${s}`).join('\n');
-            }
-          } catch {
-            planText = '';
-          }
-          planSpan?.end({ plan: planText ? 'simple' : 'skipped' });
+          // Simple tasks skip the dedicated planning LLM call and rely on
+          // the native ReAct loop, saving one round-trip.
+          planSpan?.end({ plan: 'skipped' });
         }
 
         // ── Phase 2.5: Skill selection ──────────────────────────────
@@ -479,7 +492,7 @@ Do NOT call any tools.`,
                 toolSpan?.end({ result: result.slice(0, 200) });
                 messages.push({
                   role: 'tool',
-                  content: result,
+                  content: compressToolResult(tc.name, result),
                   toolCallId: `xml_${tc.name}_${i}`,
                 });
               }
@@ -492,7 +505,7 @@ Do NOT call any tools.`,
 
             // Append to conversation history
             const updatedHistory: LLMMessage[] = [
-              ...history,
+              ...fullHistory,
               { role: 'user', content: ctx.task },
               { role: 'assistant', content: reply },
             ];
@@ -595,7 +608,7 @@ Do NOT call any tools.`,
             toolSpan?.end({ result: result.slice(0, 200) });
             messages.push({
               role: 'tool',
-              content: result,
+              content: compressToolResult(tc.name, result),
               toolCallId: tc.id,
             });
           }
@@ -625,7 +638,7 @@ Do NOT call any tools.`,
         const costUsd = computeCost(ctx.model, totalTokensIn, totalTokensOut);
 
         const updatedHistory: LLMMessage[] = [
-          ...history,
+          ...fullHistory,
           { role: 'user', content: ctx.task },
           { role: 'assistant', content: reply },
         ];

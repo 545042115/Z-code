@@ -3,6 +3,12 @@
 declare const zApi: import('../preload').ZDesktopAPI;
 import { t, setLanguage, getLanguage, loadLanguage, type Language } from './i18n';
 
+function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
 function applyTranslations(): void {
   // Nav buttons
   (document.querySelector('#nav button[data-view="main"]') as HTMLElement)!.textContent = t('nav.main');
@@ -99,6 +105,35 @@ function renderSettings(container: HTMLElement): void {
         <p class="muted" style="font-size:0.82em;margin-top:4px">启用后，Agent 的所有工具调用将被模拟执行，仅返回"将要做什么"的描述，方便预览完整计划后再正式执行。</p>
       </div>
       <div class="card">
+        <h3>${t('settings.tool_policy_title')}</h3>
+        <p class="muted" style="font-size:0.82em;margin-bottom:8px">${t('settings.tool_policy_desc')}</p>
+        <label class="stack" style="margin-top:8px">
+          <span>${t('settings.tool_policy_allow')}</span>
+          <textarea id="settings-tool-allow" rows="2" placeholder="read_file, web_search, mcp_*"></textarea>
+        </label>
+        <label class="stack" style="margin-top:8px">
+          <span>${t('settings.tool_policy_deny')}</span>
+          <textarea id="settings-tool-deny" rows="2" placeholder="run_terminal, write_file"></textarea>
+        </label>
+        <p class="muted" style="font-size:0.78em;margin-top:4px">${t('settings.tool_policy_hint')}</p>
+      </div>
+      <div class="card">
+        <h3>${t('settings.budget_title')}</h3>
+        <p class="muted" style="font-size:0.82em;margin-bottom:8px">${t('settings.budget_desc')}</p>
+        <label class="row" style="margin-top:8px;gap:12px">
+          <span style="min-width:120px">${t('settings.budget_tokens')}</span>
+          <input id="settings-budget-tokens" type="number" style="flex:1" min="0" step="1000">
+        </label>
+        <label class="row" style="margin-top:8px;gap:12px">
+          <span style="min-width:120px">${t('settings.budget_usd')}</span>
+          <input id="settings-budget-usd" type="number" style="flex:1" min="0" step="0.1">
+        </label>
+        <label class="row" style="margin-top:8px;gap:12px">
+          <span style="min-width:120px">${t('settings.budget_day_usd')}</span>
+          <input id="settings-budget-day-usd" type="number" style="flex:1" min="0" step="0.1">
+        </label>
+      </div>
+      <div class="card">
         <h3>${t('settings.wechat_title')}</h3>
         <p class="muted" style="font-size:0.85em;margin-bottom:8px;color:#eab308">${t('settings.wechat_hook_warning')}</p>
         <label class="row" style="margin-top:8px">
@@ -173,6 +208,11 @@ function renderSettings(container: HTMLElement): void {
         <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.amap_key_hint')}</p>
       </div>
       <div class="card">
+        <h3>${t('settings.always_rules_title')}</h3>
+        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.always_rules_desc')}</p>
+        <div id="settings-always-rules-list" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="card">
         <h3>${t('settings.skill_review_title')}</h3>
         <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.skill_review_desc')}</p>
         <div class="row" style="margin-bottom:12px;gap:8px">
@@ -195,6 +235,11 @@ function renderSettings(container: HTMLElement): void {
   const memory = document.getElementById('settings-memory') as HTMLInputElement;
   const storage = document.getElementById('settings-storage') as HTMLInputElement;
   const dryRun = document.getElementById('settings-dryrun') as HTMLInputElement;
+  const toolAllow = document.getElementById('settings-tool-allow') as HTMLTextAreaElement;
+  const toolDeny = document.getElementById('settings-tool-deny') as HTMLTextAreaElement;
+  const budgetTokens = document.getElementById('settings-budget-tokens') as HTMLInputElement;
+  const budgetUsd = document.getElementById('settings-budget-usd') as HTMLInputElement;
+  const budgetDayUsd = document.getElementById('settings-budget-day-usd') as HTMLInputElement;
   const browseBtn = document.getElementById('settings-browse') as HTMLButtonElement;
   const projectDir = document.getElementById('settings-projectdir') as HTMLInputElement;
   const browseProjectBtn = document.getElementById('settings-browse-project') as HTMLButtonElement;
@@ -223,6 +268,11 @@ function renderSettings(container: HTMLElement): void {
     storage.value = s.storageDir;
     projectDir.value = s.projectDir || '';
     dryRun.checked = !!s.dryRun;
+    toolAllow.value = (s.toolPolicy?.allow ?? []).join(', ');
+    toolDeny.value = (s.toolPolicy?.deny ?? []).join(', ');
+    budgetTokens.value = String(s.budget?.perRunTokens ?? 1_000_000);
+    budgetUsd.value = String(s.budget?.perRunUsd ?? 5);
+    budgetDayUsd.value = String(s.budget?.perDayUsd ?? 50);
     mcdToken.value = s.mcdMcpToken || '';
     amapKey.value = s.amapApiKey || '';
     // Load profile data
@@ -465,6 +515,7 @@ function renderSettings(container: HTMLElement): void {
   const refreshSkillsBtn = document.getElementById('settings-refresh-skills') as HTMLButtonElement;
   const skillStatus = document.getElementById('settings-skill-status') as HTMLSpanElement;
   const skillQueue = document.getElementById('settings-skill-queue') as HTMLDivElement;
+  const alwaysRulesList = document.getElementById('settings-always-rules-list') as HTMLDivElement;
 
   async function renderSkillQueue(): Promise<void> {
     try {
@@ -530,6 +581,51 @@ function renderSettings(container: HTMLElement): void {
     }
   }
 
+  async function renderAlwaysRules(): Promise<void> {
+    try {
+      const rules = await zApi.listAlwaysRules();
+      alwaysRulesList.innerHTML = '';
+      if (rules.length === 0) {
+        alwaysRulesList.innerHTML = `<p class="muted">${t('settings.no_always_rules')}</p>`;
+        return;
+      }
+      for (const r of rules) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding = '10px';
+        const patterns = r.argPatterns && Object.keys(r.argPatterns).length > 0
+          ? Object.entries(r.argPatterns).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(v)}`).join(', ')
+          : t('settings.always_rules_all_args');
+        const statusClass = r.decision === 'always-allow' ? 'ok' : 'error';
+        card.innerHTML = `
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div>
+              <strong>${escapeHtml(r.toolName)}</strong>
+              <span class="status ${statusClass}" style="margin-left:8px;font-size:0.78em">${r.decision}</span>
+              <p class="muted" style="margin:2px 0 0;font-size:0.82em">${patterns}</p>
+            </div>
+            <button class="secondary danger remove-always-rule" data-id="${r.id}" style="font-size:0.8em;padding:4px 8px">${t('settings.always_rules_remove')}</button>
+          </div>
+        `;
+        alwaysRulesList.appendChild(card);
+      }
+      alwaysRulesList.querySelectorAll('.remove-always-rule').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = (btn as HTMLButtonElement).dataset.id!;
+          (btn as HTMLButtonElement).disabled = true;
+          try {
+            await zApi.removeAlwaysRule(id);
+            await renderAlwaysRules();
+          } catch (err: unknown) {
+            console.error(err);
+          }
+        });
+      });
+    } catch (err: unknown) {
+      alwaysRulesList.innerHTML = `<p class="muted">Error: ${err instanceof Error ? err.message : String(err)}</p>`;
+    }
+  }
+
   discoverSkillsBtn.addEventListener('click', async () => {
     discoverSkillsBtn.disabled = true;
     try {
@@ -569,6 +665,13 @@ function renderSettings(container: HTMLElement): void {
     amapKeyToggle.textContent = secured ? '隐藏' : '显示';
   });
 
+  function parseListInput(value: string): string[] {
+    return value
+      .split(/[,\n]+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
   saveBtn.addEventListener('click', async () => {
     try {
       await zApi.setSettings({
@@ -580,6 +683,15 @@ function renderSettings(container: HTMLElement): void {
         storageDir: storage.value.trim() || undefined,
         projectDir: projectDir.value.trim() || undefined,
         dryRun: dryRun.checked,
+        toolPolicy: {
+          allow: parseListInput(toolAllow.value),
+          deny: parseListInput(toolDeny.value),
+        },
+        budget: {
+          perRunTokens: Math.max(0, Number(budgetTokens.value) || 0),
+          perRunUsd: Math.max(0, Number(budgetUsd.value) || 0),
+          perDayUsd: Math.max(0, Number(budgetDayUsd.value) || 0),
+        },
         mcdMcpToken: mcdToken.value.trim() || undefined,
         amapApiKey: amapKey.value.trim() || undefined,
       } as any);
@@ -594,6 +706,7 @@ function renderSettings(container: HTMLElement): void {
 
   // Initial skill queue load
   renderSkillQueue();
+  renderAlwaysRules();
 
   // Refresh profile status periodically
   updateProfileDisplay();

@@ -15,6 +15,8 @@
     { "path": "../vscode-connector" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/runtime" },
-    { "path": "../../packages/agents/browser-agent" }
+    { "path": "../../packages/agents/browser-agent" },
+    { "path": "../../packages/agents/research-agent" },
+    { "path": "../../packages/agents/office-agent" }
   ]
 }

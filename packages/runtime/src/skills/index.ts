@@ -102,3 +102,13 @@ export {
   AutoDiscoveryEngine,
   type AutoDiscoveryEngineOptions,
 } from './auto-discovery';
+
+export {
+  HistoryMarkdownSuccessCaseStore,
+  type HistorySuccessStoreOptions,
+} from './history-success-store';
+
+export {
+  LlmSuccessSkillExtractor,
+  type LlmSuccessExtractorOptions,
+} from './llm-success-extractor';

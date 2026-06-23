@@ -118,7 +118,9 @@ async function showSessionDetail(sessionId: string): Promise<void> {
             <span>ID: ${escapeHtml(run.id.slice(0, 8))}</span>
           </div>
           <button class="load-spans-btn" data-runid="${escapeHtml(run.id)}">${t('trace.load_spans')}</button>
+          <button class="load-audit-btn secondary" data-runid="${escapeHtml(run.id)}" style="margin-left:8px;font-size:0.82em">${t('trace.load_audit')}</button>
           <div class="spans-container" id="spans-${escapeHtml(run.id)}"></div>
+          <div class="audit-container" id="audit-${escapeHtml(run.id)}" style="margin-top:8px"></div>
         </div>`;
       }
     } else {
@@ -148,6 +150,14 @@ async function showSessionDetail(sessionId: string): Promise<void> {
       // Also keep manual click handler
       btn.addEventListener('click', async () => {
         await loadSpans(runId);
+      });
+    });
+
+    // Bind audit log buttons
+    detail.querySelectorAll('.load-audit-btn').forEach((btn) => {
+      const runId = (btn as HTMLElement).dataset.runid!;
+      btn.addEventListener('click', async () => {
+        await loadAuditEntries(runId);
       });
     });
 
@@ -300,6 +310,42 @@ async function loadSpans(runId: string): Promise<void> {
     }
 
     if (btn) btn.textContent = `${t('trace.load_spans')} (${spans.length})`;
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    container.innerHTML = `<p class="status error">${t('chat.error')}: ${escapeHtml(msg)}</p>`;
+  }
+}
+
+// ── Load audit entries for a run ─────────────────────────────────────
+
+async function loadAuditEntries(runId: string): Promise<void> {
+  const container = document.getElementById(`audit-${runId}`);
+  if (!container) return;
+  container.innerHTML = `<p class="muted">${t('trace.loading')}</p>`;
+  try {
+    const entries = await zApi.listAuditEntries({ runId, limit: 100 });
+    if (entries.length === 0) {
+      container.innerHTML = `<p class="muted">${t('trace.no_audit')}</p>`;
+      return;
+    }
+    container.innerHTML = `
+      <div class="audit-list" style="font-size:0.85em">
+        <div class="muted" style="margin-bottom:4px">${entries.length} ${t('trace.audit_entries')}</div>
+        ${entries.map((e) => {
+          const ts = new Date(e.timestamp).toLocaleTimeString();
+          const args = Object.keys(e.args ?? {}).length > 0
+            ? `<pre style="white-space:pre-wrap;background:var(--bg);padding:4px;border-radius:4px;margin-top:4px;font-size:0.85em">${escapeHtml(JSON.stringify(e.args, null, 2)).slice(0, 400)}</pre>`
+            : '';
+          return `<div class="audit-item" style="padding:6px 8px;margin:4px 0;border:1px solid var(--border-light);border-radius:var(--radius-md)">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <strong>${escapeHtml(e.toolName ?? 'unknown')}</strong>
+              <span class="status ${e.outcome}" style="font-size:0.78em">${e.outcome}</span>
+            </div>
+            <div class="muted" style="font-size:0.78em">${ts} · risk: ${e.risk ?? '-'}</div>
+            ${args}
+          </div>`;
+        }).join('')}
+      </div>`;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     container.innerHTML = `<p class="status error">${t('chat.error')}: ${escapeHtml(msg)}</p>`;

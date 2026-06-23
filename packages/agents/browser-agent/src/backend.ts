@@ -127,7 +127,7 @@ export interface IBrowserBackend {
   navigate(url: string): Promise<PageSnapshot>;
 
   /** Get the current page's full snapshot. */
-  snapshot(): Promise<PageSnapshot>;
+  snapshot(opts?: { includeScreenshot?: boolean }): Promise<PageSnapshot>;
 
   /** Execute a single action on the current page. */
   act(action: BrowserAction): Promise<ActionResult>;
@@ -205,19 +205,23 @@ class PlaywrightBackend implements IBrowserBackend {
     return this.snapshot();
   }
 
-  async snapshot(): Promise<PageSnapshot> {
+  async snapshot(opts?: { includeScreenshot?: boolean }): Promise<PageSnapshot> {
     await this.ensurePage();
     const p = this.page as any;
-    const screenshotBuffer: Buffer = await p.screenshot({ type: 'png', fullPage: false });
-    const screenshotBase64 = screenshotBuffer.toString('base64');
+    const includeScreenshot = opts?.includeScreenshot ?? false;
+    const screenshotBase64 = includeScreenshot
+      ? ((await p.screenshot({ type: 'png', fullPage: false })) as Buffer).toString('base64')
+      : '';
     const elementsData: RawElementData[] = await p.evaluate(() => {
       const all: Array<{
         tag: string; text: string | undefined; attrs: Record<string, string>;
         rect: { x: number; y: number; w: number; h: number };
         visible: boolean; interactive: boolean;
       }> = [];
+      const MAX_DEPTH = 20;
+      const MAX_ELEMENTS = 200;
       function walk(node: Element, depth: number): void {
-        if (depth > 40) return;
+        if (depth > MAX_DEPTH || all.length >= MAX_ELEMENTS) return;
         const tag = node.tagName.toLowerCase();
         const rect = node.getBoundingClientRect();
         const visible = rect.width > 0 && rect.height > 0 &&

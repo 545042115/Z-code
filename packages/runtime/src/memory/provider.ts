@@ -26,6 +26,8 @@ import { createInMemoryVectorStore } from '../storage/vector-store';
 import { createLocalEmbeddingProvider } from '../embedding';
 import { newMemoryId, matchMemoryRecord, matchPurgeFilter, keywordScore } from './types';
 
+const COMPACT_AFTER_TOMBSTONES = 100;
+
 export interface JsonlMemoryProviderOptions {
   /** Root directory for the JSONL file; created if missing. */
   rootDir: string;
@@ -44,6 +46,26 @@ export interface JsonlMemoryProviderOptions {
 
 async function ensureDir(p: string): Promise<void> {
   if (!existsSync(p)) await fsp.mkdir(p, { recursive: true });
+}
+
+/** Tiny TTL cache for query embeddings to avoid recomputing the same query. */
+class QueryEmbeddingCache {
+  private readonly store = new Map<string, { vector: number[]; expires: number }>();
+  constructor(private readonly ttlMs: number) {}
+  get(query: string): number[] | undefined {
+    const key = query.toLowerCase().trim().slice(0, 200);
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (Date.now() > entry.expires) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.vector;
+  }
+  set(query: string, vector: number[]): void {
+    const key = query.toLowerCase().trim().slice(0, 200);
+    this.store.set(key, { vector, expires: Date.now() + this.ttlMs });
+  }
 }
 
 async function readJsonl<T>(file: string): Promise<T[]> {
@@ -85,13 +107,17 @@ export class JsonlMemoryProvider implements IMemoryProvider {
   private readonly records = new Map<string, MemoryRecord>();
   private readonly keywordFallbackThreshold: number;
   private readonly contentTokens = new Map<string, Set<string>>();
+  private readonly queryEmbeddingCache: QueryEmbeddingCache;
+  private writeChain: Promise<void> = Promise.resolve();
   private loaded = false;
+  private tombstoneCount = 0;
 
   constructor(opts: JsonlMemoryProviderOptions) {
     this.file = join(opts.rootDir, opts.memoriesFile ?? 'memories.jsonl');
     this.embedding = opts.embedding ?? createLocalEmbeddingProvider();
     this.vectors = opts.vectorStore ?? createInMemoryVectorStore();
     this.keywordFallbackThreshold = opts.keywordFallbackThreshold ?? 1000;
+    this.queryEmbeddingCache = new QueryEmbeddingCache(5 * 60 * 1000);
   }
 
   private async load(): Promise<void> {
@@ -119,11 +145,36 @@ export class JsonlMemoryProvider implements IMemoryProvider {
   }
 
   private async persist(record: MemoryRecord): Promise<void> {
-    await atomicAppend(this.file, JSON.stringify(record));
+    this.writeChain = this.writeChain
+      .then(() => atomicAppend(this.file, JSON.stringify(record)))
+      .catch((err) => {
+        console.error('[JsonlMemoryProvider] persist error:', err);
+      });
+    await this.writeChain;
   }
 
   private async tombstone(id: string): Promise<void> {
-    await atomicAppend(this.file, JSON.stringify({ __deleted: true, id }));
+    this.writeChain = this.writeChain
+      .then(() => atomicAppend(this.file, JSON.stringify({ __deleted: true, id })))
+      .catch((err) => {
+        console.error('[JsonlMemoryProvider] tombstone error:', err);
+      });
+    this.tombstoneCount++;
+    await this.writeChain;
+    if (this.tombstoneCount >= COMPACT_AFTER_TOMBSTONES) {
+      await this.compact();
+    }
+  }
+
+  private async compact(): Promise<void> {
+    const tmpFile = `${this.file}.tmp`;
+    const lines: string[] = [];
+    for (const r of this.records.values()) {
+      if (!r.deleted) lines.push(JSON.stringify(r));
+    }
+    await fsp.writeFile(tmpFile, lines.join('\n') + (lines.length ? '\n' : ''), 'utf8');
+    await fsp.rename(tmpFile, this.file);
+    this.tombstoneCount = 0;
   }
 
   async store(record: MemoryRecord): Promise<MemoryRecord> {
@@ -149,7 +200,11 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     const minScore = q.minScore ?? 0.55;
 
     // 1) Vector candidates
-    const queryVector = await this.embedding.embed(q.query);
+    let queryVector = this.queryEmbeddingCache.get(q.query);
+    if (!queryVector) {
+      queryVector = await this.embedding.embed(q.query);
+      this.queryEmbeddingCache.set(q.query, queryVector);
+    }
     const vectorHits = await this.vectors.query({
       vector: queryVector,
       topK: limit * 4,

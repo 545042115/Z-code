@@ -8,7 +8,11 @@ import {
   type VSCodeConnectorConfig,
   type ConnectorEvent,
   type McpServerConfig,
+  type AgentFactory,
 } from '@z-assistant/app-vscode-connector';
+import { createBrowserAgent } from './browser-agent-bridge';
+import { createResearchAgent } from './research-agent-bridge';
+import { createOfficeAgent } from './office-agent-bridge';
 import type {
   AgentRun,
   AgentSpan,
@@ -51,6 +55,10 @@ export interface DesktopSettings {
   mcdMcpToken?: string;
   /** AMap (Gaode) Maps MCP API key (injected as AMAP_MAPS_API_KEY env var). */
   amapApiKey?: string;
+  /** P1-2: optional tool allow/deny policy. */
+  toolPolicy?: { allow: string[]; deny: string[] };
+  /** P1-3: optional budget/cost caps. */
+  budget?: { perRunTokens?: number; perRunUsd?: number; perDayUsd?: number };
 }
 
 const DEFAULT_SETTINGS: DesktopSettings = {
@@ -66,6 +74,8 @@ const DEFAULT_SETTINGS: DesktopSettings = {
   qq: { enabled: false },
   mcdMcpToken: '',
   amapApiKey: '',
+  toolPolicy: { allow: [], deny: [] },
+  budget: { perRunTokens: 1_000_000, perRunUsd: 5, perDayUsd: 50 },
 };
 
 export class RuntimeBridge {
@@ -175,6 +185,13 @@ export class RuntimeBridge {
       dryRun: this.settings.dryRun,
       auditLogger: this.auditLogger ?? undefined,
       mcpServers,
+      toolPolicy: this.settings.toolPolicy,
+      budget: this.settings.budget,
+      agentFactories: [
+        (({ llmProvider, model }) => createBrowserAgent({ llmProvider, model })) satisfies AgentFactory,
+        (({ llmProvider, model }) => createResearchAgent({ llmProvider, model })) satisfies AgentFactory,
+        (({ llmProvider, model }) => createOfficeAgent({ llmProvider, model, storageDir: this.settings.storageDir })) satisfies AgentFactory,
+      ],
     };
     this.connector = new VSCodeConnector(config);
     this.connector.onEvent((e) => {
@@ -443,6 +460,8 @@ export class RuntimeBridge {
       this.connector.config.apiEndpoint = this.settings.apiEndpoint || undefined;
       this.connector.config.projectDir = this.settings.projectDir;
       this.connector.config.dryRun = this.settings.dryRun;
+      this.connector.config.toolPolicy = this.settings.toolPolicy;
+      this.connector.config.budget = this.settings.budget;
     }
     return this.getSettings();
   }

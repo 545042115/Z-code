@@ -127,6 +127,28 @@ const TRANSLATIONS: TranslationMap = {
   'settings.discovering_skills': { 'zh-CN': '正在总结 Skill…', en: 'Discovering skills…' },
   'settings.discovered': { 'zh-CN': '已总结', en: 'Discovered' },
 
+  // Tool Policy / BudgetGuard / Always Rules (P1)
+  'settings.tool_policy_title': { 'zh-CN': '工具策略', en: 'Tool Policy' },
+  'settings.tool_policy_desc': { 'zh-CN': '配置允许或禁止 Agent 调用的工具名称（glob）。', en: 'Configure tool names the agent is allowed or denied to invoke (glob).' },
+  'settings.tool_policy_allow': { 'zh-CN': '允许列表（留空表示允许所有）', en: 'Allow list (empty means allow all)' },
+  'settings.tool_policy_deny': { 'zh-CN': '禁止列表', en: 'Deny list' },
+  'settings.tool_policy_hint': { 'zh-CN': '多个工具名用逗号或换行分隔；deny 优先于 allow。', en: 'Separate tool names with commas or newlines; deny wins over allow.' },
+  'settings.budget_title': { 'zh-CN': '预算上限', en: 'Budget Guard' },
+  'settings.budget_desc': { 'zh-CN': '设置单次运行与每日的成本/Token 上限，超出将终止运行。', en: 'Set per-run and daily token/cost caps; exceeding them terminates the run.' },
+  'settings.budget_tokens': { 'zh-CN': '单次运行 Token 上限', en: 'Per-run token cap' },
+  'settings.budget_usd': { 'zh-CN': '单次运行 USD 上限', en: 'Per-run USD cap' },
+  'settings.budget_day_usd': { 'zh-CN': '每日 USD 上限', en: 'Daily USD cap' },
+  'settings.always_rules_title': { 'zh-CN': 'Always-Rules 管理', en: 'Always-Rules' },
+  'settings.always_rules_desc': { 'zh-CN': '查看并删除通过"始终允许/拒绝"保存的确认规则。', en: 'View and delete confirmation rules saved via Always Allow/Deny.' },
+  'settings.always_rules_all_args': { 'zh-CN': '匹配该工具的所有调用', en: 'Matches all invocations of this tool' },
+  'settings.always_rules_remove': { 'zh-CN': '删除', en: 'Remove' },
+  'settings.no_always_rules': { 'zh-CN': '暂无 Always-Rules。', en: 'No Always-Rules yet.' },
+
+  // Trace audit (P1-4)
+  'trace.load_audit': { 'zh-CN': '审计日志', en: 'Audit Log' },
+  'trace.no_audit': { 'zh-CN': '暂无审计记录。', en: 'No audit records.' },
+  'trace.audit_entries': { 'zh-CN': '条审计记录', en: 'audit records' },
+
   // Providers
   'provider.sglang':    { 'zh-CN': 'SGLang',       en: 'SGLang' },
   'provider.openai':    { 'zh-CN': 'OpenAI',       en: 'OpenAI' },

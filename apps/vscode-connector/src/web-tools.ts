@@ -161,7 +161,7 @@ function stripHtml(html: string, maxLength = 5000): string {
 
 // ── DuckDuckGo search ─────────────────────────────────────────────────
 
-interface SearchResult {
+export interface SearchResult {
   title: string;
   url: string;
   snippet: string;
@@ -285,10 +285,8 @@ function parseDuckDuckGo(html: string): SearchResult[] {
 
 // ── Tool implementations ──────────────────────────────────────────────
 
-export async function webSearch(query: string, maxResults = 5): Promise<string> {
+export async function webSearchResults(query: string, maxResults = 5): Promise<SearchResult[]> {
   const encoded = encodeURIComponent(query);
-
-  // Try Bing first (Chinese market, real browser headers), then fallback to DuckDuckGo.
   const bingUrl = `https://www.bing.com/search?q=${encoded}&setmkt=zh-CN&setlang=zh-Hans&FORM=QBRE`;
   const ddgUrl = `https://html.duckduckgo.com/html/?q=${encoded}`;
 
@@ -302,11 +300,7 @@ export async function webSearch(query: string, maxResults = 5): Promise<string> 
       },
     });
     const results = parseBing(html, query).slice(0, Math.min(maxResults, 10));
-    if (results.length > 0) {
-      return results
-        .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
-        .join('\n\n');
-    }
+    if (results.length > 0) return results;
   } catch {
     // Fall through to DuckDuckGo.
   }
@@ -314,14 +308,19 @@ export async function webSearch(query: string, maxResults = 5): Promise<string> 
   try {
     const html = await fetchWithRetry(ddgUrl, { timeout: 30_000, retries: 2, delayMs: 1_500 });
     const results = parseDuckDuckGo(html).slice(0, Math.min(maxResults, 10));
-    if (results.length === 0) return `No results found for "${query}".`;
-    return results
-      .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
-      .join('\n\n');
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return `web_search error: ${msg}`;
+    if (results.length === 0) return [];
+    return results;
+  } catch {
+    return [];
   }
+}
+
+export async function webSearch(query: string, maxResults = 5): Promise<string> {
+  const results = await webSearchResults(query, maxResults);
+  if (results.length === 0) return `No results found for "${query}".`;
+  return results
+    .map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.snippet}`)
+    .join('\n\n');
 }
 
 export async function webFetch(url: string, maxLength = 5000): Promise<string> {
