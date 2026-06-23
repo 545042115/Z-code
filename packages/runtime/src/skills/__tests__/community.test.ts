@@ -20,6 +20,7 @@ function mkSkill(id: string, name: string): Skill {
     id,
     name,
     description: 'desc',
+    userInvocable: true,
     tags: ['typescript'],
     priority: 50,
     mode: 'advisory',

@@ -163,7 +163,7 @@ Discovery → Skill Discovery → Task Understanding → Complexity Estimation
 | 🧩 **Symbol Retrieval** | 全局符号空间检索，融合文件相关性与符号匹配度 |
 | 🔗 **Context Expansion Engine** | 7 种静态关系扩展（import/export/define/call/reference/implement/inherit） |
 | 📚 **Repo Knowledge Base** | 长期代码库知识库：Architecture Summary / Tech Stack / Entry Points / Core Modules / Critical Files |
-| 🛠️ **Skill System** | Claude Code 风格的 Skill 系统：frontmatter + 7 信号加权评分 + imports 递归展开 + 循环引用检测 |
+| 🛠️ **Skill System** | OpenClaw / Claude Code 兼容的 Skill 系统：YAML frontmatter（`name` / `description` / `argument-hint` / `user-invocable`）+ 项目扩展字段 + `references/` 目录引用 + 7 信号加权评分 + imports 递归展开 |
 | 📏 **Context Budget** | 统一预算管理：按来源限制字符数，优先级驱动裁剪 |
 | 🔄 **Reflection Loop** | 结构化 FailureAnalysis + RepairAction[] + ReflectionMemory，连续两轮无改善自动停止 |
 | 🧩 **AgentPipeline** | 8 阶段前置分析流水线（Discovery → TaskUnderstanding → SkillSelection → ComplexityEstimation → ArchitectureReview → ChangeImpactAnalysis → Planning → ContextSetup） |
@@ -565,7 +565,7 @@ Skill 系统升级 + Context Budget
 
 Skill System 完整落地
 
-- **Skill System（Claude Code 风格）**：新增 `.skills/**/SKILL.md` 自动发现、解析和注入系统
+- **Skill System（OpenClaw / Claude Code 兼容）**：新增 `.skills/**/SKILL.md` 自动发现、解析和注入系统
 - **SkillLoader / SkillSelector / SkillManager**：递归扫描 + 关键词评分 + Top-K 选择 + 30 秒 TTL 缓存
 - **与现有流水线兼容**：Skill Discovery 插入在 Discovery 之后、Task Understanding 之前
 

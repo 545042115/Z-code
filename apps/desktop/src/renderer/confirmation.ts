@@ -95,6 +95,17 @@ function ensureModal(): HTMLElement {
   wire('confirmation-btn-always-allow', 'always-allow');
   wire('confirmation-btn-always-deny', 'always-deny');
 
+  // Click on the backdrop → deny, so a misplaced click outside the modal
+  // (e.g. on a nav button that somehow receives the event) does not leave
+  // the UI stuck waiting for a decision.
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      e.preventDefault();
+      e.stopPropagation();
+      onDecision('deny');
+    }
+  });
+
   // Esc → deny; Enter → allow (unless critical, in which case Enter also denies).
   overlay.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {

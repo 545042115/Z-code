@@ -24,6 +24,7 @@ function mkSkill(id: string, name: string): Skill {
   return {
     id,
     name,
+    userInvocable: true,
     tags: [],
     priority: 50,
     mode: 'advisory',

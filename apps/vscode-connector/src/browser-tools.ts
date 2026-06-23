@@ -4,7 +4,7 @@
 // user asks the assistant to open a web page, click, scroll, etc.
 // Uses runtime require() to avoid DOM type conflicts with Node.js tsconfig.
 
-import { execSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 
 // ── Lazy Playwright backend ──────────────────────────────────────────
 
@@ -37,6 +37,39 @@ function loadBrowserBackend(): any {
   return mod.createPlaywrightBackend();
 }
 
+async function installPlaywrightChromium(timeoutMs = 120_000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('npx', ['playwright', 'install', 'chromium'], {
+      windowsHide: true,
+      shell: true,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (data: Buffer) => { stdout += data.toString(); });
+    child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+
+    const timer = setTimeout(() => {
+      child.kill();
+      reject(new Error('Playwright browser installation timed out'));
+    }, timeoutMs);
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`Playwright install exited with code ${code}: ${stderr || stdout}`));
+      }
+    });
+  });
+}
+
 async function ensureBrowser(): Promise<any> {
   if (_backend) {
     resetIdleTimer();
@@ -49,16 +82,17 @@ async function ensureBrowser(): Promise<any> {
     return _backend;
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Try to install Playwright browsers automatically
+    // Try to install Playwright browsers automatically (non-blocking).
     if (msg.includes('Executable doesn\'t exist') || msg.includes('playwright install')) {
       try {
-        execSync('npx playwright install chromium', { timeout: 120_000, windowsHide: true });
+        await installPlaywrightChromium();
         _backend = loadBrowserBackend();
         await _backend.start(false);
         resetIdleTimer();
         return _backend;
-      } catch {
-        throw new Error(`Browser not available. Install Playwright browsers:\n  npx playwright install chromium\n\nError: ${msg}`);
+      } catch (installErr: unknown) {
+        const installMsg = installErr instanceof Error ? installErr.message : String(installErr);
+        throw new Error(`Browser not available. Install Playwright browsers manually:\n  npx playwright install chromium\n\nInstall error: ${installMsg}\nOriginal error: ${msg}`);
       }
     }
     throw new Error(`Failed to start browser: ${msg}`);

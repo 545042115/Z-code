@@ -10,6 +10,7 @@ function mkSkill(over: Partial<Skill> = {}): Skill {
     id: over.id ?? 'sk-1',
     name: over.name ?? 'fixture',
     description: over.description,
+    userInvocable: true,
     tags: over.tags ?? [],
     priority: over.priority ?? 50,
     mode: over.mode ?? 'advisory',

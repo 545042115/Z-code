@@ -80,11 +80,11 @@ function createTransport(cfg: McpServerConfig): Transport {
   }
   if (cfg.transport === 'sse') {
     if (!cfg.url) throw new Error(`MCP server "${cfg.name}" is missing url`);
-    return new SSEClientTransport(new URL(cfg.url));
+    return new SSEClientTransport(new URL(resolveEnvPlaceholders(cfg.url)));
   }
   if (cfg.transport === 'streamablehttp') {
     if (!cfg.url) throw new Error(`MCP server "${cfg.name}" is missing url`);
-    return new StreamableHTTPClientTransport(new URL(cfg.url), {
+    return new StreamableHTTPClientTransport(new URL(resolveEnvPlaceholders(cfg.url)), {
       requestInit: cfg.headers ? { headers: resolveHeaders(cfg.headers) } : undefined,
     });
   }

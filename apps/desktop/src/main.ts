@@ -5,7 +5,7 @@ import * as fs from 'fs';
 import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
 import { IPC_CHANNELS, WINDOW_SIZES, APP_NAME } from './constants';
 import { RuntimeBridge } from './runtime-bridge';
-import { createTray, destroyTray } from './tray';
+import { createTray, destroyTray, updateTrayLanguage, type TrayLanguage } from './tray';
 import { registerGlobalHotkey, unregisterAllGlobalHotkeys, toggleWindow, DEFAULT_HOTKEY } from './hotkey';
 import { Updater } from './updater';
 import { LicenseService } from './license';
@@ -111,7 +111,7 @@ function createChatWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   });
   win.loadURL(getRendererUrl('index.html?view=chat'));
@@ -134,7 +134,7 @@ function createTraceWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   });
   win.loadURL(getRendererUrl('index.html?view=trace'));
@@ -157,7 +157,7 @@ function createSettingsWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false,
     },
   });
   win.loadURL(getRendererUrl('index.html?view=settings'));
@@ -196,7 +196,13 @@ function registerIpcHandlers(): void {
     return bridge.getSpans(runId);
   });
   ipcMain.handle(IPC_CHANNELS.GET_SETTINGS, () => bridge.getSettings());
-  ipcMain.handle(IPC_CHANNELS.SET_SETTINGS, (_event, patch) => bridge.updateSettings(patch));
+  ipcMain.handle(IPC_CHANNELS.SET_SETTINGS, (_event, patch) => {
+    const updated = bridge.updateSettings(patch);
+    if (updated.language === 'zh-CN' || updated.language === 'en') {
+      updateTrayLanguage(updated.language as TrayLanguage);
+    }
+    return updated;
+  });
   ipcMain.handle(IPC_CHANNELS.RECALL_MEMORY, async (_event, query: string, limit?: number) => {
     await bridge.start();
     return bridge.recallMemory(query, limit);
@@ -243,6 +249,24 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.COUNT_MEMORIES, async (_event, kind?: string) => {
     await bridge.start();
     return bridge.countMemories(kind);
+  });
+
+  // ── Skill Review Queue IPC handlers ───────────────────────────
+  ipcMain.handle(IPC_CHANNELS.LIST_SKILL_CANDIDATES, async () => {
+    await bridge.start();
+    return bridge.listSkillCandidates();
+  });
+  ipcMain.handle(IPC_CHANNELS.APPROVE_SKILL_CANDIDATE, async (_event, id: string, note?: string) => {
+    await bridge.start();
+    return bridge.approveSkillCandidate(id, note);
+  });
+  ipcMain.handle(IPC_CHANNELS.REJECT_SKILL_CANDIDATE, async (_event, id: string, note?: string) => {
+    await bridge.start();
+    return bridge.rejectSkillCandidate(id, note);
+  });
+  ipcMain.handle(IPC_CHANNELS.RUN_SUCCESS_SKILL_DISCOVERY, async (_event, historyDir?: string, minTurns?: number) => {
+    await bridge.start();
+    return bridge.runSuccessSkillDiscovery({ historyDir, minTurns });
   });
 
   // ── WeChat Hook IPC handlers ────────────────────────────────
@@ -360,6 +384,7 @@ app.whenReady().then(async () => {
     }
   }, 5000);
 
+  const initialLang = bridge.getSettings().language;
   createTray({
     onShowMain: () => {
       if (mainWindow) {
@@ -373,6 +398,7 @@ app.whenReady().then(async () => {
     onShowTrace: showTrace,
     onShowSettings: showSettings,
     onQuit: () => app.quit(),
+    language: (initialLang === 'zh-CN' || initialLang === 'en' ? initialLang : 'en') as TrayLanguage,
   });
   registerGlobalHotkey(DEFAULT_HOTKEY, () => toggleWindow(chatWindow ?? mainWindow));
 

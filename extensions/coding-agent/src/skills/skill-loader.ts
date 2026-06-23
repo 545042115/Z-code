@@ -13,9 +13,12 @@ import { parseSkillFile } from '@z-assistant/runtime';
 export class SkillLoader {
   private readonly SKILL_DIR = '.skills';
   private readonly SKILL_FILE = 'SKILL.md';
+  private readonly REFERENCES_DIR = 'references';
 
   /**
    * Discover all SKILL.md files under the workspace's .skills/ directory.
+   * OpenClaw-compatible: loads additional markdown files from the
+   * skill's `references/` directory and appends them to the skill content.
    */
   discoverSkills(workspaceRoot: string): Skill[] {
     const skillDir = path.join(workspaceRoot, this.SKILL_DIR);
@@ -30,8 +33,9 @@ export class SkillLoader {
       try {
         const raw = fs.readFileSync(filePath, 'utf-8');
         // Delegate parsing to V2 framework
-        const skill = parseSkillFile(raw, filePath, path.dirname(filePath));
+        let skill = parseSkillFile(raw, filePath, path.dirname(filePath));
         if (skill) {
+          skill = this.loadReferences(skill);
           skills.push(skill);
         }
       } catch (err) {
@@ -40,6 +44,53 @@ export class SkillLoader {
     }
 
     return skills;
+  }
+
+  /**
+   * Load markdown references from `<skillRoot>/references/*.md` and append
+   * them to the skill content and sections.references.
+   */
+  private loadReferences(skill: Skill): Skill {
+    const refsDir = path.join(skill.rootDir, this.REFERENCES_DIR);
+    if (!fs.existsSync(refsDir) || !fs.statSync(refsDir).isDirectory()) {
+      return skill;
+    }
+
+    const files = fs.readdirSync(refsDir)
+      .filter(name => name.endsWith('.md'))
+      .sort();
+
+    if (files.length === 0) {
+      return skill;
+    }
+
+    const parts: string[] = [];
+    for (const file of files) {
+      const filePath = path.join(refsDir, file);
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8').trim();
+        if (content) {
+          parts.push(`## Reference: ${file}\n\n${content}`);
+        }
+      } catch (err) {
+        console.warn(`[SkillLoader] Failed to read reference ${filePath}:`, err);
+      }
+    }
+
+    if (parts.length === 0) {
+      return skill;
+    }
+
+    const refsContent = parts.join('\n\n');
+    const existingRefs = skill.sections.references || '';
+    return {
+      ...skill,
+      content: `${skill.content}\n\n${refsContent}`.trim(),
+      sections: {
+        ...skill.sections,
+        references: existingRefs ? `${existingRefs}\n\n${refsContent}` : refsContent,
+      },
+    };
   }
 
   /**

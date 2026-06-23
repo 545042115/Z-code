@@ -163,6 +163,24 @@ function renderSettings(container: HTMLElement): void {
           </div>
         </label>
         <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.mcd_token_hint')}</p>
+        <label class="stack" style="margin-top:12px">
+          <span>${t('settings.amap_key')}</span>
+          <div class="row" style="gap:4px">
+            <input id="settings-amap-key" class="secured" type="text" placeholder="${t('settings.amap_key_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
+            <button id="settings-amap-key-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+          </div>
+        </label>
+        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.amap_key_hint')}</p>
+      </div>
+      <div class="card">
+        <h3>${t('settings.skill_review_title')}</h3>
+        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.skill_review_desc')}</p>
+        <div class="row" style="margin-bottom:12px;gap:8px">
+          <button id="settings-discover-skills" class="secondary" style="white-space:nowrap">${t('settings.discover_skills')}</button>
+          <button id="settings-refresh-skills" class="secondary" style="white-space:nowrap">${t('settings.refresh_skills')}</button>
+          <span id="settings-skill-status" class="muted"></span>
+        </div>
+        <div id="settings-skill-queue" style="display:flex;flex-direction:column;gap:8px"></div>
       </div>
       <button id="settings-save" class="primary">${t('settings.save')}</button>
       <span id="settings-status" class="muted"></span>
@@ -184,6 +202,8 @@ function renderSettings(container: HTMLElement): void {
   const status = document.getElementById('settings-status')!;
   const mcdToken = document.getElementById('settings-mcd-token') as HTMLInputElement;
   const mcdTokenToggle = document.getElementById('settings-mcd-token-toggle') as HTMLButtonElement;
+  const amapKey = document.getElementById('settings-amap-key') as HTMLInputElement;
+  const amapKeyToggle = document.getElementById('settings-amap-key-toggle') as HTMLButtonElement;
 
   // Profile elements
   const profileEnabled = document.getElementById('settings-profile-enabled') as HTMLInputElement;
@@ -204,6 +224,7 @@ function renderSettings(container: HTMLElement): void {
     projectDir.value = s.projectDir || '';
     dryRun.checked = !!s.dryRun;
     mcdToken.value = s.mcdMcpToken || '';
+    amapKey.value = s.amapApiKey || '';
     // Load profile data
     await updateProfileDisplay();
   }
@@ -439,6 +460,92 @@ function renderSettings(container: HTMLElement): void {
     }
   });
 
+  // ── Skill Review Queue handlers ─────────────────────────────
+  const discoverSkillsBtn = document.getElementById('settings-discover-skills') as HTMLButtonElement;
+  const refreshSkillsBtn = document.getElementById('settings-refresh-skills') as HTMLButtonElement;
+  const skillStatus = document.getElementById('settings-skill-status') as HTMLSpanElement;
+  const skillQueue = document.getElementById('settings-skill-queue') as HTMLDivElement;
+
+  async function renderSkillQueue(): Promise<void> {
+    try {
+      skillStatus.textContent = t('settings.loading_skills');
+      const candidates = await zApi.listSkillCandidates();
+      skillQueue.innerHTML = '';
+      if (candidates.length === 0) {
+        skillQueue.innerHTML = `<p class="muted">${t('settings.no_skill_candidates')}</p>`;
+        skillStatus.textContent = '';
+        return;
+      }
+      for (const c of candidates) {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.style.padding = '12px';
+        card.innerHTML = `
+          <div class="row" style="justify-content:space-between;align-items:flex-start">
+            <div>
+              <strong>${c.draft.name}</strong>
+              <p class="muted" style="margin:2px 0 0;font-size:0.85em">${c.draft.description}</p>
+              <p class="muted" style="margin:2px 0 0;font-size:0.78em">tags: ${c.draft.tags.join(', ')} | priority: ${c.draft.priority} | confidence: ${Math.round(c.confidence * 100)}%</p>
+            </div>
+            <div class="row" style="gap:6px">
+              <button class="secondary approve-skill" data-id="${c.id}" style="font-size:0.8em;padding:4px 8px">${t('settings.approve_skill')}</button>
+              <button class="secondary danger reject-skill" data-id="${c.id}" style="font-size:0.8em;padding:4px 8px">${t('settings.reject_skill')}</button>
+            </div>
+          </div>
+          <details style="margin-top:8px;font-size:0.85em">
+            <summary>${t('settings.view_skill_body')}</summary>
+            <pre style="white-space:pre-wrap;background:var(--bg-tertiary);padding:8px;border-radius:4px;margin-top:6px">${c.draft.body.replace(/</g, '&lt;')}</pre>
+          </details>
+        `;
+        skillQueue.appendChild(card);
+      }
+      skillStatus.textContent = `${candidates.length} ${t('settings.skill_candidates_count')}`;
+
+      skillQueue.querySelectorAll('.approve-skill').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = (btn as HTMLButtonElement).dataset.id!;
+          (btn as HTMLButtonElement).disabled = true;
+          try {
+            await zApi.approveSkillCandidate(id);
+            await renderSkillQueue();
+          } catch (err: unknown) {
+            skillStatus.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        });
+      });
+      skillQueue.querySelectorAll('.reject-skill').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = (btn as HTMLButtonElement).dataset.id!;
+          (btn as HTMLButtonElement).disabled = true;
+          try {
+            await zApi.rejectSkillCandidate(id);
+            await renderSkillQueue();
+          } catch (err: unknown) {
+            skillStatus.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+          }
+        });
+      });
+    } catch (err: unknown) {
+      skillStatus.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  discoverSkillsBtn.addEventListener('click', async () => {
+    discoverSkillsBtn.disabled = true;
+    try {
+      skillStatus.textContent = t('settings.discovering_skills');
+      const result = await zApi.runSuccessSkillDiscovery();
+      skillStatus.textContent = `${t('settings.discovered')}: ${result.candidates} skills, ${result.facts} facts`;
+      await renderSkillQueue();
+    } catch (err: unknown) {
+      skillStatus.textContent = `Error: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      discoverSkillsBtn.disabled = false;
+    }
+  });
+
+  refreshSkillsBtn.addEventListener('click', () => renderSkillQueue());
+
   // ── Browse project directory
   browseProjectBtn.addEventListener('click', async () => {
     try {
@@ -457,6 +564,11 @@ function renderSettings(container: HTMLElement): void {
     mcdTokenToggle.textContent = secured ? '隐藏' : '显示';
   });
 
+  amapKeyToggle.addEventListener('click', () => {
+    const secured = amapKey.classList.toggle('secured');
+    amapKeyToggle.textContent = secured ? '隐藏' : '显示';
+  });
+
   saveBtn.addEventListener('click', async () => {
     try {
       await zApi.setSettings({
@@ -469,6 +581,7 @@ function renderSettings(container: HTMLElement): void {
         projectDir: projectDir.value.trim() || undefined,
         dryRun: dryRun.checked,
         mcdMcpToken: mcdToken.value.trim() || undefined,
+        amapApiKey: amapKey.value.trim() || undefined,
       } as any);
       status.textContent = t('settings.saved');
     } catch (err: unknown) {
@@ -478,6 +591,9 @@ function renderSettings(container: HTMLElement): void {
   });
 
   load();
+
+  // Initial skill queue load
+  renderSkillQueue();
 
   // Refresh profile status periodically
   updateProfileDisplay();

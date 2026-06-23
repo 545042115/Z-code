@@ -24,7 +24,12 @@ import {
   type JsonlMemoryProviderOptions,
   type PlanningMode,
 } from '@z-assistant/runtime';
-import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch } from './web-tools';
+import {
+  selectSkills,
+  type SkillIndex,
+  type SelectedSkill,
+} from '@z-assistant/runtime/skills';
+import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch, getLocation } from './web-tools';
 import { TASK_TOOLS, readFile, writeFile, replaceText, appendText, insertText, runTerminal, searchCode, listDirectory, getProjectContext } from './task-tools';
 import { BROWSER_TOOLS, browserNavigate, browserClick, browserScroll, browserScreenshot, browserGoBack, browserGoForward, browserClose } from './browser-tools';
 import { PERCEPTION_TOOLS, ocrImage, describeImage, transcribeAudio, parseDocument } from './perception-tools';
@@ -90,6 +95,12 @@ export interface ChatAgentOptions {
     argsSchema?: Record<string, unknown>;
     invoke: (args: Record<string, unknown>) => Promise<string>;
   }>;
+  /**
+   * Optional skill index. When provided, the agent selects relevant skills
+   * based on the user's request and injects their content into the system
+   * prompt. Skills are OpenClaw / Claude Code compatible SKILL.md files.
+   */
+  skillIndex?: SkillIndex;
 }
 
 export type ChatAttachment =
@@ -105,6 +116,7 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 ## Capabilities
 - **web_search(query, maxResults?)** — Search the web for real-time information (news, weather, current events, live prices for hotels/flights/trains)
 - **web_fetch(url, maxLength?)** — Fetch and read the full content of a web page
+- **get_location()** — Get the approximate geographic location of the current machine (city, region, country, coordinates) based on public IP. Use when the user asks for local services, navigation, weather, delivery, or payment options that depend on location.
 - **read_file(filePath, startLine?, lineCount?)** — Read file content with line numbers
 - **write_file(filePath, content)** — Write full content to a file (creates new files or overwrites)
 - **replace_text(filePath, oldText, newText)** — Replace text in an existing file (surgical edits)
@@ -128,8 +140,9 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 
 ## Guidelines
 - Be conversational, natural, and concise
+- **MCP external tools**: when MCP servers are configured, additional tools with names like 'mcp_<serverName>_<toolName>' are available. After thinking about the user's request, prefer the corresponding 'mcp_<serverName>_' tools for tasks that match those external services (e.g. McDonald's ordering, food delivery, payment, maps/navigation) instead of using web_search, web_fetch, or the browser. Examples: "帮我点麦当劳" → prefer 'mcp_mcdonald_...' tools; "帮我叫外卖" → prefer the configured delivery MCP tools; "附近有什么餐厅" / "导航去天安门" / "查上海天气" → prefer 'mcp_amap_...' tools when AMap MCP is configured.
 - When asked about current events, weather, or real-time info → use web_search
-- For live price queries (hotels, flights, high-speed trains), follow this workflow:
+- For live price queries (hotels, flights, high-speed trains), follow this workflow **unless a relevant MCP tool is configured**:
   1. Use **web_search** with a specific query including the platform, route/location, and date, e.g. "携程 上海外滩W酒店 2025-06-25 价格" or "北京到上海 高铁票 2025-06-25".
   2. Use **web_fetch** on a promising search result to extract price details quickly.
   3. If web_fetch returns a login wall, CAPTCHA, missing dynamic content, or stale data, switch to **browser_navigate** to open the page in a real browser, then use **browser_screenshot**, **browser_click**, and **browser_scroll** to interact with search forms and result lists until the price appears.
@@ -149,6 +162,20 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   let systemPrompt = (opts.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
     .replace('[username]', homeDir ? homeDir.split('\\').pop()! : 'username')
     .replace('C:\\\\Users\\\\[username]\\\\Desktop', desktopPath.replace(/\\/g, '\\\\'));
+
+  // Select relevant skills for the user request and format them as
+  // additional context for the system prompt.
+  function buildSkillContext(task: string): string {
+    if (!opts.skillIndex || opts.skillIndex.skills.length === 0) return '';
+    const selected = selectSkills(opts.skillIndex, { userRequest: task, topK: 3 });
+    if (selected.length === 0) return '';
+    const parts = selected.map((s: SelectedSkill) => {
+      const header = `## Skill: ${s.skill.name}`;
+      const triggerInfo = s.reasons.map((r) => `${r.type}(${r.detail})`).join(', ');
+      return `${header}  <!-- matched: ${triggerInfo}; score=${s.score} -->\n${s.skill.content}`;
+    });
+    return '\n\n# Selected Skills\n\n' + parts.join('\n\n---\n\n');
+  }
 
   // Build a concise semantic summary from a user task + assistant reply.
   // Avoids an extra LLM call; uses simple heuristics.
@@ -229,7 +256,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     role: 'Chat',
     capabilities: [
       'chat', 'general',
-      'web_search', 'web_fetch',
+      'web_search', 'web_fetch', 'get_location',
       'read_file', 'write_file', 'replace_text', 'append_text', 'insert_text',
       'run_terminal', 'search_code', 'list_directory', 'get_project_context',
       'browser_navigate', 'browser_click', 'browser_scroll', 'browser_screenshot',
@@ -368,9 +395,12 @@ Do NOT call any tools.`,
           planSpan?.end({ plan: planText ? 'simple' : 'skipped' });
         }
 
+        // ── Phase 2.5: Skill selection ──────────────────────────────
+        const skillContext = buildSkillContext(ctx.task);
+
         // ── Phase 3: ReAct loop ─────────────────────────────────────
         const messages: LLMMessage[] = [
-          { role: 'system', content: systemPrompt + memoryContext + attachmentContext + planText },
+          { role: 'system', content: systemPrompt + memoryContext + attachmentContext + planText + skillContext },
           ...history,
           { role: 'user', content: ctx.task },
         ];
@@ -770,6 +800,8 @@ async function executeTool(
         String(args.url ?? ''),
         typeof args.maxLength === 'number' ? args.maxLength : 5000
       );
+    case 'get_location':
+      return getLocation();
     // File & task tools
     case 'read_file':
       return readFile(

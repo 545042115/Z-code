@@ -1,14 +1,16 @@
 ---
-name: LLM Provider
-description: Add or fix LLM provider integrations (OpenAI, Azure, Deepseek, MiMo, SGLang, etc.). Use when the task mentions provider, endpoint, API key, chat/completions, or files under the llm/ directory.
+name: llm-provider
+description: 'Add or fix LLM provider integrations (OpenAI, Azure, Deepseek, MiMo, SGLang). Activates on provider, endpoint, API key, chat/completions, or files under the llm/ directory.'
+argument-hint: 'Describe the LLM provider change or issue to address'
+user-invocable: true
 tags: [llm, provider, openai, azure, api]
 priority: 70
 mode: advisory
 triggers:
   intents: [create, modify, bug_fix]
   file_globs:
-    - "**/llm/**"
-    - "**/provider*"
+    - '**/llm/**'
+    - '**/provider*'
   keywords:
     - provider
     - llm
@@ -37,7 +39,7 @@ verification:
     - npm run compile
 ---
 
-## Purpose
+# LLM Provider
 
 Guide the implementation and debugging of LLM provider integrations, ensuring correct API endpoint construction, authentication headers, and response handling.
 

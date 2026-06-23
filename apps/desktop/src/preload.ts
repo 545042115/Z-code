@@ -5,7 +5,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './constants';
 import type { ConnectorEvent } from '@z-assistant/app-vscode-connector';
-import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule, CandidateSkill } from '@z-assistant/contracts';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
@@ -59,6 +59,11 @@ export interface ZDesktopAPI {
   countAuditEntries: (filter?: { runId?: string; toolName?: string; outcome?: 'pending' | 'success' | 'error' | 'blocked' }) => Promise<number>;
   listAlwaysRules: () => Promise<AlwaysRule[]>;
   removeAlwaysRule: (id: string) => Promise<boolean>;
+  // Skill review queue
+  listSkillCandidates: () => Promise<CandidateSkill[]>;
+  approveSkillCandidate: (id: string, note?: string) => Promise<void>;
+  rejectSkillCandidate: (id: string, note?: string) => Promise<void>;
+  runSuccessSkillDiscovery: (historyDir?: string, minTurns?: number) => Promise<{ candidates: number; facts: number }>;
 }
 
 interface WeChatHookStatus {
@@ -146,6 +151,11 @@ const api: ZDesktopAPI = {
   countAuditEntries: (filter) => ipcRenderer.invoke(IPC_CHANNELS.COUNT_AUDIT_ENTRIES, filter),
   listAlwaysRules: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_ALWAYS_RULES),
   removeAlwaysRule: (id) => ipcRenderer.invoke(IPC_CHANNELS.REMOVE_ALWAYS_RULE, id),
+  // Skill review queue
+  listSkillCandidates: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_SKILL_CANDIDATES),
+  approveSkillCandidate: (id, note) => ipcRenderer.invoke(IPC_CHANNELS.APPROVE_SKILL_CANDIDATE, id, note),
+  rejectSkillCandidate: (id, note) => ipcRenderer.invoke(IPC_CHANNELS.REJECT_SKILL_CANDIDATE, id, note),
+  runSuccessSkillDiscovery: (historyDir, minTurns) => ipcRenderer.invoke(IPC_CHANNELS.RUN_SUCCESS_SKILL_DISCOVERY, historyDir, minTurns),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);

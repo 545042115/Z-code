@@ -20,6 +20,10 @@ export interface SkillSpec {
   name: string;
   /** What this skill is good for; surfaced in the UI. */
   description?: string;
+  /** Hint shown to the user for invoking this skill (OpenClaw-compatible). */
+  argumentHint?: string;
+  /** Whether the user can explicitly invoke this skill (OpenClaw-compatible). */
+  userInvocable?: boolean;
   /** Tags for routing. */
   tags: string[];
   /** Free-form triggers: intents, file globs, keywords. */

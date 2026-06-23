@@ -33,6 +33,7 @@ export function parseSkillFile(raw: string, filePath: string, rootDir: string): 
     return {
       id,
       name: id,
+      userInvocable: true,
       tags: [],
       priority: 50,
       mode: 'advisory',
@@ -59,6 +60,8 @@ export function parseSkillFile(raw: string, filePath: string, rootDir: string): 
     id,
     name: frontmatter.name || id,
     description: frontmatter.description,
+    argumentHint: frontmatter.argumentHint,
+    userInvocable: frontmatter.userInvocable ?? true,
     tags: frontmatter.tags || [],
     priority: frontmatter.priority ?? 50,
     mode: frontmatter.mode || 'advisory',
@@ -111,6 +114,14 @@ export function parseFrontmatter(raw: string): SkillFrontmatter {
           break;
         case 'description':
           result.description = value.replace(/^['"]|['"]$/g, '');
+          break;
+        case 'argumenthint':
+        case 'argument_hint':
+          result.argumentHint = value.replace(/^['"]|['"]$/g, '');
+          break;
+        case 'userinvocable':
+        case 'user_invocable':
+          result.userInvocable = value.toLowerCase() === 'true';
           break;
         case 'tags': {
           const inlineArr = value.match(/^\[(.*)\]$/);

@@ -59,6 +59,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Nav click handlers
   document.querySelectorAll('#nav button[data-view]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      // If a confirmation modal is active, ignore nav clicks so the user
+      // cannot switch views while a tool decision is pending.
+      const overlay = document.getElementById('confirmation-overlay');
+      if (overlay?.classList.contains('active')) {
+        return;
+      }
       const view = (btn as HTMLElement).dataset.view!;
       showView(view);
     });

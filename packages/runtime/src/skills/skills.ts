@@ -40,6 +40,10 @@ export interface SkillVerification {
 export interface SkillFrontmatter {
   name: string;
   description?: string;
+  // OpenClaw-compatible metadata
+  argumentHint?: string;
+  userInvocable?: boolean;
+  // Project-specific extensions (optional for compatibility)
   tags: string[];
   priority?: number;
   mode?: SkillMode;
@@ -67,6 +71,10 @@ export interface Skill {
   id: string;
   name: string;
   description?: string;
+  // OpenClaw-compatible metadata
+  argumentHint?: string;
+  userInvocable: boolean;
+  // Project-specific extensions
   tags: string[];
   priority: number;
   mode: SkillMode;

@@ -1,13 +1,15 @@
 ---
-name: TypeScript Quality
-description: Ensure TypeScript code quality during modifications, refactoring, and bug fixes. Use when the task involves TypeScript files, type errors, compilation issues, or code quality improvements.
+name: typescript-quality
+description: 'Ensure TypeScript code quality during modifications, refactoring, and bug fixes. Activates on TypeScript files, type errors, compilation issues, and code quality improvements.'
+argument-hint: 'Describe the TypeScript change or type error to fix'
+user-invocable: true
 tags: [typescript, quality, refactor, compile]
 priority: 60
 mode: advisory
 triggers:
   intents: [modify, refactor, bug_fix]
   file_globs:
-    - "**/*.ts"
+    - '**/*.ts'
   keywords:
     - typescript
     - type error
@@ -30,7 +32,7 @@ verification:
     - npm run compile
 ---
 
-## Purpose
+# TypeScript Quality
 
 Ensure TypeScript modifications maintain type safety, public API compatibility, and code quality standards.
 

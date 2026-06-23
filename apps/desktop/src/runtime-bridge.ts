@@ -19,6 +19,7 @@ import type {
   Decision,
   AlwaysRule,
   ToolPreview,
+  CandidateSkill,
 } from '@z-assistant/contracts';
 import { ConfirmationGate, AuditLogger } from '@z-assistant/runtime';
 import { SessionManager } from './session-manager';
@@ -48,6 +49,8 @@ export interface DesktopSettings {
   mcpServers?: McpServerConfig[];
   /** McDonald's China MCP token (injected as MCD_MCP_TOKEN env var for MCP headers). */
   mcdMcpToken?: string;
+  /** AMap (Gaode) Maps MCP API key (injected as AMAP_MAPS_API_KEY env var). */
+  amapApiKey?: string;
 }
 
 const DEFAULT_SETTINGS: DesktopSettings = {
@@ -62,6 +65,7 @@ const DEFAULT_SETTINGS: DesktopSettings = {
   wechatHook: { enabled: false },
   qq: { enabled: false },
   mcdMcpToken: '',
+  amapApiKey: '',
 };
 
 export class RuntimeBridge {
@@ -123,6 +127,10 @@ export class RuntimeBridge {
     if (this.settings.mcdMcpToken) {
       process.env.MCD_MCP_TOKEN = this.settings.mcdMcpToken;
     }
+    // Inject AMap MCP API key as env var so ${env:AMAP_MAPS_API_KEY} placeholders resolve.
+    if (this.settings.amapApiKey) {
+      process.env.AMAP_MAPS_API_KEY = this.settings.amapApiKey;
+    }
     // Build the confirmation gate first so it can be injected into the connector.
     if (!this.confirmationGate) {
       this.confirmationGate = new ConfirmationGate({
@@ -134,6 +142,28 @@ export class RuntimeBridge {
         auditLogger: this.auditLogger,
       });
     }
+    // Assemble MCP server list. If the user supplied a known service key/token
+    // but no explicit server for it, inject the default configuration so the
+    // credentials actually wire up the MCP tools.
+    const mcpServers: McpServerConfig[] = [...(this.settings.mcpServers ?? [])];
+    if (this.settings.mcdMcpToken && !mcpServers.some((s) => s.name === 'mcdonalds')) {
+      mcpServers.push({
+        name: 'mcdonalds',
+        transport: 'streamablehttp',
+        url: 'https://mcp.mcd.cn',
+        headers: {
+          Authorization: 'Bearer ${env:MCD_MCP_TOKEN}',
+        },
+      });
+    }
+    if (this.settings.amapApiKey && !mcpServers.some((s) => s.name === 'amap')) {
+      mcpServers.push({
+        name: 'amap',
+        transport: 'streamablehttp',
+        url: 'https://mcp.amap.com/mcp?key=${env:AMAP_MAPS_API_KEY}',
+      });
+    }
+
     const config: VSCodeConnectorConfig = {
       storageDir: this.settings.storageDir,
       projectKey: 'desktop',
@@ -144,7 +174,7 @@ export class RuntimeBridge {
       confirmationGate: this.confirmationGate,
       dryRun: this.settings.dryRun,
       auditLogger: this.auditLogger ?? undefined,
-      mcpServers: this.settings.mcpServers,
+      mcpServers,
     };
     this.connector = new VSCodeConnector(config);
     this.connector.onEvent((e) => {
@@ -180,6 +210,45 @@ export class RuntimeBridge {
   async runSkillDiscovery(cfg?: { windowMs?: number; minOccurrences?: number }): Promise<unknown> {
     if (!this.connector) throw new Error('Runtime not started');
     return this.connector.runSkillDiscovery(cfg);
+  }
+
+  async runSuccessSkillDiscovery(cfg?: { historyDir?: string; minTurns?: number }): Promise<{ candidates: number; facts: number }> {
+    if (!this.connector) throw new Error('Runtime not started');
+    const historyDir = cfg?.historyDir ?? path.join(this.settings.projectDir || this.settings.storageDir, 'History');
+    return this.connector.runSuccessSkillDiscovery({ ...cfg, historyDir });
+  }
+
+  async listSkillCandidates(): Promise<CandidateSkill[]> {
+    if (!this.connector) throw new Error('Runtime not started');
+    return this.connector.listSkillCandidates();
+  }
+
+  async approveSkillCandidate(id: string, note?: string): Promise<void> {
+    if (!this.connector) throw new Error('Runtime not started');
+    const candidate = await this.connector.approveSkillCandidate(id, note);
+    // On approval, write the skill to <projectDir>/.skills/<name>/SKILL.md so
+    // it becomes active on the next chat agent run.
+    const skillRoot = this.settings.projectDir || this.settings.storageDir;
+    const skillDir = path.join(skillRoot, '.skills', candidate.draft.name);
+    fs.mkdirSync(skillDir, { recursive: true });
+    const frontmatter = [
+      '---',
+      `name: ${candidate.draft.name}`,
+      `description: ${candidate.draft.description}`,
+      `tags: [${candidate.draft.tags.map((t: string) => `"${t}"`).join(', ')}]`,
+      `priority: ${candidate.draft.priority}`,
+      `mode: ${candidate.draft.mode}`,
+      'triggers:',
+      `  keywords: [${candidate.draft.triggers.keywords?.map((k: string) => `"${k}"`).join(', ') ?? ''}]`,
+      '---',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), frontmatter + candidate.draft.body, 'utf-8');
+  }
+
+  async rejectSkillCandidate(id: string, note?: string): Promise<void> {
+    if (!this.connector) throw new Error('Runtime not started');
+    await this.connector.rejectSkillCandidate(id, note);
   }
 
   async listRuns(limit = 50, sessionId?: string): Promise<AgentRun[]> {

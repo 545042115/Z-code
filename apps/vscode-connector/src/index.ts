@@ -32,11 +32,13 @@ import { createFileStore } from '@z-assistant/infra-storage';
 import { BudgetGuard } from '@z-assistant/infra-cost';
 
 import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult, IConfirmationGate, AutoDiscoveryReport, ITool } from '@z-assistant/contracts';
+import type { AgentResult, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill } from '@z-assistant/contracts';
 
 import { OpenAIProvider } from './llm-provider';
 import { DryRunExecutor } from '@z-assistant/runtime/permission';
 import { createChatAgent, CHAT_HISTORY_KEY } from './chat-agent';
+import { discoverChatSkills } from './skill-loader';
+import { discoverSuccessSkills } from './success-skill-discovery';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
 import { QQOneBotService, type QQOneBotConfig, type QQOneBotStatus } from './qq-onebot-service';
@@ -435,6 +437,9 @@ export class VSCodeConnector {
       // confirmation gate / dry-run mode / audit trail.
       // G6 wiring: pass MCP tools into the agent loop and V2 registry.
       const dryRunExecutor = this.config.dryRun ? new DryRunExecutor() : undefined;
+      // Load OpenClaw / Claude Code compatible skills from <projectDir>/.skills
+      const skillRoot = this.config.projectDir || this.config.storageDir;
+      const skillIndex = discoverChatSkills({ rootDir: skillRoot });
       const loop = createCodingAgentFromChat({
         extraTools: mcpTools,
         chatAgent: {
@@ -446,6 +451,7 @@ export class VSCodeConnector {
           confirmationGate: this.config.confirmationGate,
           dryRun: this.config.dryRun,
           planningMode,
+          skillIndex,
           onProgress: (phase, detail) => {
             this.emit({ type: 'progress', runId: '', phase, detail });
           },
@@ -533,6 +539,65 @@ export class VSCodeConnector {
     return this._runtime.skillDiscovery.discover(cfg);
   }
 
+  /**
+   * Run a success-driven skill discovery sweep over History/*.md.
+   * Conversations that required user corrections before succeeding are
+   * summarized into workflow skill candidates and durable user facts.
+   */
+  async runSuccessSkillDiscovery(cfg?: { historyDir?: string; minTurns?: number }): Promise<{ candidates: number; facts: number }> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
+    const apiKey = this.config.apiKey;
+    const apiEndpoint = this.config.apiEndpoint;
+    const providerName = model.provider;
+
+    let baseURL: string;
+    if (apiEndpoint) {
+      baseURL = apiEndpoint;
+    } else {
+      switch (providerName) {
+        case 'deepseek': baseURL = 'https://api.deepseek.com/v1'; break;
+        case 'openai':   baseURL = 'https://api.openai.com/v1'; break;
+        case 'anthropic': baseURL = 'https://api.anthropic.com/v1'; break;
+        case 'gemini':   baseURL = 'https://generativelanguage.googleapis.com/v1'; break;
+        case 'ollama':   baseURL = 'http://localhost:11434/v1'; break;
+        default:         baseURL = 'https://api.openai.com/v1'; break;
+      }
+    }
+
+    const llmProvider = new OpenAIProvider({
+      baseURL,
+      apiKey: apiKey ?? '',
+      defaultModel: model.name,
+      name: providerName,
+    });
+
+    const historyDir = cfg?.historyDir ?? path.join(process.cwd(), 'History');
+    const result = await discoverSuccessSkills({
+      historyDir,
+      llmProvider,
+      model,
+      reviewQueue: this._runtime.skillReviewQueue,
+      minTurns: cfg?.minTurns ?? 4,
+    });
+    return { candidates: result.candidates.length, facts: result.facts.length };
+  }
+
+  async listSkillCandidates(): Promise<CandidateSkill[]> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    return this._runtime.skillReviewQueue.listPending();
+  }
+
+  async approveSkillCandidate(id: string, note?: string): Promise<CandidateSkill> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    return this._runtime.skillReviewQueue.approve(id, { reviewer: 'user', note });
+  }
+
+  async rejectSkillCandidate(id: string, note?: string): Promise<CandidateSkill> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    return this._runtime.skillReviewQueue.reject(id, { reviewer: 'user', note });
+  }
+
   private emit(e: ConnectorEvent): void {
     for (const l of this.listeners) {
       try { l(e); } catch { /* swallow */ }
@@ -571,6 +636,7 @@ export class AssistantRuntime {
   readonly registry: AgentRegistry;
   readonly evolution: EvolutionEngine;
   readonly skillDiscovery: AutoDiscoveryEngine;
+  readonly skillReviewQueue: JsonFileSkillReviewQueue;
   readonly auditLogger: AuditLogger;
   private scheduler?: BackgroundScheduler;
 
@@ -581,12 +647,14 @@ export class AssistantRuntime {
     registry: AgentRegistry,
     evolution: EvolutionEngine,
     skillDiscovery: AutoDiscoveryEngine,
+    skillReviewQueue: JsonFileSkillReviewQueue,
     auditLogger: AuditLogger,
   ) {
     this.memory = memory;
     this.registry = registry;
     this.evolution = evolution;
     this.skillDiscovery = skillDiscovery;
+    this.skillReviewQueue = skillReviewQueue;
     this.auditLogger = auditLogger;
   }
 
@@ -627,7 +695,7 @@ export class AssistantRuntime {
     // use this instance so the background scheduler can observe failures.
     const auditLogger = opts.auditLogger ?? new AuditLogger({ rootDir: dataDir });
 
-    const runtime = new AssistantRuntime(trace, store, memory, registry, evolution, skillDiscovery, auditLogger);
+    const runtime = new AssistantRuntime(trace, store, memory, registry, evolution, skillDiscovery, reviewQueue, auditLogger);
 
     // Phase 5: background evolution scheduler observes audit failures and
     // automatically triggers evolution + skill discovery when thresholds are met.

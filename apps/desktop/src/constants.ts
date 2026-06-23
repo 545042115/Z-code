@@ -52,6 +52,11 @@ export const IPC_CHANNELS = {
   COUNT_AUDIT_ENTRIES: 'z:count-audit-entries',
   LIST_ALWAYS_RULES: 'z:list-always-rules',
   REMOVE_ALWAYS_RULE: 'z:remove-always-rule',
+  // Skill review queue
+  LIST_SKILL_CANDIDATES: 'z:list-skill-candidates',
+  APPROVE_SKILL_CANDIDATE: 'z:approve-skill-candidate',
+  REJECT_SKILL_CANDIDATE: 'z:reject-skill-candidate',
+  RUN_SUCCESS_SKILL_DISCOVERY: 'z:run-success-skill-discovery',
 } as const;
 
 export const WINDOW_SIZES = {
