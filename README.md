@@ -9,7 +9,6 @@
 > **注意事项 / Caveats**
 > - 随着功能持续叠加，部分模块之间可能出现边界模糊或轻微 Bug
 > - 已支持 MCP (Model Context Protocol) 外部工具：在 `VSCodeConnectorConfig.mcpServers` 中配置，agent 启动时会自动连接并把 server 的工具注入到 ReAct 循环和 V2 `IToolRegistry`
-> - 不以生产级稳定性为目标，而以**可理解、可扩展、可教学**为优先
 
 ---
 
