@@ -11,8 +11,7 @@ import {
   type AgentFactory,
 } from '@z-assistant/app-vscode-connector';
 import { createBrowserAgent } from './browser-agent-bridge';
-import { createResearchAgent } from './research-agent-bridge';
-import { createOfficeAgent } from './office-agent-bridge';
+import { createResearchAgentBridge } from './research-agent-bridge';
 import type {
   AgentRun,
   AgentSpan,
@@ -189,8 +188,7 @@ export class RuntimeBridge {
       budget: this.settings.budget,
       agentFactories: [
         (({ llmProvider, model }) => createBrowserAgent({ llmProvider, model })) satisfies AgentFactory,
-        (({ llmProvider, model }) => createResearchAgent({ llmProvider, model })) satisfies AgentFactory,
-        (({ llmProvider, model }) => createOfficeAgent({ llmProvider, model, storageDir: this.settings.storageDir })) satisfies AgentFactory,
+        (({ llmProvider, model }) => createResearchAgentBridge({ llmProvider, model, storageDir: this.settings.storageDir })) satisfies AgentFactory,
       ],
     };
     this.connector = new VSCodeConnector(config);

@@ -217,6 +217,8 @@ export function getActivePrompt(
 /** Decide whether a tool name is allowed by the policy. */
 export function isToolAllowed(policy: ToolPolicy, toolName: string): boolean {
   if (matchAny(policy.deny, toolName)) return false;
+  // Empty allow list means "allow all" (only deny list takes effect).
+  if (policy.allow.length === 0) return true;
   return matchAny(policy.allow, toolName);
 }
 

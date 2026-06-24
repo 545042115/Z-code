@@ -10,47 +10,91 @@
 > - 随着功能持续叠加，部分模块之间可能出现边界模糊或轻微 Bug
 > - 已支持 MCP (Model Context Protocol) 外部工具：在 `VSCodeConnectorConfig.mcpServers` 中配置，agent 启动时会自动连接并把 server 的工具注入到 ReAct 循环和 V2 `IToolRegistry`
 > - 不以生产级稳定性为目标，而以**可理解、可扩展、可教学**为优先
->
-> **MCP 配置示例 / MCP Configuration Example**
-> ```js
-> {
->   mcpServers: [
->     {
->       name: 'filesystem',
->       transport: 'stdio',
->       command: 'npx',
->       args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/workspace'],
->     },
->     {
->       name: 'sse-example',
->       transport: 'sse',
->       url: 'http://localhost:3000/sse',
->     },
->     {
->       name: 'mcdonalds',
->       transport: 'streamablehttp',
->       url: 'https://mcp.mcd.cn',
->       headers: {
->         Authorization: 'Bearer ${env:MCD_MCP_TOKEN}',
->       },
->     },
->   ],
-> }
-> ```
-> 每个 MCP 工具在 agent 中会被命名为 `mcp_<serverName>_<toolName>`，避免与内置工具冲突。
->
-> 麦当劳中国 MCP 接入文档：`https://open.mcd.cn/mcp/doc`
->
-> Token 配置方式（三选一）：
-> 1. **Desktop 设置面板**：设置 → MCP 外部工具 → 麦当劳 MCP Token（保存后自动注入为 `MCD_MCP_TOKEN`）。
-> 2. **环境变量**：启动前设置 `MCD_MCP_TOKEN=...`。
-> 3. **直接替换**：把配置里的 `${env:MCD_MCP_TOKEN}` 替换为真实 token（不推荐，容易泄露）。
->
-> 仓库是一个 **V1 + V2 双轨 Monorepo**：
-> - **V1 = `extensions/coding-agent/`**：VSCode Coding Agent 扩展（v1.2.0，三层混合架构 + 完整流水线，**当前唯一可用的 Coding 能力**）
-> - **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**，包含独立 Desktop 应用、CLI、Runtime 框架
->
-> **当前版本 / Current Versions**
+
+---
+
+## 演示：Agent 旅游规划
+
+以下是一个实际运行结果：用户要求 Agent 从上海虹桥阿里中心自驾（电车）去南京旅游，三天两夜，预算 1500 元，住全季/亚朵酒店。Agent 在 **仅有高德 MCP（地图/导航/搜索）**、**没有携程/飞猪等酒店预订平台 MCP** 的情况下，通过高德 MCP 查询酒店位置和价格，结合 Web 搜索获取美食推荐，完成了完整的预算规划和行程安排。
+
+> **完整输出见：[旅游规划.md](旅游规划.md)**
+
+### 本次演示中 Agent 使用的工具
+
+| 工具 | 用途 | 说明 |
+|------|------|------|
+| `mcp_amap_maps_text_search` | 高德 MCP 文本搜索 | 查询全季/亚朵酒店在南京的位置、价格区间 |
+| `web_search` | DuckDuckGo 网页搜索 | 查询高速过路费、油费/电费、美食推荐等公开信息 |
+| `web_fetch` | 网页内容抓取 | 获取具体的价格详情和店家信息 |
+
+### 能力边界说明
+
+| 能力 | 支持情况 |
+|------|:--------:|
+| 高德地图 MCP（查位置、路线、周边搜索） | ✅ 已接入 |
+| 网页搜索（查公开信息） | ✅ 支持 |
+| 网页内容抓取 | ✅ 支持 |
+| 携程/飞猪 MCP（查实时酒店价格、空房、下单） | ❌ **未接入** |
+| 美团/大众点评 MCP（查餐厅实时评价、团购） | ❌ **未接入** |
+
+> 因此，Agent 输出的酒店价格是**基于高德 MCP 返回的参考价**，非实时可预订价；如需实时比价和预订，需接入携程/飞猪等平台的 MCP Server。
+
+---
+
+## MCP 配置
+
+### 配置示例
+
+```js
+{
+  mcpServers: [
+    {
+      name: 'filesystem',
+      transport: 'stdio',
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/home/user/workspace'],
+    },
+    {
+      name: 'amap',
+      transport: 'streamablehttp',
+      url: 'https://mcp.amap.com/mcp?key=${env:AMAP_MAPS_API_KEY}',
+    },
+    {
+      name: 'mcdonalds',
+      transport: 'streamablehttp',
+      url: 'https://mcp.mcd.cn',
+      headers: {
+        Authorization: 'Bearer ${env:MCD_MCP_TOKEN}',
+      },
+    },
+  ],
+}
+```
+
+每个 MCP 工具在 agent 中会被命名为 `mcp_<serverName>_<toolName>`，避免与内置工具冲突。
+
+### 高德 MCP 配置方式
+
+1. **Desktop 设置面板**：设置 → 高德地图 API Key（保存后自动注入为 `AMAP_MAPS_API_KEY` 环境变量，并自动连接高德 MCP Server）。
+2. **环境变量**：启动前设置 `AMAP_MAPS_API_KEY=...`。
+
+### 麦当劳 MCP Token 配置方式（三选一）
+
+1. **Desktop 设置面板**：设置 → MCP 外部工具 → 麦当劳 MCP Token（保存后自动注入为 `MCD_MCP_TOKEN`）。
+2. **环境变量**：启动前设置 `MCD_MCP_TOKEN=...`。
+3. **直接替换**：把配置里的 `${env:MCD_MCP_TOKEN}` 替换为真实 token（不推荐，容易泄露）。
+
+麦当劳中国 MCP 接入文档：`https://open.mcd.cn/mcp/doc`
+
+---
+
+## 仓库结构
+
+仓库是一个 **V1 + V2 双轨 Monorepo**：
+- **V1 = `extensions/coding-agent/`**：VSCode Coding Agent 扩展（v1.2.0，三层混合架构 + 完整流水线，**当前唯一可用的 Coding 能力**）
+- **V2 = 仓库根 `packages/` + `apps/`**（npm workspaces）：Assistant Runtime 平台，**不再是 VSCode 扩展**，包含独立 Desktop 应用、CLI、Runtime 框架
+
+**当前版本 / Current Versions**
 - V1（VSCode 扩展）：v1.2.0
 - V2（Assistant Runtime）：v2.0.0-alpha.5
 

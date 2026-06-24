@@ -3,8 +3,8 @@
 // Supports web search, file operations, shell commands, code search,
 // and cross-session memory for personalized, context-aware responses.
 
-import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, IConfirmationGate, ToolInvocation } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
+import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, IConfirmationGate, ToolInvocation, ToolPolicy } from '@z-assistant/contracts';
+import { ok as okResult, fail as failResult, isToolAllowed } from '@z-assistant/contracts';
 import { computeCost } from '@z-assistant/infra-cost';
 import {
   MemoryManager,
@@ -101,6 +101,11 @@ export interface ChatAgentOptions {
    * prompt. Skills are OpenClaw / Claude Code compatible SKILL.md files.
    */
   skillIndex?: SkillIndex;
+  /**
+   * Optional tool allow/deny policy (P1-2). When set, the ReAct loop will
+   * refuse to invoke any tool that is not allowed by the policy.
+   */
+  toolPolicy?: ToolPolicy;
 }
 
 export type ChatAttachment =
@@ -485,7 +490,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
                 const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
                 const inv = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
                 progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap));
+                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap, opts.toolPolicy));
                 const result = pipelineResult.ok
                   ? String(pipelineResult.output ?? '')
                   : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
@@ -601,7 +606,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
             const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
             const inv: ToolInvocation = { id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
             progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap));
+            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap, opts.toolPolicy));
             const result = pipelineResult.ok
               ? String(pipelineResult.output ?? '')
               : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
@@ -800,7 +805,13 @@ async function executeTool(
   name: string,
   args: Record<string, unknown>,
   extraTools?: Map<string, (args: Record<string, unknown>) => Promise<string>>,
+  toolPolicy?: ToolPolicy,
 ): Promise<string> {
+  // P1-2: enforce tool policy before any execution.
+  if (toolPolicy && !isToolAllowed(toolPolicy, name)) {
+    return `Error: TOOL_DENIED_BY_POLICY — tool '${name}' is not allowed by the active tool policy.`;
+  }
+
   switch (name) {
     // Web tools
     case 'web_search':

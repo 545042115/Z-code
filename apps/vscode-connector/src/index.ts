@@ -32,7 +32,7 @@ import {
 } from '@z-assistant/runtime/skills';
 import { TraceManager, type RunTracker } from '@z-assistant/trace';
 import { createFileStore } from '@z-assistant/infra-storage';
-import { BudgetGuard } from '@z-assistant/infra-cost';
+
 
 import type { Store } from '@z-assistant/infra-storage';
 import type { AgentResult, IAgent, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill, ModelSpec, ILLMProvider } from '@z-assistant/contracts';
@@ -55,6 +55,7 @@ import {
   type CodingAgentFactoryOptions,
 } from './coding-agent-factory';
 import { connectMcpServers, type McpServerConfig } from './mcp-tools';
+import { BudgetGuardProvider, type BudgetUsage } from './budget-guard';
 
 // ── Configuration shape coming from V1 ─────────────────────────────────
 
@@ -159,6 +160,8 @@ export class VSCodeConnector {
   private _currentRunAbort: AbortController | null = null;
   /** Cache for repeated pure-query tasks. */
   private _resultCache = new ResultCache<RunMultiAgentTaskResult>({ ttlMs: 5 * 60 * 1000, maxSize: 100 });
+  /** Per-day LLM usage accumulator (loaded on construction, saved after each run). */
+  private _dayUsage: BudgetUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
   /** WeChat Hook service (WeChatFerry DLL injection — captures ALL messages) */
   readonly wechatHook: WeChatHookService;
   /** QQ OneBot service (NapCat + OneBot protocol) */
@@ -172,6 +175,34 @@ export class VSCodeConnector {
     this.wechatHook = new WeChatHookService();
     this.qq = new QQOneBotService();
     this.profile = new ChatProfile(config.storageDir);
+    this._loadDayUsage().catch(() => {});
+  }
+
+  private async _loadDayUsage(): Promise<void> {
+    try {
+      const file = path.join(this.config.storageDir, 'budget-day.json');
+      const raw = await fs.readFile(file, 'utf-8');
+      const data = JSON.parse(raw) as { date: string; usage: BudgetUsage };
+      const today = new Date().toISOString().slice(0, 10);
+      if (data.date === today) {
+        this._dayUsage = data.usage;
+      } else {
+        this._dayUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+      }
+    } catch {
+      this._dayUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+    }
+  }
+
+  private async _saveDayUsage(): Promise<void> {
+    try {
+      const file = path.join(this.config.storageDir, 'budget-day.json');
+      const today = new Date().toISOString().slice(0, 10);
+      await fs.mkdir(this.config.storageDir, { recursive: true });
+      await fs.writeFile(file, JSON.stringify({ date: today, usage: this._dayUsage }, null, 2), 'utf-8');
+    } catch {
+      // ignore persistence errors
+    }
   }
 
   private createLlmProvider(): ILLMProvider {
@@ -373,12 +404,6 @@ export class VSCodeConnector {
     const registry = new AgentRegistry();
     (opts.registerAgents ?? registerExampleAgents)(registry);
 
-    const guard = new BudgetGuard({
-      perRunTokens: this.config.budget?.perRunTokens ?? 1_000_000,
-      perRunUsd: this.config.budget?.perRunUsd ?? 5,
-      perDayUsd: this.config.budget?.perDayUsd ?? 50,
-    });
-
     // P1-1: if the caller requested a subset of agents, build a filtered
     // registry so the Orchestrator dispatches only those agents.
     let effectiveRegistry = registry;
@@ -396,7 +421,6 @@ export class VSCodeConnector {
       mode: opts.mode,
       maxAgentCalls: opts.maxAgentCalls ?? 8,
       initialState: opts.initialState,
-      budgetGuard: guard,
       registry: effectiveRegistry,
       signal: abortController.signal,
     });
@@ -473,6 +497,22 @@ export class VSCodeConnector {
       name: providerName,
     });
 
+    // P1-3: wrap provider with BudgetGuard so per-run and per-day caps are enforced.
+    const budget: import('@z-assistant/contracts').BudgetPolicy = {
+      perRunTokens: this.config.budget?.perRunTokens ?? 0,
+      perRunUsd: this.config.budget?.perRunUsd ?? 0,
+      perDayUsd: this.config.budget?.perDayUsd ?? 0,
+    };
+    const runUsage: BudgetUsage = { tokensIn: 0, tokensOut: 0, costUsd: 0 };
+    const guardedLlmProvider = new BudgetGuardProvider(llmProvider, {
+      budget,
+      runUsage,
+      dayUsage: this._dayUsage,
+      onUpdate: (u) => {
+        this.emit({ type: 'progress', runId: '', phase: 'budget', detail: `Used $${u.costUsd.toFixed(4)} / ${u.tokensIn + u.tokensOut} tokens` });
+      },
+    });
+
     // G6 wiring: connect optional MCP servers and expose their tools
     // alongside built-in tools.
     let mcpCleanup: (() => Promise<void>) | undefined;
@@ -511,7 +551,7 @@ export class VSCodeConnector {
         extraTools: mcpTools,
         toolPolicy: this.config.toolPolicy,
         chatAgent: {
-          llmProvider,
+          llmProvider: guardedLlmProvider,
           projectDir: this.config.projectDir,
           profileDescription: this.profileEnabled ? (this.profile.profile?.description) : undefined,
           storageDir: this.config.storageDir,
@@ -554,7 +594,7 @@ export class VSCodeConnector {
       // (e.g. Browser agent from the desktop app) so they can participate
       // in task routing without adding heavy/optional deps to this package.
       const extraAgents = (this.config.agentFactories ?? []).map((factory) =>
-        factory({ llmProvider, model, config: this.config }),
+        factory({ llmProvider: guardedLlmProvider, model, config: this.config }),
       );
       for (const agent of extraAgents) {
         reg.register(agent);
@@ -600,6 +640,7 @@ export class VSCodeConnector {
       if (mcpCleanup) {
         await mcpCleanup().catch(() => {});
       }
+      await this._saveDayUsage().catch(() => {});
     }
   }
 
@@ -815,7 +856,6 @@ export class AssistantRuntime {
     mode?: OrchestratorMode;
     maxAgentCalls?: number;
     initialState?: Record<string, unknown>;
-    budgetGuard?: BudgetGuard;
     /** Optional per-task registry; defaults to this.registry. */
     registry?: AgentRegistry;
     /** Optional abort signal to cancel the run. */
@@ -837,7 +877,6 @@ export class AssistantRuntime {
       mode: opts.mode,
       maxAgentCalls: opts.maxAgentCalls,
       initialState: opts.initialState,
-      budgetGuard: opts.budgetGuard,
       signal: opts.signal,
     });
     return { tracker, orchestrator };
@@ -859,5 +898,6 @@ export { createCodingAgentFromChat, ChatToolRegistry };
 export type { CodingAgentFactoryOptions };
 export { webSearch, webSearchResults, webFetch, getLocation } from './web-tools';
 export type { SearchResult } from './web-tools';
+export { browserNavigate, browserScreenshot, browserClose } from './browser-tools';
 export { connectMcpServer, connectMcpServers } from './mcp-tools';
 export type { McpServerConfig, ConnectedMcpServer } from './mcp-tools';

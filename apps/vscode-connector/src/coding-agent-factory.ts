@@ -225,6 +225,7 @@ export function createCodingAgentFromChat(
   const chatAgent: IAgent = createChatAgent({
     ...opts.chatAgent,
     extraTools: [...(opts.chatAgent.extraTools ?? []), ...chatExtraTools],
+    toolPolicy: opts.toolPolicy,
   });
   const toolRegistry = new ChatToolRegistry({
     toolPolicy: opts.toolPolicy,

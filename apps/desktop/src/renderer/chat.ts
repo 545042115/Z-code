@@ -9,6 +9,82 @@
 declare const zApi: import('../preload').ZDesktopAPI;
 import { t } from './i18n';
 
+declare global {
+  interface Window {
+    mermaid?: {
+      initialize: (config: Record<string, unknown>) => void;
+      render: (id: string, source: string) => Promise<{ svg: string }>;
+    };
+  }
+}
+
+// Mermaid.js is loaded on-demand from CDN only when an assistant message
+// contains a ````mermaid` code block. This keeps the renderer bundle small.
+const MERMAID_CDN = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+let mermaidLoaded = false;
+
+async function loadMermaid(): Promise<typeof window.mermaid> {
+  if (typeof window.mermaid !== 'undefined') {
+    return window.mermaid;
+  }
+  if (mermaidLoaded) {
+    // Already loading; wait up to 10s.
+    for (let i = 0; i < 100; i++) {
+      if (typeof window.mermaid !== 'undefined') return window.mermaid;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    throw new Error('Mermaid library failed to load from CDN');
+  }
+  mermaidLoaded = true;
+
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = MERMAID_CDN;
+    script.async = true;
+    script.onload = () => {
+      if (typeof window.mermaid !== 'undefined') {
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          theme: 'default',
+          mindmap: { padding: 16 },
+        });
+        resolve(window.mermaid);
+      } else {
+        reject(new Error('Mermaid global not found after script load'));
+      }
+    };
+    script.onerror = () => reject(new Error('Failed to load Mermaid from CDN'));
+    document.head.appendChild(script);
+  });
+}
+
+// Cache rendered SVG keyed by the mermaid source text to avoid re-rendering.
+const mermaidSvgCache = new Map<string, string>();
+
+async function renderMermaidInElement(container: HTMLElement): Promise<void> {
+  const blocks = container.querySelectorAll<HTMLElement>('.mermaid');
+  if (blocks.length === 0) return;
+
+  const mermaid = await loadMermaid();
+  for (const block of Array.from(blocks)) {
+    const source = block.textContent ?? '';
+    const cached = mermaidSvgCache.get(source);
+    if (cached) {
+      block.innerHTML = cached;
+      continue;
+    }
+    try {
+      const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+      const { svg } = await mermaid!.render(id, source);
+      mermaidSvgCache.set(source, svg);
+      block.innerHTML = svg;
+    } catch (err) {
+      console.warn('Mermaid render failed:', err);
+    }
+  }
+}
+
 function escapeHtml(text: string): string {
   const div = document.createElement('div');
   div.textContent = text;
@@ -21,8 +97,13 @@ function renderMarkdown(text: string): string {
   let html = escapeHtml(text);
 
   // Code blocks (must be before inline code)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, _lang, code) => {
-    return `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:0.88em;line-height:1.4;margin:6px 0"><code>${code.trim()}</code></pre>`;
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    const trimmed = code.trim();
+    if (lang.toLowerCase() === 'mermaid') {
+      // Mermaid diagrams are rendered into SVG by mermaid.run() after insertion.
+      return `<div class="mermaid" style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;margin:6px 0">${trimmed}</div>`;
+    }
+    return `<pre style="background:var(--bg);padding:8px;border-radius:4px;overflow-x:auto;font-size:0.88em;line-height:1.4;margin:6px 0"><code>${trimmed}</code></pre>`;
   });
 
   // Inline code
@@ -207,7 +288,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   const modeBtn = document.getElementById('chat-mode-btn') as HTMLButtonElement;
 
   // ── Helper: add a message bubble ─────────────────────────────────
-  function addMessage(role: string, content: string): void {
+  async function addMessage(role: string, content: string): Promise<void> {
     const div = document.createElement('div');
     div.className = `message ${role}`;
     const label = role === 'user' ? t('chat.you') : t('chat.assistant');
@@ -218,6 +299,11 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
+
+    // Render any Mermaid diagrams in assistant messages (on-demand load + cache).
+    if (role === 'assistant') {
+      await renderMermaidInElement(div);
+    }
   }
 
   // ── Helper: add a system (non-agent) message bubble ──────────────
@@ -271,15 +357,18 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   }
 
   // ── Load messages into the UI ─────────────────────────────────────
-  function loadSessionMessages(sessionId: string): void {
+  async function loadSessionMessages(sessionId: string): Promise<void> {
     messages.innerHTML = '';
-    zApi.getSession(sessionId).then((s) => {
+    try {
+      const s = await zApi.getSession(sessionId);
       if (s) {
         for (const msg of s.messages) {
-          addMessage(msg.role, msg.content);
+          await addMessage(msg.role, msg.content);
         }
       }
-    }).catch(() => {});
+    } catch {
+      // ignore
+    }
   }
 
   // ── Render session list ───────────────────────────────────────────
@@ -341,7 +430,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       if (!currentSessionId || !sessions.find((s) => s.id === currentSessionId)) {
         if (sessions.length > 0) {
           currentSessionId = sessions[0].id;
-          loadSessionMessages(currentSessionId);
+          await loadSessionMessages(currentSessionId);
         } else {
           const newS = await zApi.createSession();
           currentSessionId = newS.id;
@@ -442,7 +531,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
 
     // Save & display user message
     await zApi.appendMessage(currentSessionId, { role: 'user', content: task, timestamp: Date.now() });
-    addMessage('user', task);
+    await addMessage('user', task);
     renderSessionList();
 
     // Call LLM
@@ -457,13 +546,13 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       const reply = result || `${t('chat.submitted')} ${runId}`;
       // Save & display assistant reply
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: reply, timestamp: Date.now() });
-      addMessage('assistant', reply);
+      await addMessage('assistant', reply);
       renderSessionList();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errorText = `${t('chat.error')}: ${msg}`;
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: errorText, timestamp: Date.now() });
-      addMessage('assistant', errorText);
+      await addMessage('assistant', errorText);
     } finally {
       sendBtn.disabled = false;
       input.focus();
@@ -576,11 +665,11 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   modeBtn.addEventListener('click', cyclePlanningMode);
 
   // Click session item → switch
-  sessionList.addEventListener('click', (e) => {
+  sessionList.addEventListener('click', async (e) => {
     const item = (e.target as HTMLElement).closest('.session-item') as HTMLElement;
     if (item && item.dataset.id && item.dataset.id !== currentSessionId) {
       currentSessionId = item.dataset.id;
-      loadSessionMessages(currentSessionId);
+      await loadSessionMessages(currentSessionId);
       renderSessionList();
     }
   });

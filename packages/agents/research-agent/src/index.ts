@@ -1,6 +1,10 @@
-// @z-assistant/agent-research — V2 Research Agent entry point.
-//
-// Deep web research + structured report generation.
+// @z-assistant/agent-research
 
-export { createResearchAgent } from './agent';
-export type { ResearchAgentConfig, ResearchReport, SearchResult } from './agent';
+export {
+  ResearchAgent,
+  createResearchAgent,
+  type ResearchAgentOptions,
+  type SearchResult,
+  type FetchedPage,
+  type ResearchReport,
+} from './agent';

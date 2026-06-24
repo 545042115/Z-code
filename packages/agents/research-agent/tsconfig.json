@@ -9,6 +9,8 @@
   "include": ["src/**/*"],
   "exclude": ["out", "node_modules", "**/__tests__/**", "**/*.test.ts"],
   "references": [
-    { "path": "../../contracts" }
+    { "path": "../../contracts" },
+    { "path": "../../runtime" },
+    { "path": "../../trace" }
   ]
 }

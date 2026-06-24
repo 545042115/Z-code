@@ -2,15 +2,17 @@
   "name": "@z-assistant/agent-research",
   "version": "0.1.0",
   "private": true,
-  "description": "V2 Research Agent — placeholder for future phase. Per ADR §二, Phase 6A is NOT allowed to implement it.",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
+  "description": "V2 Research Agent. Performs deep research via search, fetch, and synthesis loops.",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
   "scripts": {
     "build": "tsc -p ./",
     "typecheck": "tsc -p ./ --noEmit",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0"
+    "@z-assistant/contracts": "0.1.0",
+    "@z-assistant/runtime": "0.1.0",
+    "@z-assistant/trace": "0.1.0"
   }
 }
