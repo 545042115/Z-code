@@ -3,7 +3,7 @@
 // Supports web search, file operations, shell commands, code search,
 // and cross-session memory for personalized, context-aware responses.
 
-import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, IConfirmationGate, ToolInvocation, ToolPolicy } from '@z-assistant/contracts';
+import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, LLMRequest, LLMResponse, IConfirmationGate, ToolInvocation, ToolPolicy } from '@z-assistant/contracts';
 import { ok as okResult, fail as failResult, isToolAllowed } from '@z-assistant/contracts';
 import { computeCost } from '@z-assistant/infra-cost';
 import {
@@ -106,6 +106,15 @@ export interface ChatAgentOptions {
    * refuse to invoke any tool that is not allowed by the policy.
    */
   toolPolicy?: ToolPolicy;
+  /**
+   * Optional streaming callback. When provided AND the underlying
+   * `llmProvider` implements `stream()`, every LLM call in the ReAct
+   * loop streams its text deltas to this callback as they arrive.
+   * The final assembled `LLMResponse` (content + tool calls + usage)
+   * is returned by the provider as usual; tool calls are processed
+   * normally after the stream completes.
+   */
+  onStreamChunk?: (chunk: string) => void;
 }
 
 export type ChatAttachment =
@@ -423,9 +432,22 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           { role: 'user', content: ctx.task },
         ];
 
+        // Pick stream() vs generate() once per execute() so the ReAct
+        // loop can stream text deltas via opts.onStreamChunk when the
+        // provider supports it. Falls back to generate() silently.
+        const streamingEnabled = !!(opts.onStreamChunk && opts.llmProvider.stream);
+        const callLlm = async (req: LLMRequest): Promise<LLMResponse> => {
+          if (streamingEnabled && opts.llmProvider.stream && opts.onStreamChunk) {
+            return opts.llmProvider.stream(req, (msg) => {
+              if (msg.content) opts.onStreamChunk!(msg.content);
+            });
+          }
+          return opts.llmProvider.generate(req);
+        };
+
         for (let i = 0; i < maxIterations; i++) {
           progress('think', `Step ${i + 1}: Thinking...`);
-          const response = await opts.llmProvider.generate({
+          const response = await callLlm({
             model: ctx.model,
             messages,
             tools: allTools,
@@ -626,7 +648,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           content: 'Please provide your final answer based on all the tool results above. Do not call any more tools.',
         });
 
-        const finalResponse = await opts.llmProvider.generate({
+        const finalResponse = await callLlm({
           model: ctx.model,
           messages,
           temperature: 0.7,

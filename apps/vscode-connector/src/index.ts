@@ -49,6 +49,8 @@ import { ResultCache, shouldCacheTask } from './result-cache';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
 import { QQOneBotService, type QQOneBotConfig, type QQOneBotStatus } from './qq-onebot-service';
+import { createPlannerAgent } from '@z-assistant/agent-planner';
+import { createSynthesizerAgent } from '@z-assistant/agent-synthesizer';
 import {
   createCodingAgentFromChat,
   ChatToolRegistry,
@@ -103,6 +105,14 @@ export interface VSCodeConnectorConfig {
    */
   toolPolicy?: { allow: string[]; deny: string[] };
   /**
+   * Optional streaming callback. When set, every text delta emitted by
+   * the chat agent's LLM calls is forwarded to this function. The
+   * `runId` is the active orchestrator Run id (empty string during the
+   * pre-routing phase). Used by the desktop renderer to incrementally
+   * append chunks to the assistant's message bubble.
+   */
+  onStreamChunk?: (runId: string, delta: string) => void;
+  /**
    * Optional agent factories supplied by the host (P1-1). The connector
    * will instantiate them at task time so specialized agents (Browser,
    * Research, etc.) can participate in routing without the connector
@@ -119,6 +129,8 @@ export type ConnectorEvent =
   | { type: 'spanStart'; runId: string; spanId: string; name: string }
   | { type: 'spanEnd'; runId: string; spanId: string; status: 'ok' | 'error' }
   | { type: 'progress'; runId: string; phase: string; detail: string }
+  | { type: 'streamChunk'; runId: string; delta: string }
+  | { type: 'streamEnd'; runId: string }
   | { type: 'evalComplete'; evaluationId: string; pass: boolean }
   | { type: 'evolutionReport'; reportId: string; readyToApply: boolean };
 
@@ -136,6 +148,14 @@ export interface RunMultiAgentTaskOptions {
   agents?: string[];
   maxAgentCalls?: number;
   initialState?: Record<string, unknown>;
+  /** P2 multi-agent: name of the planner to run in `plan` mode. */
+  plannerAgent?: string;
+  /**
+   * P2 multi-agent: name of the synthesizer to invoke in `plan` mode
+   * (or after multi-agent dispatch in `dag` mode). Defaults to
+   * 'synthesizer'. Set to '' to disable.
+   */
+  synthesizerAgent?: string;
 }
 
 export interface RunMultiAgentTaskResult {
@@ -405,12 +425,26 @@ export class VSCodeConnector {
     (opts.registerAgents ?? registerExampleAgents)(registry);
 
     // P1-1: if the caller requested a subset of agents, build a filtered
-    // registry so the Orchestrator dispatches only those agents.
+    // registry so the Orchestrator dispatches only those agents. For
+    // P2 `plan` mode we also keep the Synthesizer in the registry (if
+    // it was registered) so the Orchestrator can invoke it; the filter
+    // only affects the user-facing `agents` list, not internal agents.
     let effectiveRegistry = registry;
     if (opts.agents && opts.agents.length > 0 && opts.agents.length < registry.list().length) {
       effectiveRegistry = new AgentRegistry();
       for (const name of opts.agents) {
         effectiveRegistry.register(registry.get(name));
+      }
+      // Always keep Planner and Synthesizer reachable in `plan` mode
+      // so the Orchestrator can drive all three phases.
+      if (opts.mode === 'plan') {
+        if (opts.plannerAgent && registry.has(opts.plannerAgent) && !effectiveRegistry.has(opts.plannerAgent)) {
+          effectiveRegistry.register(registry.get(opts.plannerAgent));
+        }
+        const synthName = opts.synthesizerAgent === '' ? '' : (opts.synthesizerAgent ?? 'synthesizer');
+        if (synthName && registry.has(synthName) && !effectiveRegistry.has(synthName)) {
+          effectiveRegistry.register(registry.get(synthName));
+        }
       }
     }
 
@@ -423,6 +457,8 @@ export class VSCodeConnector {
       initialState: opts.initialState,
       registry: effectiveRegistry,
       signal: abortController.signal,
+      plannerAgent: opts.plannerAgent,
+      synthesizerAgent: opts.synthesizerAgent,
     });
 
     this._runCounter++;
@@ -436,15 +472,32 @@ export class VSCodeConnector {
       status = result.status === 'success' ? 'ok' : 'error';
       this.emit({ type: 'runEnd', runId: tracker.id, status });
 
+      // P2 multi-agent: when `plan` mode produced multiple sub-task
+      // outputs, the Orchestrator's `plan` case already ran the
+      // Synthesizer internally. We just pick the last agent's output
+      // as the user-facing text (the Synthesizer is always last).
+      // For non-plan modes with multiple successful outputs, the
+      // Orchestrator does NOT auto-synthesize — we fall back to the
+      // first agent's output to preserve existing behaviour. The
+      // single-output fast path is unchanged.
       let outputText: string | undefined;
       if (result.outputs && result.outputs.length > 0) {
-        const first = result.outputs[0];
-        if (first.ok && typeof first.output === 'string') {
-          outputText = first.output;
+        // In `plan` mode the synthesizer (or last sub-task) is the
+        // canonical answer; in other modes the first agent's output
+        // remains the answer (existing behaviour).
+        const pickIndex = opts.mode === 'plan' ? result.outputs.length - 1 : 0;
+        const answer = result.outputs[pickIndex];
+        if (answer.ok && typeof answer.output === 'string') {
+          outputText = answer.output;
         }
-        if (first.ok && first.artifacts?.history) {
+        // Persist the chat agent's history (if any) so subsequent
+        // turns share conversation context.
+        const chatOutput = result.outputs.find(
+          (o) => o.ok && o.artifacts && Array.isArray((o.artifacts as { history?: unknown }).history),
+        );
+        if (chatOutput && chatOutput.artifacts && (chatOutput.artifacts as { history?: unknown }).history) {
           this._conversationHistory = {
-            [CHAT_HISTORY_KEY]: first.artifacts.history as Array<unknown>,
+            [CHAT_HISTORY_KEY]: (chatOutput.artifacts as { history: Array<unknown> }).history,
           };
         }
       }
@@ -514,13 +567,16 @@ export class VSCodeConnector {
     });
 
     // G6 wiring: connect optional MCP servers and expose their tools
-    // alongside built-in tools.
+    // alongside built-in tools. The active tool policy is passed through
+    // so MCP tools honour the same allow/deny lists as built-in tools.
     let mcpCleanup: (() => Promise<void>) | undefined;
     let mcpTools: ITool[] = [];
     if (this.config.mcpServers && this.config.mcpServers.length > 0) {
       try {
         this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: 'Connecting MCP servers...' });
-        const mcp = await connectMcpServers(this.config.mcpServers);
+        const mcp = await connectMcpServers(this.config.mcpServers, {
+          toolPolicy: this.config.toolPolicy,
+        });
         mcpTools = mcp.tools;
         mcpCleanup = mcp.close;
         this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: `Loaded ${mcp.tools.length} MCP tool(s)` });
@@ -560,6 +616,13 @@ export class VSCodeConnector {
           dryRun: this.config.dryRun,
           planningMode,
           skillIndex,
+          // Forward streaming chunks to the host so the desktop renderer
+          // can incrementally append text. `runId` is resolved at emit
+          // time from the active tracker; empty string is fine — the UI
+          // will associate chunks with the in-flight message regardless.
+          onStreamChunk: this.config.onStreamChunk
+            ? (delta) => this.config.onStreamChunk!('', delta)
+            : undefined,
           onProgress: (phase, detail) => {
             this.emit({ type: 'progress', runId: '', phase, detail });
           },
@@ -599,6 +662,23 @@ export class VSCodeConnector {
       for (const agent of extraAgents) {
         reg.register(agent);
       }
+
+      // P2 multi-agent: register the built-in Planner + Synthesizer
+      // so the Orchestrator's `plan` mode (triggered by
+      // `planningMode === 'hierarchical'`) can decompose and aggregate.
+      // The Planner's `availableAgents` is computed from the live
+      // registry so the prompt always matches the agents that can
+      // actually receive a sub-task.
+      const registeredNames = reg.list().map((a) => a.name);
+      reg.register(createPlannerAgent({
+        llmProvider: guardedLlmProvider,
+        model,
+        availableAgents: registeredNames.filter((n) => n !== 'planner' && n !== 'synthesizer'),
+      }));
+      reg.register(createSynthesizerAgent({
+        llmProvider: guardedLlmProvider,
+        model,
+      }));
     };
 
     // P1-1: route the user task to the most appropriate registered agent(s).
@@ -619,16 +699,38 @@ export class VSCodeConnector {
       }
     }
 
+    // P2 multi-agent: when the user explicitly asked for a hierarchical
+    // plan (`/plan` slash command → `planningMode === 'hierarchical'`),
+    // force `plan` mode and ensure the Planner is in the dispatch list.
+    // The Orchestrator's `plan` mode reads `plan.dag` from SharedState
+    // and dispatches sub-tasks per the DAG, so the `agents` list here
+    // is mostly for the Orchestrator's pre-checks; sub-tasks are
+    // resolved by name at dispatch time.
+    let effectiveMode: OrchestratorMode = selectedAgents.length > 1 ? 'dag' : 'sequential';
+    let plannerAgent: string | undefined;
+    if (planningMode === 'hierarchical') {
+      effectiveMode = 'plan';
+      plannerAgent = 'planner';
+      // Make sure Planner is in the selected list. Other agents
+      // (chat, browser, research, ...) can stay in the list as
+      // available for sub-task assignment; the Orchestrator will
+      // dispatch them only when the planner asks for them.
+      if (!selectedAgents.includes('planner')) {
+        selectedAgents.unshift('planner');
+      }
+    }
+
     try {
       const fullResult = await this.runMultiAgentTask({
         task,
-        mode: (selectedAgents.length > 1 ? 'dag' : 'sequential') as OrchestratorMode,
+        mode: effectiveMode,
         model,
         registerAgents,
         agents: selectedAgents,
-        maxAgentCalls: selectedAgents.length,
+        maxAgentCalls: Math.max(selectedAgents.length * 4, 16), // plans can fan out
         initialState: this._conversationHistory,
         sessionId,
+        plannerAgent,
       });
 
       if (shouldCacheTask(task) && fullResult.result.status === 'success') {
@@ -860,6 +962,10 @@ export class AssistantRuntime {
     registry?: AgentRegistry;
     /** Optional abort signal to cancel the run. */
     signal?: AbortSignal;
+    /** P2 multi-agent: name of the planner agent to invoke in `plan` mode. */
+    plannerAgent?: string;
+    /** P2 multi-agent: name of the synthesizer agent to invoke in `plan` mode. */
+    synthesizerAgent?: string;
   }): Promise<{ tracker: RunTracker; orchestrator: Orchestrator }> {
     const sessionId = opts.sessionId ?? `run-${Date.now()}`;
     const tracker = await this.trace.startRun({
@@ -878,6 +984,8 @@ export class AssistantRuntime {
       maxAgentCalls: opts.maxAgentCalls,
       initialState: opts.initialState,
       signal: opts.signal,
+      plannerAgent: opts.plannerAgent,
+      synthesizerAgent: opts.synthesizerAgent,
     });
     return { tracker, orchestrator };
   }

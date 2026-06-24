@@ -14,6 +14,8 @@
     { "path": "../../packages/trace" },
     { "path": "../../packages/infra/storage" },
     { "path": "../../packages/infra/cost" },
-    { "path": "../../packages/agents/coding-agent" }
+    { "path": "../../packages/agents/coding-agent" },
+    { "path": "../../packages/agents/planner-agent" },
+    { "path": "../../packages/agents/synthesizer-agent" }
   ]
 }

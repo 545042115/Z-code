@@ -10,7 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import type { ITool, ToolInvocation, ToolResult } from '@z-assistant/contracts';
+import { isToolAllowed, type ITool, type ToolInvocation, type ToolPolicy, type ToolResult } from '@z-assistant/contracts';
 
 /** Configuration for a single MCP server connection. */
 export interface McpServerConfig {
@@ -168,12 +168,40 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<ConnectedM
  * Connect to a list of MCP servers and aggregate their tools.
  *
  * Returns the wrapped tools plus a cleanup function that closes all clients.
+ * When `opts.toolPolicy` is provided, every wrapped tool's `invoke()` is
+ * pre-checked against the allow/deny lists (deny wins over allow). Calls
+ * to denied tools return `{ ok: false, error: { code: 'TOOL_DENIED_BY_POLICY', ... } }`
+ * without dispatching to the MCP server.
  */
-export async function connectMcpServers(cfg: McpServerConfig[]): Promise<{ tools: ITool[]; close: () => Promise<void> }> {
+export async function connectMcpServers(
+  cfg: McpServerConfig[],
+  opts?: { toolPolicy?: ToolPolicy },
+): Promise<{ tools: ITool[]; close: () => Promise<void> }> {
   if (!cfg.length) return { tools: [], close: async () => {} };
 
+  const policy = opts?.toolPolicy ?? { allow: [], deny: [] };
   const servers = await Promise.all(cfg.map(connectMcpServer));
-  const tools = servers.flatMap((s) => s.tools);
+  const rawTools = servers.flatMap((s) => s.tools);
+
+  // Wrap each tool's `invoke` to enforce the active tool policy. Wrapping
+  // (instead of mutating in place) keeps the original `ITool` instance
+  // intact for any caller that captured a reference to it.
+  const tools: ITool[] = rawTools.map((tool) => ({
+    ...tool,
+    invoke: async (inv: ToolInvocation): Promise<ToolResult> => {
+      if (!isToolAllowed(policy, inv.toolName)) {
+        return {
+          ok: false,
+          error: {
+            code: 'TOOL_DENIED_BY_POLICY',
+            message: `tool '${inv.toolName}' is not allowed by the active tool policy.`,
+          },
+        };
+      }
+      return tool.invoke(inv);
+    },
+  }));
+
   return {
     tools,
     close: async () => {

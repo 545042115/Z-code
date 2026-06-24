@@ -1,0 +1,16 @@
+{
+  "name": "@z-assistant/agent-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "V2 Planner Agent — decomposes a user task into a DAG of sub-tasks (P2 multi-agent).",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "clean": "rm -rf out dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@z-assistant/contracts": "0.1.0"
+  }
+}

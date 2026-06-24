@@ -208,4 +208,170 @@ export class OpenAIProvider implements ILLMProvider {
       return { ok: false, reason: e instanceof Error ? e.message : String(e), checkedAt: Date.now() };
     }
   }
+
+  /**
+   * Stream a response. Same semantics as `generate` but yields text
+   * deltas via `onChunk` as they arrive. The returned `LLMResponse`
+   * contains the fully-assembled content + tool calls + usage.
+   *
+   * OpenAI-compatible servers emit SSE frames of the form
+   *   data: {"choices":[{"delta":{"content":"..."}}]}
+   *   data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"...","function":{"name":"...","arguments":"..."}}]}}]}
+   *   data: [DONE]
+   * We parse each frame, accumulate content and tool calls by index,
+   * and forward text deltas to the caller. Tool calls are returned in
+   * the final LLMResponse but not forwarded as streaming chunks (the
+   * chat agent processes them after the stream completes).
+   */
+  async stream(req: LLMRequest, onChunk: (chunk: LLMMessage) => void): Promise<LLMResponse> {
+    const model = req.model.name || this.defaultModel;
+    const t0 = performance.now();
+
+    const body: Record<string, unknown> = {
+      model,
+      messages: req.messages.map(toOpenAI),
+      temperature: req.temperature ?? 0.7,
+      max_tokens: req.maxTokens ?? 2048,
+      stream: true,
+    };
+    if (req.tools && req.tools.length > 0) {
+      body.tools = req.tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.argsSchema,
+        },
+      }));
+    }
+
+    const url = `${this.baseURL}/chat/completions`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeout);
+
+    let accumulatedContent = '';
+    // Tool calls arrive as partial deltas keyed by `index`. We accumulate
+    // them into one record per call so the final response matches the
+    // shape of `generate()`.
+    const toolCallAccum = new Map<number, { id: string; name: string; argumentsText: string }>();
+    let finishReason: LLMResponse['finishReason'] = 'end_turn';
+    let promptTokens = 0;
+    let completionTokens = 0;
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: req.signal ?? controller.signal,
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => 'unknown');
+        throw new Error(`LLM API error ${res.status}: ${text.slice(0, 500)}`);
+      }
+      if (!res.body) {
+        throw new Error('LLM streaming response has no body');
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+
+      const handleFrame = (rawLine: string): void => {
+        const line = rawLine.trim();
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        let json: {
+          choices?: Array<{
+            delta?: {
+              content?: string | null;
+              role?: string;
+              tool_calls?: Array<{
+                index?: number;
+                id?: string;
+                function?: { name?: string; arguments?: string };
+              }>;
+            };
+            finish_reason?: string | null;
+          }>;
+          usage?: { prompt_tokens?: number; completion_tokens?: number };
+        };
+        try {
+          json = JSON.parse(payload);
+        } catch {
+          // Some providers append keep-alive comments; skip silently.
+          return;
+        }
+        if (json.usage) {
+          promptTokens = json.usage.prompt_tokens ?? promptTokens;
+          completionTokens = json.usage.completion_tokens ?? completionTokens;
+        }
+        for (const choice of json.choices ?? []) {
+          const delta = choice.delta ?? {};
+          if (delta.content) {
+            accumulatedContent += delta.content;
+            onChunk({ role: 'assistant', content: delta.content });
+          }
+          for (const tc of delta.tool_calls ?? []) {
+            const idx = tc.index ?? 0;
+            const prev = toolCallAccum.get(idx) ?? { id: '', name: '', argumentsText: '' };
+            if (tc.id) prev.id = tc.id;
+            if (tc.function?.name) prev.name = tc.function.name;
+            if (typeof tc.function?.arguments === 'string') {
+              prev.argumentsText += tc.function.arguments;
+            }
+            toolCallAccum.set(idx, prev);
+          }
+          const fr = choice.finish_reason;
+          if (fr === 'tool_calls') finishReason = 'tool_calls';
+          else if (fr === 'length') finishReason = 'max_tokens';
+          else if (fr === 'stop' || fr === 'end_turn') finishReason = 'end_turn';
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by a blank line. Split on \n and
+        // process any complete lines, keeping the trailing partial line
+        // in the buffer for the next read.
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const rawLine of lines) {
+          handleFrame(rawLine);
+        }
+      }
+      // Drain any trailing data that didn't end with \n.
+      if (buffer.trim()) handleFrame(buffer);
+
+      const durationMs = Math.round(performance.now() - t0);
+      const toolCalls: ToolCallRef[] | undefined = toolCallAccum.size > 0
+        ? Array.from(toolCallAccum.values()).map((tc) => ({
+            id: tc.id || `call_${Math.random().toString(36).slice(2, 10)}`,
+            name: tc.name,
+            arguments: safeParseJson(tc.argumentsText),
+          }))
+        : undefined;
+
+      return {
+        message: {
+          role: 'assistant',
+          content: accumulatedContent || undefined,
+          toolCalls,
+        },
+        usage: { tokensIn: promptTokens, tokensOut: completionTokens },
+        durationMs,
+        finishReason,
+        costUsd: 0,
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 }

@@ -186,6 +186,12 @@ export class RuntimeBridge {
       mcpServers,
       toolPolicy: this.settings.toolPolicy,
       budget: this.settings.budget,
+      // Wire the stream callback so the chat-agent's LLM deltas surface
+      // as `streamChunk` events on the bridge event bus. The desktop
+      // main process forwards them to the renderer over IPC.
+      onStreamChunk: (runId, delta) => {
+        this.dispatchEvent({ type: 'streamChunk', runId, delta });
+      },
       agentFactories: [
         (({ llmProvider, model }) => createBrowserAgent({ llmProvider, model })) satisfies AgentFactory,
         (({ llmProvider, model }) => createResearchAgentBridge({ llmProvider, model, storageDir: this.settings.storageDir })) satisfies AgentFactory,
@@ -284,7 +290,14 @@ export class RuntimeBridge {
 
   onEvent(fn: (e: ConnectorEvent) => void): () => void {
     this.eventListeners.add(fn);
-    return () => this.eventListeners.delete(fn);
+    return () => { this.eventListeners.delete(fn); };
+  }
+
+  /** Emit a synthetic `ConnectorEvent` to all listeners. Used by the
+   *  bridge layer to inject events that the connector itself doesn't
+   *  generate (e.g. `streamChunk` driven by the chat agent's onStreamChunk). */
+  private dispatchEvent(e: ConnectorEvent): void {
+    for (const l of this.eventListeners) l(e);
   }
 
   onWeChatHookStatus(fn: (s: { online: boolean; nickname: string; wxid: string; messageCount: number }) => void): () => void {

@@ -12,6 +12,9 @@ export const IPC_CHANNELS = {
   RECALL_MEMORY: 'z:recall-memory',
   ON_RUN_EVENT: 'z:on-run-event',
   ON_PROGRESS: 'z:on-progress',
+  // Streaming (chat token deltas + stream end marker)
+  ON_STREAM_CHUNK: 'z:on-stream-chunk',
+  ON_STREAM_END: 'z:on-stream-end',
   SELECT_DIRECTORY: 'z:select-directory',
   // Session management
   LIST_SESSIONS: 'z:list-sessions',

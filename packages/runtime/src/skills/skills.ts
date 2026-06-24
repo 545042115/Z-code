@@ -228,7 +228,13 @@ export function matchGlob(glob: string, path: string): boolean {
 }
 
 /** Select the top-K skills for a given input. Pure function over an
- *  in-memory index; the agent loader supplies the index. */
+ *  in-memory index; the agent loader supplies the index.
+ *
+ *  Skills whose body is highly similar (Jaccard >= `SKILL_DEDUP_THRESHOLD`)
+ *  to a higher-ranked already-accepted skill are dropped. This prevents
+ *  near-duplicate skill packs from diluting the model's attention and
+ *  wasting context tokens on overlapping content.
+ */
 export function selectSkills(index: SkillIndex, input: SkillSelectionInput): SelectedSkill[] {
   const topK = input.topK ?? 5;
   const scored = index.skills
@@ -237,9 +243,26 @@ export function selectSkills(index: SkillIndex, input: SkillSelectionInput): Sel
       return { skill: s, score: r.score, reasons: r.reasons };
     })
     .filter((s) => s.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, topK);
-  return scored.map((s) => ({
+    .sort((a, b) => b.score - a.score);
+
+  const deduped: typeof scored = [];
+  const acceptedTokens: Set<string>[] = [];
+  for (const candidate of scored) {
+    const tokens = tokenizeForDedup(candidate.skill.content);
+    let tooSimilar = false;
+    for (const existing of acceptedTokens) {
+      if (jaccardSimilarity(tokens, existing) >= SKILL_DEDUP_THRESHOLD) {
+        tooSimilar = true;
+        break;
+      }
+    }
+    if (!tooSimilar) {
+      deduped.push(candidate);
+      acceptedTokens.push(tokens);
+    }
+    if (deduped.length >= topK) break;
+  }
+  return deduped.map((s) => ({
     skill: s.skill,
     score: s.score,
     reasons: s.reasons,
@@ -247,4 +270,24 @@ export function selectSkills(index: SkillIndex, input: SkillSelectionInput): Sel
     path: s.skill.path,
     contentPreview: s.skill.content.slice(0, 200),
   }));
+}
+
+/** Jaccard similarity threshold above which two skills are considered duplicates.
+ *  Tuned to 0.85 — high enough to merge near-identical packs, low enough to
+ *  keep skills that share boilerplate but address distinct concerns. */
+export const SKILL_DEDUP_THRESHOLD = 0.85;
+
+/** Tokenize a skill body for dedup comparisons.
+ *  Keeps ASCII word chars, digits, underscores, and CJK ideographs
+ *  (covers both English `keywords: [...]` style and 中文 skills). */
+function tokenizeForDedup(text: string): Set<string> {
+  return new Set((text.toLowerCase().match(/[a-z0-9_\u4e00-\u9fff]+/g) ?? []));
+}
+
+/** Jaccard similarity over two token sets: |A ∩ B| / |A ∪ B|. */
+function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let intersect = 0;
+  for (const t of a) if (b.has(t)) intersect++;
+  return intersect / (a.size + b.size - intersect);
 }

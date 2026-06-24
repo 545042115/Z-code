@@ -8,10 +8,18 @@
 //   - Record an `orchestrator` Span containing child agent Spans
 //   - Enforce budget + max iterations
 //
-// Three execution modes:
+// Three primary execution modes:
 //   1. `sequential` — agents run one after another, in dependency order
 //   2. `parallel`   — agents run concurrently, all results aggregated
 //   3. `dag`        — agents run in topo order; parallel where no edge
+//
+// Plus one P2 multi-agent mode:
+//   4. `plan`       — first runs the planner, then dispatches sub-tasks
+//                     from `SharedState['plan.dag']` in waves, then
+//                     runs the synthesizer when there are multiple
+//                     sub-task outputs. Requires `plannerAgent` to be
+//                     set and a 'synthesizer' agent in the registry
+//                     (synthesizer is optional but recommended).
 //
 // The orchestrator does NOT itself call LLMs. It only orchestrates.
 
@@ -22,6 +30,8 @@ import type {
   ModelRef,
   RunStatus,
   ErrorRef,
+  PlanDag,
+  SubTask,
 } from '@z-assistant/contracts';
 import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
 import type { RunTracker, Span } from '@z-assistant/trace';
@@ -30,7 +40,7 @@ import { BudgetGuard, BudgetExceededError } from '@z-assistant/infra-cost';
 import { AgentRegistry, DependencyCycleError } from './agent-registry';
 import { SharedState } from './shared-state';
 
-export type OrchestratorMode = 'sequential' | 'parallel' | 'dag';
+export type OrchestratorMode = 'sequential' | 'parallel' | 'dag' | 'plan';
 
 export interface OrchestratorOptions {
   tracker: RunTracker;
@@ -57,6 +67,19 @@ export interface OrchestratorOptions {
   budgetGuard?: BudgetGuard;
   /** Optional abort signal for cancelling the run. */
   signal?: AbortSignal;
+  /**
+   * Name of the planner agent to invoke in `plan` mode. Must be
+   * registered. The planner writes `SharedState['plan.dag']`; the
+   * Orchestrator then dispatches the sub-tasks in dependency waves.
+   * Required when `mode === 'plan'`.
+   */
+  plannerAgent?: string;
+  /**
+   * Name of the synthesizer agent to invoke in `plan` mode when
+   * multiple sub-task outputs were produced. Defaults to 'synthesizer'.
+   * Set to '' (empty) to skip synthesis and return the raw outputs.
+   */
+  synthesizerAgent?: string;
 }
 
 export interface OrchestratorResult {
@@ -67,7 +90,7 @@ export interface OrchestratorResult {
 }
 
 export class Orchestrator {
-  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal'>;
+  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent'>;
 
   constructor(opts: OrchestratorOptions) {
     this.opts = {
@@ -195,6 +218,115 @@ export class Orchestrator {
               break;
             }
             if (budgetExhausted) break;
+          }
+          break;
+        }
+        case 'plan': {
+          // P2 multi-agent: Planner → sub-tasks per plan.dag → Synthesizer.
+          if (signal?.aborted) throw new Error('run cancelled');
+          if (!this.opts.plannerAgent) {
+            throw new Error('plan mode requires `plannerAgent` to be set');
+          }
+          if (!this.opts.registry.has(this.opts.plannerAgent)) {
+            throw new Error(`planner agent '${this.opts.plannerAgent}' is not registered`);
+          }
+          root.addEvent('plan.start', { planner: this.opts.plannerAgent });
+
+          // Phase 1: run the planner. It writes `plan.dag` to SharedState.
+          if (agentCallCount >= this.opts.maxAgentCalls) {
+            throw new Error(`max agent calls (${this.opts.maxAgentCalls}) exceeded`);
+          }
+          const planResult = await wrapped(this.opts.plannerAgent);
+          outputs.push(planResult);
+          agentCallCount++;
+          if (!planResult.ok) {
+            status = 'failed';
+            firstError = planResult.error;
+            root.addEvent('plan.planner_failed', { code: planResult.error?.code ?? 'unknown' });
+            break;
+          }
+          if (budgetExhausted) break;
+
+          // Read the plan. If the planner didn't produce a usable one,
+          // fall back to single-agent behaviour (use the planner's own
+          // output as the final answer).
+          const plan = sharedState.get<PlanDag>('plan.dag');
+          if (!plan || !Array.isArray(plan.subtasks) || plan.subtasks.length === 0) {
+            root.addEvent('plan.empty', {});
+            break;
+          }
+          root.addEvent('plan.dag_ready', { subtasks: plan.subtasks.length });
+
+          // Phase 2: dispatch sub-tasks in dependency waves.
+          const subWaves = this._planToWaves(plan);
+          const subTaskOutputs: AgentResult[] = [];
+          for (const wave of subWaves) {
+            if (signal?.aborted) throw new Error('run cancelled');
+            if (agentCallCount + wave.length > this.opts.maxAgentCalls) {
+              throw new Error(`max agent calls (${this.opts.maxAgentCalls}) exceeded`);
+            }
+            const tasks = wave.map(async (subTask) => {
+              if (budgetExhausted) {
+                return failResult('3003', `budget exhausted before '${subTask.id}'`);
+              }
+              // Resolve the assigned agent. Unknown names fall back to
+              // the chat agent when present, else the first registered
+              // agent. The fallback is recorded in the parent Span so
+              // the operator can see what happened.
+              const assignedName = this._resolveAssignedAgent(subTask.assignedTo);
+              if (assignedName !== subTask.assignedTo) {
+                root.addEvent('plan.subtask.fallback', {
+                  subTask: subTask.id,
+                  requested: subTask.assignedTo,
+                  used: assignedName,
+                });
+              }
+              const result = await this._runOneWithTask(
+                assignedName,
+                subTask.prompt,
+                sharedState,
+                root,
+                subTask.id,
+              );
+              agentCallCount++;
+              // Persist the sub-task output for the synthesizer.
+              if (result.ok && result.output !== undefined) {
+                sharedState.set(
+                  `subtasks.${subTask.id}.output`,
+                  result.output,
+                  `subtask:${subTask.id}`,
+                );
+              }
+              return result;
+            });
+            const results = await Promise.all(tasks);
+            outputs.push(...results);
+            subTaskOutputs.push(...results);
+            // Continue on failure so the synthesizer can surface partial
+            // results; only break when the budget is blown.
+            if (budgetExhausted) break;
+          }
+          if (budgetExhausted) break;
+
+          // Phase 3: synthesizer — only when there are ≥ 2 sub-task
+          // outputs (single-output case is the fast path; the caller
+          // already has the answer from the sub-task).
+          const successfulOutputs = subTaskOutputs.filter((r) => r.ok);
+          const synthName = this.opts.synthesizerAgent === '' ? '' : (this.opts.synthesizerAgent ?? 'synthesizer');
+          if (successfulOutputs.length >= 2 && synthName && this.opts.registry.has(synthName)) {
+            if (agentCallCount >= this.opts.maxAgentCalls) {
+              throw new Error(`max agent calls (${this.opts.maxAgentCalls}) exceeded`);
+            }
+            root.addEvent('plan.synthesize', { sources: successfulOutputs.length });
+            const synthResult = await wrapped(synthName);
+            outputs.push(synthResult);
+            agentCallCount++;
+            if (!synthResult.ok) {
+              // Synthesis failed — fall through with raw outputs rather
+              // than fail the whole run, since the user already has the
+              // data.
+              root.addEvent('plan.synthesize_failed', { code: synthResult.error?.code ?? 'unknown' });
+            }
           }
           break;
         }
@@ -354,6 +486,143 @@ export class Orchestrator {
       }
     }
 
+    return result;
+  }
+
+  // ── Plan-mode helpers ───────────────────────────────────────────────
+
+  /**
+   * Group sub-tasks into waves respecting their `dependsOn` edges.
+   * Sub-tasks whose dependencies are all already placed run together
+   * in the same wave. Mirrors the algorithm used for `dag` mode but
+   * operates on SubTask ids rather than agent names, and does NOT
+   * require topological validation up-front (the planner should have
+   * produced a valid DAG; if not, a cycle error surfaces naturally).
+   */
+  private _planToWaves(plan: PlanDag): SubTask[][] {
+    const byId = new Map<string, SubTask>();
+    for (const st of plan.subtasks) byId.set(st.id, st);
+
+    const waves: SubTask[][] = [];
+    const placed = new Set<string>();
+    const remaining = new Set(byId.keys());
+
+    while (remaining.size > 0) {
+      const wave: SubTask[] = [];
+      for (const id of remaining) {
+        const st = byId.get(id)!;
+        // A sub-task is ready when all of its `dependsOn` either refer
+        // to nodes that have been placed already, or to nodes that are
+        // no longer in scope (e.g. dropped by the planner's hard cap).
+        const ready = st.dependsOn.every((d) => placed.has(d) || !byId.has(d));
+        if (ready) wave.push(st);
+      }
+      if (wave.length === 0) {
+        // Cycle or unsatisfiable deps. Treat the unsatisfied set as a
+        // final wave so we don't lose the work; the agent may still
+        // produce useful output. Real cycles should be rare since the
+        // planner is guided to avoid them.
+        for (const id of remaining) wave.push(byId.get(id)!);
+      }
+      waves.push(wave);
+      for (const st of wave) {
+        placed.add(st.id);
+        remaining.delete(st.id);
+      }
+    }
+    return waves;
+  }
+
+  /**
+   * Resolve the agent name the planner picked for a sub-task. If the
+   * name is not registered, fall back to the chat agent (commonly
+   * present), else the first registered agent. The fallback is
+   * recorded on the Span so the operator can spot miscalibrated
+   * decompositions.
+   */
+  private _resolveAssignedAgent(requested: string): string {
+    if (this.opts.registry.has(requested)) return requested;
+    if (this.opts.registry.has('chat')) return 'chat';
+    // Last resort: any agent. Sort for determinism.
+    const names = this.opts.registry.list().map((a) => a.name).sort();
+    if (names.length > 0) return names[0];
+    throw new Error(`no agents available to run sub-task assigned to '${requested}'`);
+  }
+
+  /**
+   * Like `_runOne` but lets the caller override the task passed in
+   * `TaskContext.task`. Used by `plan` mode to dispatch sub-task
+   * prompts without rewriting `this.opts.task` for the whole run.
+   * Optionally tags the resulting Span with the originating sub-task
+   * id so the trace view groups them.
+   */
+  private async _runOneWithTask(
+    name: string,
+    task: string,
+    sharedState: SharedState,
+    parentSpan: Span,
+    subTaskId?: string,
+  ): Promise<AgentResult> {
+    const agent = this.opts.registry.get(name);
+    const ctx: TaskContext = {
+      task,
+      model: this.opts.model,
+      sessionId: this.opts.sessionId,
+      userId: this.opts.userId,
+      sharedState,
+      parentRunId: this.opts.tracker.id,
+      traceId: this.opts.tracker.traceId,
+      budget: this.opts.budgetGuard
+        ? this.opts.budgetGuard.snapshot()
+        : { tokensLeft: 0, costLeftUsd: 0 },
+      metadata: {
+        ...(this.opts.metadata ?? {}),
+        ...(subTaskId ? { 'subtask.id': subTaskId } : {}),
+      },
+      signal: this.opts.signal,
+    };
+
+    const span = this.opts.tracker.startSpan({
+      name: subTaskId ? `subtask:${subTaskId}` : `agent:${name}`,
+      type: 'agent',
+      agent: name,
+      input: { task: task.slice(0, 200) },
+      parentSpanId: parentSpan.id,
+    });
+    if (subTaskId) span.setAttribute('subtask.id', subTaskId);
+
+    let result: AgentResult;
+    try {
+      const r = await agent.execute(ctx);
+      if (!r || (typeof r.ok !== 'boolean')) {
+        result = failResult('3004', `agent ${name} returned invalid result`);
+      } else {
+        result = r;
+      }
+    } catch (e) {
+      const cls = classify(e);
+      result = failResult(cls.code, cls.message);
+    }
+
+    span.setOutput({
+      ok: result.ok,
+      artifactKeys: Object.keys(result.artifacts ?? {}),
+      metrics: result.metrics,
+    });
+    if (!result.ok) span.fail(result.error!);
+    span.end();
+
+    if (result.metrics && (result.metrics.tokensIn > 0 || result.metrics.tokensOut > 0)) {
+      try {
+        await this.opts.tracker.addUsage(result.metrics.tokensIn, result.metrics.tokensOut);
+      } catch { /* best-effort */ }
+    }
+
+    if (result.artifacts) {
+      for (const [k, v] of Object.entries(result.artifacts)) {
+        sharedState.set(`artifacts.${name}.${k}`, v, name);
+      }
+    }
     return result;
   }
 }

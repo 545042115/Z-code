@@ -306,6 +306,41 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
   }
 
+  // ── Helper: create an empty streaming assistant bubble ───────────
+  // Returns an object with an `append(delta)` method that incrementally
+  // appends plain text (no markdown re-render per chunk — too expensive
+  // on high-frequency streams) and a `finalize(content)` method that
+  // runs the full markdown + Mermaid render on the complete text.
+  function startStreamingMessage(): { bubble: HTMLElement; append: (d: string) => void; finalize: (content: string) => Promise<void> } {
+    const div = document.createElement('div');
+    div.className = 'message assistant streaming';
+    const label = t('chat.assistant');
+    // During streaming, render the body as plain text inside a <span>
+    // so appends are O(1) (no re-parsing the whole message).
+    const bodySpan = document.createElement('span');
+    bodySpan.className = 'stream-body';
+    div.innerHTML = `<strong>${label}</strong><br>`;
+    div.appendChild(bodySpan);
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+
+    return {
+      bubble: div,
+      append(delta: string) {
+        bodySpan.textContent = (bodySpan.textContent ?? '') + delta;
+        // Auto-scroll to keep the latest chunk in view.
+        messages.scrollTop = messages.scrollHeight;
+      },
+      async finalize(content: string) {
+        // Replace the streaming span with a freshly-rendered markdown
+        // version (so headers, code blocks, links, tables, etc. show up).
+        div.classList.remove('streaming');
+        bodySpan.outerHTML = renderMarkdown(content);
+        await renderMermaidInElement(div);
+      },
+    };
+  }
+
   // ── Helper: add a system (non-agent) message bubble ──────────────
   function addSystemMessage(content: string): void {
     const div = document.createElement('div');
@@ -540,14 +575,34 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       const unsubProgress = zApi.onProgress((e) => {
         showProgress(e.phase, e.detail);
       });
-      const { runId, result } = await zApi.runTask(task, currentSessionId, currentPlanningMode);
-      unsubProgress();
-      hideProgress();
-      const reply = result || `${t('chat.submitted')} ${runId}`;
-      // Save & display assistant reply
-      await zApi.appendMessage(currentSessionId, { role: 'assistant', content: reply, timestamp: Date.now() });
-      await addMessage('assistant', reply);
-      renderSessionList();
+
+      // Create the streaming assistant bubble up front so chunks
+      // arriving before `runTask` resolves can be appended in place.
+      // When the run completes, `finalize` re-renders the accumulated
+      // text as full markdown (replacing the plain-text span).
+      const stream = startStreamingMessage();
+      let accumulated = '';
+      const unsubStream = zApi.onStreamChunk((e) => {
+        if (e.delta) {
+          accumulated += e.delta;
+          stream.append(e.delta);
+        }
+      });
+
+      try {
+        const { runId, result } = await zApi.runTask(task, currentSessionId, currentPlanningMode);
+        const reply = result || accumulated || `${t('chat.submitted')} ${runId}`;
+        // Prefer the streamed text when available (matches what the user
+        // saw), fall back to the IPC-returned `result` otherwise.
+        const finalText = accumulated || reply;
+        await zApi.appendMessage(currentSessionId, { role: 'assistant', content: finalText, timestamp: Date.now() });
+        await stream.finalize(finalText);
+        renderSessionList();
+      } finally {
+        unsubStream();
+        unsubProgress();
+        hideProgress();
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       const errorText = `${t('chat.error')}: ${msg}`;

@@ -350,6 +350,14 @@ function forwardEventsToFocusedWindow(): void {
     if ((e as { type: string }).type === 'progress') {
       target?.webContents.send(IPC_CHANNELS.ON_PROGRESS, e);
     }
+    // Forward streaming events on dedicated channels so the renderer
+    // can subscribe only to what it needs (avoids re-parsing every
+    // ConnectorEvent for a high-frequency stream).
+    if (e.type === 'streamChunk') {
+      target?.webContents.send(IPC_CHANNELS.ON_STREAM_CHUNK, e);
+    } else if (e.type === 'streamEnd') {
+      target?.webContents.send(IPC_CHANNELS.ON_STREAM_END, e);
+    }
   });
   bridge.onWeChatHookStatus((s) => {
     BrowserWindow.getAllWindows().forEach(w => w.webContents.send(IPC_CHANNELS.ON_WECHAT_HOOK_STATUS, s));

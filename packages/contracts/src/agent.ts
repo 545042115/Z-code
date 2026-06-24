@@ -178,6 +178,41 @@ export interface AgentHealth {
   checkedAt?: number;
 }
 
+// ── Multi-Agent Plan DAG (P2) ─────────────────────────────────────────
+
+/**
+ * A single sub-task in a plan DAG. The Orchestrator's `plan` mode
+ * dispatches one agent per node; nodes whose `dependsOn` are all
+ * resolved run in parallel within the same wave.
+ */
+export interface SubTask {
+  /** Stable id within the plan; used as SharedState key (`subtasks.{id}.output`). */
+  id: string;
+  /** Short human label, e.g. "search_ai_news". */
+  title: string;
+  /** Prompt passed to the assigned agent as its `task`. */
+  prompt: string;
+  /** Name of a registered agent to run this sub-task. */
+  assignedTo: string;
+  /** Ids of other sub-tasks that must complete first. */
+  dependsOn: string[];
+}
+
+/**
+ * Decomposition of a user task into a DAG of sub-tasks. Written by
+ * `PlannerAgent` to `SharedState['plan.dag']` and read by the
+ * Orchestrator's `plan` mode.
+ */
+export interface PlanDag {
+  /** Original user task this plan was derived from. */
+  task: string;
+  /** Sub-tasks. May be a single node if the planner determined the
+   *  task is atomic. */
+  subtasks: SubTask[];
+  /** Optional rationale for the decomposition (debug / UI use). */
+  rationale?: string;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 /** Construct a successful AgentResult shorthand. */

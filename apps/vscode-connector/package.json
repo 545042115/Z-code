@@ -13,6 +13,8 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@z-assistant/agent-coding": "0.1.0",
+    "@z-assistant/agent-planner": "0.1.0",
+    "@z-assistant/agent-synthesizer": "0.1.0",
     "@z-assistant/contracts": "0.1.0",
     "@z-assistant/infra-cost": "0.1.0",
     "@z-assistant/infra-storage": "0.1.0",
