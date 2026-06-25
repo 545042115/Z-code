@@ -55,7 +55,50 @@ export class CodingAgent implements IAgent {
 
   canHandle(ctx: TaskContext): number | Promise<number> {
     if (this.opts.impl?.canHandle) return this.opts.impl.canHandle(ctx);
-    return 1.0;
+
+    const t = ctx.task.toLowerCase();
+
+    // Strip commercial plan tokens so that "GLM coding plan" / "token
+    // plan pricing" does NOT bleed into the coding score. The phrase
+    // "coding plan" is a product name, not a coding task.
+    const commercialSignals = [
+      'coding plan', 'code plan', 'token plan', 'subscription plan',
+      'coding套餐', 'token套餐', '订阅套餐', '价格表', 'pricing page',
+    ];
+    const isCommercial = commercialSignals.some((s) => t.includes(s));
+    const sanitized = isCommercial
+      ? t.replace(/coding\s*plan|code\s*plan|token\s*plan|subscription\s*plan/g, ' ')
+      : t;
+
+    // Strong coding signals — explicit code-work verbs.
+    const strongCodingSignals = [
+      '写代码', '写函数', '改代码', '改bug', '修bug', '调试', '重构',
+      '实现', '编码', '编译', '跑测试', '跑用例', '单元测试',
+      'write code', 'write a function', 'fix the bug', 'fix bug',
+      'refactor', 'implement', 'debug', 'compile', 'run the test',
+      'unit test', 'add a feature', 'fix the issue',
+    ];
+    // Medium coding signals — repo / file / language identifiers.
+    const mediumCodingSignals = [
+      '代码', '函数', '类', '接口', '模块', '仓库', '提交', '合并',
+      'pull request', 'merge', 'commit', 'typescript', 'javascript',
+      'python', 'rust', 'golang', 'java', 'cpp', 'react', 'vue',
+      'regex', 'algorithm', 'sort', 'parse', 'json', 'yaml',
+    ];
+
+    let boost = 0;
+    for (const k of strongCodingSignals) {
+      if (sanitized.includes(k)) boost += 0.25;
+    }
+    for (const k of mediumCodingSignals) {
+      if (sanitized.includes(k)) boost += 0.1;
+    }
+    boost = Math.min(boost, 0.7);
+
+    // Base 0.2 — clearly below the research agent (0.45+) so we never
+    // outrank a specialised agent by default. Only explicit coding
+    // signals push us up.
+    return 0.2 + boost;
   }
 
   async execute(ctx: TaskContext): Promise<AgentResult> {

@@ -39,6 +39,12 @@ import { classify } from '@z-assistant/infra-errors';
 import { BudgetGuard, BudgetExceededError } from '@z-assistant/infra-cost';
 import { AgentRegistry, DependencyCycleError } from './agent-registry';
 import { SharedState } from './shared-state';
+import {
+  getDelegationRequest,
+  markDelegationRunning,
+  completeDelegation,
+  failDelegation,
+} from './delegation';
 
 export type OrchestratorMode = 'sequential' | 'parallel' | 'dag' | 'plan';
 
@@ -80,6 +86,22 @@ export interface OrchestratorOptions {
    * Set to '' (empty) to skip synthesis and return the raw outputs.
    */
   synthesizerAgent?: string;
+  /**
+   * Optional callback invoked for each `plan.*` event the Orchestrator
+   * emits (plan.dag, plan.subtask.started, plan.subtask.completed,
+   * plan.subtask.fallback). Used by the desktop UI to render a live
+   * To-do list. The `data` payload mirrors the span-event attributes.
+   */
+  onPlanEvent?: (event: { name: 'plan.dag' | 'plan.subtask.started' | 'plan.subtask.completed' | 'plan.subtask.fallback'; data: Record<string, unknown> }) => void;
+}
+
+/** A plan sub-task as observed by the UI (after the planner produced a PlanDag). */
+export interface PlanSubTaskView {
+  id: string;
+  title: string;
+  assignedTo: string;
+  dependsOn: string[];
+  status: 'pending' | 'running' | 'done' | 'failed';
 }
 
 export interface OrchestratorResult {
@@ -90,7 +112,7 @@ export interface OrchestratorResult {
 }
 
 export class Orchestrator {
-  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent'>;
+  private readonly opts: Required<Omit<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent' | 'onPlanEvent'>> & Pick<OrchestratorOptions, 'userId' | 'initialState' | 'metadata' | 'agents' | 'budgetGuard' | 'signal' | 'plannerAgent' | 'synthesizerAgent' | 'onPlanEvent'>;
 
   constructor(opts: OrchestratorOptions) {
     this.opts = {
@@ -260,6 +282,28 @@ export class Orchestrator {
           // Phase 2: dispatch sub-tasks in dependency waves.
           const subWaves = this._planToWaves(plan);
           const subTaskOutputs: AgentResult[] = [];
+          // Emit the full plan up-front so the UI can render a To-do
+          // list with all sub-tasks in "pending" state, then update
+          // individual sub-tasks as they transition.
+          const dagData = {
+            rationale: plan.rationale,
+            subtasks: plan.subtasks.map((st) => ({
+              id: st.id,
+              title: st.title,
+              assignedTo: st.assignedTo,
+              dependsOn: st.dependsOn,
+              status: 'pending' as const,
+            })),
+          };
+          // Persist a compact Span event (primitive attributes only) and
+          // forward the full structured payload to the onPlanEvent
+          // callback so the UI can render a structured To-do list.
+          root.addEvent('plan.dag', {
+            rationale: plan.rationale ?? '',
+            subtaskCount: plan.subtasks.length,
+            subtaskIds: plan.subtasks.map((s) => s.id).join(','),
+          });
+          this.opts.onPlanEvent?.({ name: 'plan.dag', data: dagData });
           for (const wave of subWaves) {
             if (signal?.aborted) throw new Error('run cancelled');
             if (agentCallCount + wave.length > this.opts.maxAgentCalls) {
@@ -275,12 +319,25 @@ export class Orchestrator {
               // the operator can see what happened.
               const assignedName = this._resolveAssignedAgent(subTask.assignedTo);
               if (assignedName !== subTask.assignedTo) {
-                root.addEvent('plan.subtask.fallback', {
+                const fbData = {
                   subTask: subTask.id,
                   requested: subTask.assignedTo,
                   used: assignedName,
-                });
+                };
+                root.addEvent('plan.subtask.fallback', fbData);
+                this.opts.onPlanEvent?.({ name: 'plan.subtask.fallback', data: fbData });
               }
+              // Emit a per-sub-task "started" event so the UI can flip
+              // the To-do list item from pending → running.
+              const startedData = {
+                subTask: subTask.id,
+                title: subTask.title,
+                agent: assignedName,
+                prompt: subTask.prompt.slice(0, 200),
+                startedAt: Date.now(),
+              };
+              root.addEvent('plan.subtask.started', startedData);
+              this.opts.onPlanEvent?.({ name: 'plan.subtask.started', data: startedData });
               const result = await this._runOneWithTask(
                 assignedName,
                 subTask.prompt,
@@ -289,6 +346,34 @@ export class Orchestrator {
                 subTask.id,
               );
               agentCallCount++;
+              // Emit a per-sub-task "completed" event with status so the
+              // UI can flip running → done/failed and show the output.
+              const completedData = {
+                subTask: subTask.id,
+                agent: assignedName,
+                status: result.ok ? ('done' as const) : ('failed' as const),
+                ok: result.ok,
+                error: result.error?.message,
+                outputPreview:
+                  typeof result.output === 'string'
+                    ? result.output.slice(0, 300)
+                    : result.output != null
+                    ? JSON.stringify(result.output).slice(0, 300)
+                    : undefined,
+                completedAt: Date.now(),
+              };
+              // Persist a compact Span event (primitive attributes only)
+              // and forward the full structured payload to onPlanEvent.
+              root.addEvent('plan.subtask.completed', {
+                subTask: completedData.subTask,
+                agent: completedData.agent,
+                status: completedData.status,
+                ok: completedData.ok,
+                error: completedData.error ?? '',
+                outputPreview: completedData.outputPreview ?? '',
+                completedAt: completedData.completedAt,
+              });
+              this.opts.onPlanEvent?.({ name: 'plan.subtask.completed', data: completedData });
               // Persist the sub-task output for the synthesizer.
               if (result.ok && result.output !== undefined) {
                 sharedState.set(
@@ -483,6 +568,49 @@ export class Orchestrator {
     if (result.artifacts) {
       for (const [k, v] of Object.entries(result.artifacts)) {
         sharedState.set(`artifacts.${name}.${k}`, v, name);
+      }
+    }
+
+    // ── Delegation dispatch ────────────────────────────────────────
+    // After an agent finishes, check if it left delegation requests for
+    // other agents. If so, dispatch them and write back the results.
+    // This enables real-time inter-agent collaboration within a single
+    // orchestrator run (e.g. Research → Browser for interactive fetch).
+    const registeredNames = new Set(this.opts.registry.list().map((a) => a.name));
+    for (const targetName of registeredNames) {
+      if (targetName === name) continue; // skip self
+      const req = getDelegationRequest(sharedState, targetName);
+      if (!req) continue;
+      // Found a pending delegation request from the just-finished agent.
+      // Dispatch it to the target agent synchronously.
+      try {
+        const targetAgent = this.opts.registry.get(targetName);
+        markDelegationRunning(sharedState, targetName, this.opts.tracker.id);
+        const delegateCtx: TaskContext = {
+          task: req.task,
+          model: this.opts.model,
+          sessionId: this.opts.sessionId,
+          userId: this.opts.userId,
+          sharedState,
+          parentRunId: this.opts.tracker.id,
+          traceId: this.opts.tracker.traceId,
+          budget: this.opts.budgetGuard
+            ? this.opts.budgetGuard.snapshot()
+            : { tokensLeft: 0, costLeftUsd: 0 },
+          metadata: { ...this.opts.metadata, delegationId: req.id, delegator: name },
+          signal: this.opts.signal,
+        };
+        const delegateResult = await targetAgent.execute(delegateCtx);
+        if (delegateResult.ok) {
+          const output = typeof delegateResult.output === 'string'
+            ? delegateResult.output
+            : JSON.stringify(delegateResult.output);
+          completeDelegation(sharedState, targetName, output, targetName, delegateResult.artifacts);
+        } else {
+          failDelegation(sharedState, targetName, delegateResult.error?.message ?? 'Delegation failed', targetName);
+        }
+      } catch (e: any) {
+        failDelegation(sharedState, targetName, e?.message ?? String(e), targetName);
       }
     }
 

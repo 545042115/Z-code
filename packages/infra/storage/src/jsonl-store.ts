@@ -91,17 +91,50 @@ type RunRecord = AgentRun | { __deleted: true; id: string };
 type SpanRecord = AgentSpan | { __deleted: true; id: string; runId: string };
 type EvalRecord = Evaluation;
 
+// ── In-memory cache layer ────────────────────────────────────────────
+//
+// Caches the parsed JSONL content in memory after the first read.
+// Invalidated on any write (insert/update/delete).
+// This avoids re-reading the entire file on every query.
+
+class CachedJsonl<T extends { id: string }> {
+  private cache: T[] | null = null;
+  private loadPromise: Promise<T[]> | null = null;
+
+  constructor(private readonly file: string) {}
+
+  async getAll(): Promise<T[]> {
+    if (this.cache !== null) return this.cache;
+    if (this.loadPromise) return this.loadPromise;
+    this.loadPromise = readJsonl<T>(this.file).then((data) => {
+      this.cache = data;
+      this.loadPromise = null;
+      return data;
+    });
+    return this.loadPromise;
+  }
+
+  invalidate(): void {
+    this.cache = null;
+  }
+}
+
 // ── Repo implementations ──────────────────────────────────────────────
 
 class FileRunRepo implements RunRepo {
-  constructor(private readonly file: string) {}
+  private cache: CachedJsonl<RunRecord>;
+
+  constructor(private readonly file: string) {
+    this.cache = new CachedJsonl<RunRecord>(file);
+  }
 
   async insert(run: AgentRun): Promise<void> {
     await atomicAppend(this.file, JSON.stringify(run));
+    this.cache.invalidate();
   }
 
   async get(id: string): Promise<AgentRun | undefined> {
-    const all = await readJsonl<RunRecord>(this.file);
+    const all = await this.cache.getAll();
     const latest = pickLatest(all, id);
     return latest && !isTombstone(latest) ? latest : undefined;
   }
@@ -110,10 +143,11 @@ class FileRunRepo implements RunRepo {
     const cur = await this.get(id);
     if (!cur) throw new Error(`Run not found: ${id}`);
     await atomicAppend(this.file, JSON.stringify({ ...cur, ...set }));
+    this.cache.invalidate();
   }
 
   async list(q: RunQuery = {}): Promise<AgentRun[]> {
-    const all = await readJsonl<RunRecord>(this.file);
+    const all = await this.cache.getAll();
     const map = collapse(all);
     const filtered = [...map.values()].filter(notTombstone).filter((r) => matchRun(r, q));
     return sortAndPaginate(filtered, q, (r) => r.startTime);
@@ -125,21 +159,27 @@ class FileRunRepo implements RunRepo {
 
   async delete(id: string): Promise<void> {
     await atomicAppend(this.file, JSON.stringify({ __deleted: true, id }));
+    this.cache.invalidate();
   }
 }
 
 class FileSpanRepo implements SpanRepo {
+  private cache: CachedJsonl<SpanRecord>;
+
   constructor(
     private readonly file: string,
     private readonly runFile: string,
-  ) {}
+  ) {
+    this.cache = new CachedJsonl<SpanRecord>(file);
+  }
 
   async insert(span: AgentSpan): Promise<void> {
     await atomicAppend(this.file, JSON.stringify(span));
+    this.cache.invalidate();
   }
 
   async get(id: string): Promise<AgentSpan | undefined> {
-    const all = await readJsonl<SpanRecord>(this.file);
+    const all = await this.cache.getAll();
     const latest = pickLatest(all, id);
     return latest && !isSpanTombstone(latest) ? latest : undefined;
   }
@@ -148,6 +188,7 @@ class FileSpanRepo implements SpanRepo {
     const cur = await this.get(id);
     if (!cur) throw new Error(`Span not found: ${id}`);
     await atomicAppend(this.file, JSON.stringify({ ...cur, ...set }));
+    this.cache.invalidate();
   }
 
   async listByRun(runId: string, q: Omit<SpanQuery, 'runId'> = {}): Promise<AgentSpan[]> {
@@ -155,7 +196,7 @@ class FileSpanRepo implements SpanRepo {
   }
 
   async list(q: SpanQuery = {}): Promise<AgentSpan[]> {
-    const all = await readJsonl<SpanRecord>(this.file);
+    const all = await this.cache.getAll();
     const map = collapse(all);
     const filtered = [...map.values()].filter(notSpanTombstone).filter((s) => matchSpan(s, q));
     return sortAndPaginate(filtered, q, (s) => s.startTime);
@@ -166,11 +207,12 @@ class FileSpanRepo implements SpanRepo {
   }
 
   async deleteByRun(runId: string): Promise<number> {
-    const all = await readJsonl<SpanRecord>(this.file);
+    const all = await this.cache.getAll();
     const targets = all.filter(notSpanTombstone).filter((s) => s.runId === runId) as AgentSpan[];
     for (const t of targets) {
       await atomicAppend(this.file, JSON.stringify({ __deleted: true, id: t.id, runId }));
     }
+    this.cache.invalidate();
     return targets.length;
   }
 }

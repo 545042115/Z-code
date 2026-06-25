@@ -1,4 +1,8 @@
 // @z-assistant/app-desktop — renderer bootstrap (i18n)
+//
+// Views are lazy-mounted via MutationObserver in each module.
+// Top-level imports are fine — the observer defers DOM work until
+// the view container actually appears in the DOM.
 
 import './chat';
 import './trace';
@@ -22,11 +26,11 @@ function showView(view: string): void {
 }
 
 function applyNavTranslations(): void {
-  const btnMain = document.querySelector('#nav button[data-view="main"]');
-  const btnChat = document.querySelector('#nav button[data-view="chat"]');
-  const btnTrace = document.querySelector('#nav button[data-view="trace"]');
-  const btnMemory = document.querySelector('#nav button[data-view="memory"]');
-  const btnSettings = document.querySelector('#nav button[data-view="settings"]');
+  const btnMain = document.querySelector('#nav button[data-view="main"] .nav-label');
+  const btnChat = document.querySelector('#nav button[data-view="chat"] .nav-label');
+  const btnTrace = document.querySelector('#nav button[data-view="trace"] .nav-label');
+  const btnMemory = document.querySelector('#nav button[data-view="memory"] .nav-label');
+  const btnSettings = document.querySelector('#nav button[data-view="settings"] .nav-label');
   if (btnMain) btnMain.textContent = t('nav.main');
   if (btnChat) btnChat.textContent = t('nav.chat');
   if (btnTrace) btnTrace.textContent = t('nav.trace');
@@ -34,9 +38,47 @@ function applyNavTranslations(): void {
   if (btnSettings) btnSettings.textContent = t('nav.settings');
 }
 
+function setupWindowControls(): void {
+  const api = (window as any).zApi;
+  if (!api) return;
+
+  const btnMin = document.getElementById('win-minimize');
+  const btnMax = document.getElementById('win-maximize');
+  const btnClose = document.getElementById('win-close');
+
+  btnMin?.addEventListener('click', () => api.windowMinimize?.());
+  btnMax?.addEventListener('click', () => api.windowMaximize?.());
+  btnClose?.addEventListener('click', () => api.windowClose?.());
+
+  const updateMaxButton = async () => {
+    if (!btnMax) return;
+    try {
+      const maximized = await api.windowIsMaximized?.();
+      if (maximized) {
+        btnMax.title = 'Restore';
+        const svg = btnMax.querySelector('svg');
+        if (svg) {
+          svg.innerHTML = '<path d="M2.5 1.5h5v5h-5v-5z M4.5 4.5h4v4h-4v-4z" fill="none" stroke="currentColor" stroke-width="0.8"/>';
+        }
+      } else {
+        btnMax.title = 'Maximize';
+        const svg = btnMax.querySelector('svg');
+        if (svg) {
+          svg.innerHTML = '<rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/>';
+        }
+      }
+    } catch { /* ignore */ }
+  };
+
+  updateMaxButton();
+  api.windowOnMaximizeChange?.(() => updateMaxButton());
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   const app = document.getElementById('main');
   if (!app) return;
+
+  setupWindowControls();
 
   // Load persisted language before rendering
   await loadLanguage();

@@ -11,13 +11,14 @@ export interface TrayOptions {
   onShowChat: () => void;
   onShowTrace: () => void;
   onShowSettings: () => void;
+  onShowViewport: () => void;
   onQuit: () => void;
   language?: TrayLanguage;
 }
 
-const TRAY_LABELS: Record<TrayLanguage, { main: string; chat: string; trace: string; settings: string; quit: string }> = {
-  'zh-CN': { main: '主页', chat: '对话', trace: '追踪', settings: '设置', quit: '退出' },
-  en: { main: 'Main', chat: 'Chat', trace: 'Trace', settings: 'Settings', quit: 'Quit' },
+const TRAY_LABELS: Record<TrayLanguage, { main: string; chat: string; trace: string; settings: string; viewport: string; quit: string }> = {
+  'zh-CN': { main: '主页', chat: '对话', trace: '追踪', settings: '设置', viewport: '视窗', quit: '退出' },
+  en: { main: 'Main', chat: 'Chat', trace: 'Trace', settings: 'Settings', viewport: 'Viewport', quit: 'Quit' },
 };
 
 let tray: Tray | null = null;
@@ -30,6 +31,7 @@ function buildContextMenu(opts: TrayOptions): Electron.Menu {
     { label: labels.chat, click: opts.onShowChat },
     { label: labels.trace, click: opts.onShowTrace },
     { label: labels.settings, click: opts.onShowSettings },
+    // { label: labels.viewport, click: opts.onShowViewport },  // TEMP DISABLED
     { type: 'separator' },
     { label: labels.quit, click: opts.onQuit },
   ]);

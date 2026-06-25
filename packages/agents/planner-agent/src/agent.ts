@@ -31,32 +31,94 @@ export interface PlannerAgentConfig {
   systemPrompt?: string;
 }
 
-const DEFAULT_AVAILABLE_AGENTS = ['chat', 'browser', 'research', 'office'];
+const DEFAULT_AVAILABLE_AGENTS = ['chat', 'browser', 'research', 'coding', 'office'];
 
-const DEFAULT_SYSTEM_PROMPT = `You are a task-planning agent. Your job is to decompose a user's request into a DAG of sub-tasks so that specialised agents can execute them in parallel.
+const DEFAULT_SYSTEM_PROMPT = `You are a task-planning agent. Your job is to decompose a user's request into a DAG of sub-tasks so that specialised worker agents can execute them.
 
 Available agents (use exactly these names in \`assignedTo\`):
 - chat      — general reasoning, code, writing, math, summarisation
-- browser   — interactive web pages (login walls, JS-heavy sites, screenshots)
+- browser   — interactive web pages (login walls, JS-heavy sites, screenshots, clicks, form fills)
 - research  — web search + multi-page synthesis, produces a report
+- coding    — write / edit / refactor code, run tests, fix bugs
 - office    — Office documents (.docx/.xlsx/.pptx) read & edit
 
-Rules:
-1. Produce AT MOST {max} sub-tasks. Prefer fewer — over-decomposition wastes budget.
-2. Every sub-task MUST have a unique \`id\` (snake_case), a non-empty \`prompt\`, and an \`assignedTo\` from the list above.
-3. Use \`dependsOn\` to express ordering (e.g. "search then summarise" → the second node depends on the first).
-4. If the task is ATOMIC (single intent, fits one agent), return ONE sub-task with empty \`dependsOn\`.
-5. NEVER assign a sub-task to yourself. Never invent agent names not in the list.
+=== HARD RULES — DO NOT VIOLATE ===
 
-Respond with a JSON object of the form:
+1. **One sub-task = ONE worker agent.** A sub-task must be assigned to exactly one agent. NEVER list multiple agents for a single sub-task. If a goal needs both browsing and code editing, split it into two sub-tasks: one for browser, one for coding.
+
+2. **No multi-agent collaboration on a single sub-task.** A sub-task runs in a single worker's context. The worker must be able to complete the sub-task on its own. Do NOT create sub-tasks like "have research and browser work together on this URL".
+
+3. **Decompose further when complex.** If a sub-task is too complex for one worker (e.g. "build a website with login, payments, and an admin panel"), split it into smaller sub-tasks that EACH fit a single agent. Keep splitting until each leaf sub-task is small enough to be done in one worker pass.
+
+4. **Pick the BEST agent per sub-task.** Choose the agent that is most specialised for the sub-task. For "visit X and read the price table" → browser (because pricing pages are JS-rendered). For "summarise what we found" → chat or research. For "write a Python function" → coding.
+
+5. **Prefer fewer sub-tasks.** Aim for {max} or fewer. Over-decomposition wastes budget. An atomic task is ONE sub-task with empty \`dependsOn\`.
+
+6. **Use \`dependsOn\` for ordering.** If sub-task B needs A's output, B.dependsOn must include A.id. Independent sub-tasks get empty dependsOn and run in parallel.
+
+7. **NEVER assign a sub-task to yourself.** Never invent agent names not in the list above. If a sub-task truly cannot be done by any listed agent, assign it to "chat" and describe the work in \`prompt\`.
+
+=== OUTPUT FORMAT ===
+
+Respond with ONLY a JSON object (no markdown fences, no prose) of the form:
 {
-  "rationale": "one-sentence explanation of the decomposition",
+  "rationale": "one-sentence explanation of the decomposition and the key agent choice",
   "subtasks": [
-    { "id": "search_news", "title": "Search latest AI news", "prompt": "...", "assignedTo": "research", "dependsOn": [] }
+    {
+      "id": "snake_case_id",
+      "title": "Short label, max 8 words",
+      "prompt": "Self-contained instruction for the worker. Include any URL, filename, or context the worker needs.",
+      "assignedTo": "one of: chat | browser | research | coding | office",
+      "dependsOn": ["id_of_prerequisite_subtask"]
+    }
   ]
 }
 
-Output ONLY the JSON — no prose, no markdown fences.`;
+=== EXAMPLES ===
+
+Example 1 — "查询 GLM/火山方舟 coding plan 费用"
+{
+  "rationale": "One browse on each pricing page is enough; no extra search or synthesis needed.",
+  "subtasks": [
+    {
+      "id": "browse_glm_pricing",
+      "title": "Open GLM pricing page",
+      "prompt": "Navigate to https://open.bigmodel.cn/pricing and extract the coding plan and token plan price table. Return the plan names, monthly prices, and included tokens as a markdown table.",
+      "assignedTo": "browser",
+      "dependsOn": []
+    },
+    {
+      "id": "browse_volc_pricing",
+      "title": "Open Volcano Ark pricing page",
+      "prompt": "Navigate to https://www.volcengine.com/pricing and find the coding plan and token plan for the LLM services. Return the plan names, monthly prices, and included tokens as a markdown table.",
+      "assignedTo": "browser",
+      "dependsOn": []
+    },
+    {
+      "id": "compare_and_recommend",
+      "title": "Compare and recommend",
+      "prompt": "Given the two pricing tables above, compare them on price-per-million-tokens and recommend which is more cost-effective for a developer using ~5M tokens/day. Return a short verdict (3-5 lines).",
+      "assignedTo": "chat",
+      "dependsOn": ["browse_glm_pricing", "browse_volc_pricing"]
+    }
+  ]
+}
+
+Example 2 — "Refactor login.ts to use async/await and add tests"
+{
+  "rationale": "Single coding sub-task: one worker, no browser, no research.",
+  "subtasks": [
+    {
+      "id": "refactor_login",
+      "title": "Refactor login.ts and add tests",
+      "prompt": "Open login.ts, convert the callback-style code to async/await, and add Jest tests covering the success and failure paths. Run the test suite when done.",
+      "assignedTo": "coding",
+      "dependsOn": []
+    }
+  ]
+}
+
+Now decompose the user's request. Output ONLY the JSON.`;
 
 /** Factory: build a Planner `IAgent`. */
 export function createPlannerAgent(config: PlannerAgentConfig): IAgent {

@@ -2,10 +2,15 @@
 //
 // Wires the Research Agent to the desktop's live web search / fetch tools
 // and the browser-based fetch provider for JS-heavy pages.
+// Uses the shared Playwright backend (from browser-agent-bridge) so the
+// Browser Agent and Research Agent share a single browser instance.
 
 import { createResearchAgent } from '@z-assistant/agent-research';
 import type { IAgent, ILLMProvider, ModelSpec } from '@z-assistant/contracts';
-import { webSearchResults, webFetch, browserNavigate, browserScreenshot, browserClose } from '@z-assistant/app-vscode-connector';
+import { webSearchResults, webFetch } from '@z-assistant/app-vscode-connector';
+import { pageToText } from '@z-assistant/agent-browser';
+import { getSharedBackend } from './browser-agent-bridge';
+import { emitAgentActivity } from './agent-activity-bus';
 
 export interface DesktopResearchAgentOptions {
   llmProvider: ILLMProvider;
@@ -18,19 +23,60 @@ export function createResearchAgentBridge(options: DesktopResearchAgentOptions):
   return createResearchAgent({
     llmProvider: options.llmProvider,
     model: options.model,
-    searchProvider: async (query: string, maxResults: number) =>
-      webSearchResults(query, maxResults),
-    fetchProvider: async (url: string, maxLength: number) =>
-      webFetch(url, maxLength),
+    searchProvider: async (query: string, maxResults: number) => {
+      emitAgentActivity({
+        agent: 'research',
+        icon: '\u{1F50D}',
+        message: `Searching: ${query.slice(0, 80)}`,
+        detail: `maxResults: ${maxResults}`,
+      });
+      return webSearchResults(query, maxResults);
+    },
+    fetchProvider: async (url: string, maxLength: number) => {
+      emitAgentActivity({
+        agent: 'research',
+        icon: '\u{1F4E1}',
+        message: `Fetching page: ${url.slice(0, 80)}`,
+        detail: `maxLength: ${maxLength}`,
+      });
+      return webFetch(url, maxLength);
+    },
     browserFetchProvider: async (url: string) => {
-      // Navigate to the page in a real browser (renders JS).
-      await browserNavigate(url);
-      // Take a screenshot to extract visible text and interactive elements.
-      const snapshot = await browserScreenshot();
-      // Close the browser to free resources.
-      await browserClose();
-      // The snapshot description includes visible text; use it as content.
-      return { title: url, content: snapshot };
+      emitAgentActivity({
+        agent: 'research',
+        icon: '\u{1F310}',
+        message: `Opening in browser: ${url.slice(0, 80)}`,
+      });
+      // Use the shared Playwright backend (same instance as Browser Agent).
+      const backend = await getSharedBackend();
+      // Navigate to the target URL (renders JS, executes SPA).
+      await backend.act({ type: 'navigate', url });
+      // Wait a moment for dynamic content to load.
+      await new Promise((r) => setTimeout(r, 1500));
+      // Take a full DOM snapshot and convert to structured text.
+      const snapshot = await backend.snapshot({ includeScreenshot: false });
+      const content = pageToText(snapshot, 500);
+      emitAgentActivity({
+        agent: 'research',
+        icon: '\u{2705}',
+        message: `Browser fetch complete: ${snapshot.title?.slice(0, 60) || url.slice(0, 60)}`,
+      });
+      return { title: snapshot.title || url, content };
+    },
+    // Progress callback: emit activity events during long operations
+    onProgress: (phase: string, detail: string) => {
+      const icons: Record<string, string> = {
+        plan: '\u{1F4CB}',
+        search: '\u{1F50D}',
+        fetch: '\u{1F4E1}',
+        reflect: '\u{1F9E0}',
+        synthesize: '\u{270D}',
+      };
+      emitAgentActivity({
+        agent: 'research',
+        icon: icons[phase] || '\u{1F4BB}',
+        message: detail.slice(0, 100),
+      });
     },
     maxQueries: 3,
     maxResultsPerQuery: 5,

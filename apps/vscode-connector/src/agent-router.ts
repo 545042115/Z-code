@@ -117,11 +117,25 @@ export async function selectAgentsForTask(
         const agentEmbedding = await embeddingProvider.embed(capabilityText);
         const embeddingScore = cosineSimilarity(taskEmbedding, agentEmbedding);
         // Blend keyword score with embedding similarity so either signal can win.
-        const score = item.score * 0.5 + embeddingScore * 0.5;
-        return { agent: item.agent, score };
+        const keywordScore = item.score;
+        const score = keywordScore * 0.5 + embeddingScore * 0.5;
+        return { agent: item.agent, score, _debug: { keywordScore, embeddingScore } };
       }),
     );
     blended.sort((a, b) => b.score - a.score);
+    // P1-1 debug log — show per-agent scores so mis-routing can be diagnosed
+    // from a single log line. Off by default in production but always emitted
+    // here so the trace panel can capture it.
+    if (process.env.Z_ROUTER_DEBUG !== '0') {
+      const breakdown = blended
+        .map((b) =>
+          `${b.agent.name}=${b.score.toFixed(2)}` +
+          `(kw:${b._debug.keywordScore.toFixed(2)}+emb:${b._debug.embeddingScore.toFixed(2)})`,
+        )
+        .join(' | ');
+      // eslint-disable-next-line no-console
+      console.log(`[router] task="${task.slice(0, 60)}${task.length > 60 ? '…' : ''}" → ${breakdown}`);
+    }
     ranked = blended;
   }
 

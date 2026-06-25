@@ -66,6 +66,20 @@ export interface ZDesktopAPI {
   approveSkillCandidate: (id: string, note?: string) => Promise<void>;
   rejectSkillCandidate: (id: string, note?: string) => Promise<void>;
   runSuccessSkillDiscovery: (historyDir?: string, minTurns?: number) => Promise<{ candidates: number; facts: number }>;
+  // Manual skill creation from a session
+  createSkillFromSession: (sessionId: string) => Promise<{ name: string; path: string }>;
+  // Agent activity (side-panel feed)
+  onAgentActivity: (cb: (e: { agent: string; icon: string; message: string; detail?: string }) => void) => () => void;
+  // Window controls
+  windowMinimize: () => Promise<void>;
+  windowMaximize: () => Promise<void>;
+  windowClose: () => Promise<void>;
+  windowIsMaximized: () => Promise<boolean>;
+  windowOnMaximizeChange: (cb: (maximized: boolean) => void) => () => void;
+  // Browser preview (Marvis-like live view)
+  onBrowserPreview: (cb: (base64Data: string) => void) => () => void;
+  // Agent Viewport (floating window)
+  toggleAgentViewport: () => Promise<boolean>;
 }
 
 interface WeChatHookStatus {
@@ -168,6 +182,32 @@ const api: ZDesktopAPI = {
   approveSkillCandidate: (id, note) => ipcRenderer.invoke(IPC_CHANNELS.APPROVE_SKILL_CANDIDATE, id, note),
   rejectSkillCandidate: (id, note) => ipcRenderer.invoke(IPC_CHANNELS.REJECT_SKILL_CANDIDATE, id, note),
   runSuccessSkillDiscovery: (historyDir, minTurns) => ipcRenderer.invoke(IPC_CHANNELS.RUN_SUCCESS_SKILL_DISCOVERY, historyDir, minTurns),
+  // Manual skill creation from a session
+  createSkillFromSession: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.CREATE_SKILL_FROM_SESSION, sessionId),
+  // Agent activity (side-panel feed)
+  onAgentActivity: (cb) => {
+    const handler = (_: unknown, e: { agent: string; icon: string; message: string; detail?: string }) => cb(e);
+    ipcRenderer.on(IPC_CHANNELS.ON_AGENT_ACTIVITY, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_AGENT_ACTIVITY, handler);
+  },
+  // Window controls
+  windowMinimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),
+  windowMaximize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MAXIMIZE),
+  windowClose: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_CLOSE),
+  windowIsMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
+  windowOnMaximizeChange: (cb) => {
+    const handler = (_: unknown, maximized: boolean) => cb(maximized);
+    ipcRenderer.on(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE, handler);
+  },
+  // Browser preview
+  onBrowserPreview: (cb) => {
+    const handler = (_: unknown, b64: string) => cb(b64);
+    ipcRenderer.on(IPC_CHANNELS.ON_BROWSER_PREVIEW, handler);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_BROWSER_PREVIEW, handler);
+  },
+  // Agent Viewport
+  toggleAgentViewport: () => ipcRenderer.invoke(IPC_CHANNELS.TOGGLE_AGENT_VIEWPORT),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);

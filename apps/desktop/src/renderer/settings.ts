@@ -589,7 +589,11 @@ function renderSettings(container: HTMLElement): void {
         alwaysRulesList.innerHTML = `<p class="muted">${t('settings.no_always_rules')}</p>`;
         return;
       }
-      for (const r of rules) {
+      const MAX_VISIBLE = 5;
+      const showAll = alwaysRulesList.dataset.showAll === 'true';
+      const visible = showAll ? rules : rules.slice(0, MAX_VISIBLE);
+
+      for (const r of visible) {
         const card = document.createElement('div');
         card.className = 'card';
         card.style.padding = '10px';
@@ -609,6 +613,22 @@ function renderSettings(container: HTMLElement): void {
         `;
         alwaysRulesList.appendChild(card);
       }
+
+      // Show more / show less toggle
+      if (rules.length > MAX_VISIBLE) {
+        const toggle = document.createElement('button');
+        toggle.className = 'secondary';
+        toggle.style.cssText = 'font-size:0.8em;padding:4px 8px;align-self:center';
+        toggle.textContent = showAll
+          ? t('settings.always_rules_show_less')
+          : `${t('settings.always_rules_show_more')} (${rules.length - MAX_VISIBLE})`;
+        toggle.addEventListener('click', () => {
+          alwaysRulesList.dataset.showAll = showAll ? 'false' : 'true';
+          renderAlwaysRules();
+        });
+        alwaysRulesList.appendChild(toggle);
+      }
+
       alwaysRulesList.querySelectorAll('.remove-always-rule').forEach((btn) => {
         btn.addEventListener('click', async () => {
           const id = (btn as HTMLButtonElement).dataset.id!;
@@ -708,25 +728,29 @@ function renderSettings(container: HTMLElement): void {
   renderSkillQueue();
   renderAlwaysRules();
 
-  // Refresh profile status periodically
+  // Refresh profile status periodically (only while the settings panel is visible)
   updateProfileDisplay();
-  setInterval(() => {
-    updateProfileDisplay();
+  const profileInterval = setInterval(() => {
+    if (container.style.display !== 'none') {
+      updateProfileDisplay();
+    }
   }, 5000);
 }
 
-export function mountSettings(container: HTMLElement): void {
+function mountSettings(container: HTMLElement): void {
   renderSettings(container);
 }
 
 // Auto-mount
+let settingsInitialized = false;
 const observer = new MutationObserver(() => {
   const container = document.getElementById('view-settings');
-  if (container && !container.querySelector('#settings-lang')) {
+  if (container && !container.querySelector('#settings-lang') && !settingsInitialized) {
+    settingsInitialized = true;
     mountSettings(container);
     applyTranslations();
   }
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
-export {};
+export { mountSettings, settingsInitialized };

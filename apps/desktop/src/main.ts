@@ -9,6 +9,8 @@ import { createTray, destroyTray, updateTrayLanguage, type TrayLanguage } from '
 import { registerGlobalHotkey, unregisterAllGlobalHotkeys, toggleWindow, DEFAULT_HOTKEY } from './hotkey';
 import { Updater } from './updater';
 import { LicenseService } from './license';
+import { AgentViewport } from './agent-viewport';
+import { setBrowserLifecycleCallbacks, startScreencast, stopScreencast, closeSharedBrowser } from './browser-agent-bridge';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatMessage } from './session-manager';
 
@@ -51,10 +53,21 @@ let traceWindow: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
 let isQuitting = false;
 
+// Agent Viewport (Marvis-like floating window)
+const viewport = new AgentViewport();
+
 function getRendererUrl(file: string): string {
   const url = `file://${path.join(__dirname, 'renderer', file)}`;
   debugLog(`Renderer URL: ${url}`);
   return url;
+}
+
+function setupWindowEvents(win: BrowserWindow): void {
+  const emitMaximized = (maximized: boolean) => {
+    win.webContents.send(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE, maximized);
+  };
+  win.on('maximize', () => emitMaximized(true));
+  win.on('unmaximize', () => emitMaximized(false));
 }
 
 function createMainWindow(): BrowserWindow {
@@ -71,6 +84,7 @@ function createMainWindow(): BrowserWindow {
       sandbox: false,
     },
   });
+  setupWindowEvents(win);
   win.loadURL(getRendererUrl('index.html?view=main'));
   win.once('ready-to-show', () => {
     debugLog('ready-to-show fired');
@@ -114,6 +128,7 @@ function createChatWindow(): BrowserWindow {
       sandbox: false,
     },
   });
+  setupWindowEvents(win);
   win.loadURL(getRendererUrl('index.html?view=chat'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { chatWindow = null; });
@@ -137,6 +152,7 @@ function createTraceWindow(): BrowserWindow {
       sandbox: false,
     },
   });
+  setupWindowEvents(win);
   win.loadURL(getRendererUrl('index.html?view=trace'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { traceWindow = null; });
@@ -160,6 +176,7 @@ function createSettingsWindow(): BrowserWindow {
       sandbox: false,
     },
   });
+  setupWindowEvents(win);
   win.loadURL(getRendererUrl('index.html?view=settings'));
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => { settingsWindow = null; });
@@ -268,6 +285,10 @@ function registerIpcHandlers(): void {
     await bridge.start();
     return bridge.runSuccessSkillDiscovery({ historyDir, minTurns });
   });
+  ipcMain.handle(IPC_CHANNELS.CREATE_SKILL_FROM_SESSION, async (_event, sessionId: string) => {
+    await bridge.start();
+    return bridge.createSkillFromSession(sessionId);
+  });
 
   // ── WeChat Hook IPC handlers ────────────────────────────────
   ipcMain.handle(IPC_CHANNELS.START_WECHAT_HOOK, async (_event, config) => {
@@ -341,6 +362,29 @@ function registerIpcHandlers(): void {
   });
   ipcMain.handle(IPC_CHANNELS.LIST_ALWAYS_RULES, () => bridge.listAlwaysRules());
   ipcMain.handle(IPC_CHANNELS.REMOVE_ALWAYS_RULE, (_event, id: string) => bridge.removeAlwaysRule(id));
+
+  // ── Window control IPC handlers ───────────────────────────
+  ipcMain.handle(IPC_CHANNELS.WINDOW_MINIMIZE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    win?.minimize();
+  });
+  ipcMain.handle(IPC_CHANNELS.WINDOW_MAXIMIZE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win) return;
+    if (win.isMaximized()) {
+      win.unmaximize();
+    } else {
+      win.maximize();
+    }
+  });
+  ipcMain.handle(IPC_CHANNELS.WINDOW_CLOSE, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    win?.close();
+  });
+  ipcMain.handle(IPC_CHANNELS.WINDOW_IS_MAXIMIZED, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return win?.isMaximized() ?? false;
+  });
 }
 
 function forwardEventsToFocusedWindow(): void {
@@ -357,6 +401,10 @@ function forwardEventsToFocusedWindow(): void {
       target?.webContents.send(IPC_CHANNELS.ON_STREAM_CHUNK, e);
     } else if (e.type === 'streamEnd') {
       target?.webContents.send(IPC_CHANNELS.ON_STREAM_END, e);
+    } else if (e.type === 'agentActivity') {
+      target?.webContents.send(IPC_CHANNELS.ON_AGENT_ACTIVITY, e);
+      // Also forward to the viewport window
+      viewport.sendActivity(e.agent, e.icon, e.message, e.detail);
     }
   });
   bridge.onWeChatHookStatus((s) => {
@@ -392,6 +440,25 @@ app.whenReady().then(async () => {
     }
   }, 5000);
 
+  // ── Agent Viewport (CDP Screencast + Activity Feed) ──────────
+  // TEMPORARILY DISABLED — 2026-06-25
+  //   The viewport currently shows a browser window with no live
+  //   activity, which is confusing for users. Re-enable once CDP
+  //   screencast is wired into every Browser-agent invocation and a
+  //   To-do list panel is added. See agent-viewport.ts for the
+  //   unhooked implementation.
+  // ── viewport.setScreencastFns(startScreencast, stopScreencast);
+  // ── setBrowserLifecycleCallbacks({
+  // ──   onStarted: () => viewport.startScreencast(),
+  // ──   onStopped: () => viewport.stopScreencast(),
+  // ── });
+  // Toggle viewport via IPC
+  ipcMain.handle(IPC_CHANNELS.TOGGLE_AGENT_VIEWPORT, () => {
+    // viewport.toggle();
+    // return viewport.isVisible;
+    return false;
+  });
+
   const initialLang = bridge.getSettings().language;
   createTray({
     onShowMain: () => {
@@ -405,6 +472,7 @@ app.whenReady().then(async () => {
     onShowChat: showChat,
     onShowTrace: showTrace,
     onShowSettings: showSettings,
+    onShowViewport: () => viewport.toggle(),
     onQuit: () => app.quit(),
     language: (initialLang === 'zh-CN' || initialLang === 'en' ? initialLang : 'en') as TrayLanguage,
   });
@@ -429,6 +497,8 @@ app.on('before-quit', async () => {
   isQuitting = true;
   unregisterAllGlobalHotkeys();
   destroyTray();
+  await viewport.destroy();
+  await closeSharedBrowser();
   await bridge.stop();
 });
 

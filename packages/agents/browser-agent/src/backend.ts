@@ -129,6 +129,23 @@ export interface IBrowserBackend {
   /** Get the current page's full snapshot. */
   snapshot(opts?: { includeScreenshot?: boolean }): Promise<PageSnapshot>;
 
+  /**
+   * Start CDP screencast — the browser pushes JPEG frames in real time.
+   * @param onFrame Callback receiving base64-encoded JPEG frames.
+   * @param quality JPEG quality 1-100. Default 30.
+   * @param maxWidth Max frame width. Default 480.
+   * @param maxHeight Max frame height. Default 360.
+   */
+  startScreencast(opts: {
+    onFrame: (jpegBase64: string) => void;
+    quality?: number;
+    maxWidth?: number;
+    maxHeight?: number;
+  }): Promise<void>;
+
+  /** Stop CDP screencast. */
+  stopScreencast(): Promise<void>;
+
   /** Execute a single action on the current page. */
   act(action: BrowserAction): Promise<ActionResult>;
 
@@ -181,6 +198,8 @@ class PlaywrightBackend implements IBrowserBackend {
   private browser: PlaywrightBrowser | null = null;
   private context: PlaywrightBrowser | null = null;
   private page: PlaywrightPage | null = null;
+  private screencastActive = false;
+  private cdpSession: any = null;
 
   async start(headless = true): Promise<void> {
     let playwright: any;
@@ -192,7 +211,13 @@ class PlaywrightBackend implements IBrowserBackend {
         'or use a different IBrowserBackend implementation.'
       );
     }
-    this.browser = await playwright.chromium.launch({ headless });
+    // Try system Chrome first (channel: 'chrome'), fall back to bundled Chromium.
+    // This avoids downloading a separate browser binary when the user already has Chrome.
+    try {
+      this.browser = await playwright.chromium.launch({ headless, channel: 'chrome' });
+    } catch {
+      this.browser = await playwright.chromium.launch({ headless });
+    }
     this.context = await (this.browser as any).newContext({
       viewport: { width: 1280, height: 800 },
     });
@@ -457,7 +482,54 @@ class PlaywrightBackend implements IBrowserBackend {
     return result;
   }
 
+  async startScreencast(opts: {
+    onFrame: (jpegBase64: string) => void;
+    quality?: number;
+    maxWidth?: number;
+    maxHeight?: number;
+  }): Promise<void> {
+    if (!this.page) throw new Error('Browser not started. Call start() first.');
+    if (this.screencastActive) return;
+    this.screencastActive = true;
+
+    const quality = opts.quality ?? 30;
+    const maxWidth = opts.maxWidth ?? 480;
+    const maxHeight = opts.maxHeight ?? 360;
+
+    // Create CDP session
+    this.cdpSession = await (this.page as any).context().newCDPSession(this.page);
+
+    // Subscribe to screencast frames
+    (this.cdpSession as any).on('Page.screencastFrame', (frame: any) => {
+      if (!this.screencastActive) return;
+      opts.onFrame(frame.data); // base64 JPEG
+      // Acknowledge the frame so the next one is sent
+      (this.cdpSession as any).send('Page.screencastFrameAck', {
+        sessionId: frame.sessionId,
+      }).catch(() => {});
+    });
+
+    // Start the screencast
+    await (this.cdpSession as any).send('Page.startScreencast', {
+      format: 'jpeg',
+      quality,
+      maxWidth,
+      maxHeight,
+      everyNthFrame: 1, // every frame
+    });
+  }
+
+  async stopScreencast(): Promise<void> {
+    if (!this.screencastActive) return;
+    this.screencastActive = false;
+    try {
+      await (this.cdpSession as any)?.send('Page.stopScreencast').catch(() => {});
+    } catch { /* ignore */ }
+    this.cdpSession = null;
+  }
+
   async close(): Promise<void> {
+    await this.stopScreencast().catch(() => {});
     try { await (this.browser as any)?.close(); } catch { /* ignore */ }
     this.browser = null;
     this.context = null;

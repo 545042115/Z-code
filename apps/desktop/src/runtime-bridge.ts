@@ -12,6 +12,7 @@ import {
 } from '@z-assistant/app-vscode-connector';
 import { createBrowserAgent } from './browser-agent-bridge';
 import { createResearchAgentBridge } from './research-agent-bridge';
+import { onAgentActivity } from './agent-activity-bus';
 import type {
   AgentRun,
   AgentSpan,
@@ -92,6 +93,7 @@ export class RuntimeBridge {
   private pendingConfirmations = new Map<string, PendingConfirmation>();
   private alwaysRulesPath: string;
   private auditLogger: AuditLogger | null = null;
+  private _unsubActivity: (() => void) | null = null;
   private static readonly CONFIRMATION_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 
   constructor(settings?: Partial<DesktopSettings>) {
@@ -201,6 +203,16 @@ export class RuntimeBridge {
     this.connector.onEvent((e) => {
       for (const l of this.eventListeners) l(e);
     });
+    // Wire agent activity bus → connector events → IPC → renderer
+    this._unsubActivity = onAgentActivity((activity) => {
+      this.dispatchEvent({
+        type: 'agentActivity',
+        agent: activity.agent,
+        icon: activity.icon,
+        message: activity.message,
+        detail: activity.detail,
+      });
+    });
     await this.connector.start();
   }
 
@@ -235,7 +247,7 @@ export class RuntimeBridge {
 
   async runSuccessSkillDiscovery(cfg?: { historyDir?: string; minTurns?: number }): Promise<{ candidates: number; facts: number }> {
     if (!this.connector) throw new Error('Runtime not started');
-    const historyDir = cfg?.historyDir ?? path.join(this.settings.projectDir || this.settings.storageDir, 'History');
+    const historyDir = cfg?.historyDir ?? path.join(this.settings.storageDir, 'History');
     return this.connector.runSuccessSkillDiscovery({ ...cfg, historyDir });
   }
 
@@ -247,9 +259,9 @@ export class RuntimeBridge {
   async approveSkillCandidate(id: string, note?: string): Promise<void> {
     if (!this.connector) throw new Error('Runtime not started');
     const candidate = await this.connector.approveSkillCandidate(id, note);
-    // On approval, write the skill to <projectDir>/.skills/<name>/SKILL.md so
+    // On approval, write the skill to <storageDir>/.skills/<name>/SKILL.md so
     // it becomes active on the next chat agent run.
-    const skillRoot = this.settings.projectDir || this.settings.storageDir;
+    const skillRoot = this.settings.storageDir;
     const skillDir = path.join(skillRoot, '.skills', candidate.draft.name);
     fs.mkdirSync(skillDir, { recursive: true });
     const frontmatter = [
@@ -270,6 +282,82 @@ export class RuntimeBridge {
   async rejectSkillCandidate(id: string, note?: string): Promise<void> {
     if (!this.connector) throw new Error('Runtime not started');
     await this.connector.rejectSkillCandidate(id, note);
+  }
+
+  async createSkillFromSession(sessionId: string): Promise<{ name: string; path: string }> {
+    if (!this.connector) throw new Error('Runtime not started');
+    const session = this._sessions.get(sessionId);
+    if (!session) throw new Error(`Session ${sessionId} not found`);
+
+    // Build conversation markdown from session messages
+    const conversationMarkdown = session.messages
+      .map((m: any) => `## ${m.role === 'user' ? 'User' : 'Assistant'}\n${m.content}`)
+      .join('\n\n');
+
+    // Create an LLM provider for skill extraction using the user's configured model
+    const { OpenAIProvider } = require('@z-assistant/app-vscode-connector');
+    const model = this.settings.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
+    let baseURL: string;
+    if (this.settings.apiEndpoint) {
+      baseURL = this.settings.apiEndpoint;
+    } else {
+      switch (model.provider) {
+        case 'deepseek': baseURL = 'https://api.deepseek.com/v1'; break;
+        case 'openai':   baseURL = 'https://api.openai.com/v1'; break;
+        case 'anthropic': baseURL = 'https://api.anthropic.com/v1'; break;
+        case 'gemini':   baseURL = 'https://generativelanguage.googleapis.com/v1'; break;
+        case 'ollama':   baseURL = 'http://localhost:11434/v1'; break;
+        default:         baseURL = 'https://api.openai.com/v1'; break;
+      }
+    }
+    const llmProvider = new OpenAIProvider({
+      baseURL,
+      apiKey: this.settings.apiKey,
+      defaultModel: model.name,
+      name: model.provider,
+    });
+
+    // Use the LLM success extractor to create a skill draft
+    const { LlmSuccessSkillExtractor } = require('@z-assistant/runtime');
+    const extractor = new LlmSuccessSkillExtractor({
+      llmProvider,
+      model,
+    });
+    const result = await extractor.extract({
+      key: sessionId,
+      taskPattern: session.title || 'manual-skill',
+      cases: [{
+        id: sessionId,
+        task: session.title || 'Manual skill creation',
+        conversationMarkdown,
+        outcome: 'success' as const,
+        durationMs: 0,
+        timestamp: session.updatedAt || session.createdAt,
+      }],
+    });
+
+    // Write the skill to <storageDir>/.skills/<name>/SKILL.md
+    // Use storageDir (user data dir) instead of projectDir to avoid writing
+    // into the packaged app directory (dist/win-unpacked/).
+    const skillRoot = this.settings.storageDir;
+    const skillDir = path.join(skillRoot, '.skills', result.draft.name);
+    fs.mkdirSync(skillDir, { recursive: true });
+    const frontmatter = [
+      '---',
+      `name: ${result.draft.name}`,
+      `description: ${result.draft.description}`,
+      `tags: [${result.draft.tags.map((t: string) => `"${t}"`).join(', ')}]`,
+      `priority: ${result.draft.priority}`,
+      `mode: ${result.draft.mode}`,
+      'triggers:',
+      `  keywords: [${result.draft.triggers.keywords?.map((k: string) => `"${k}"`).join(', ') ?? ''}]`,
+      '---',
+      '',
+    ].join('\n');
+    const skillPath = path.join(skillDir, 'SKILL.md');
+    fs.writeFileSync(skillPath, frontmatter + result.draft.body, 'utf-8');
+
+    return { name: result.draft.name, path: skillPath };
   }
 
   async listRuns(limit = 50, sessionId?: string): Promise<AgentRun[]> {

@@ -319,7 +319,11 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     dependencies: [],
 
     canHandle(): number {
-      return 1.0;
+      // Chat is the fallback. Return a low base (below the 0.2 router
+      // threshold) so domain-specific agents (research, browser, coding)
+      // always outrank it when they have any signal. When nothing else
+      // matches, the router's `fallback` option still picks us.
+      return 0.1;
     },
 
     async execute(ctx: TaskContext): Promise<AgentResult> {

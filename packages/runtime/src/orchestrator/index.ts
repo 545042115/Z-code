@@ -34,3 +34,14 @@ export {
   ReviewerAgent,
   registerExampleAgents,
 } from './example-agents';
+export {
+  requestDelegation,
+  getDelegationRequest,
+  markDelegationRunning,
+  completeDelegation,
+  failDelegation,
+  waitForDelegation,
+  type DelegationRequest,
+  type DelegationResponse,
+  type DelegationStatus,
+} from './delegation';

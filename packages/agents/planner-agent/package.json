@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc -p ./",
     "typecheck": "tsc -p ./ --noEmit",
+    "test": "tsc -p ./ && node --test \"out/__tests__/*.test.js\"",
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {

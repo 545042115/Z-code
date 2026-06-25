@@ -11,12 +11,31 @@
 </head>
 <body>
   <div id="app">
+    <header id="titlebar">
+      <div class="titlebar-drag-region">
+        <div class="titlebar-brand">
+          <div class="brand-mark">Z</div>
+          <span class="brand-name">Z Assistant</span>
+        </div>
+      </div>
+      <div class="titlebar-controls">
+        <button id="win-minimize" class="win-btn" title="Minimize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1" y="4.5" width="8" height="1" fill="currentColor"/></svg>
+        </button>
+        <button id="win-maximize" class="win-btn" title="Maximize">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+        </button>
+        <button id="win-close" class="win-btn win-close" title="Close">
+          <svg width="10" height="10" viewBox="0 0 10 10"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+    </header>
     <nav id="nav">
-      <button data-view="main">Main</button>
-      <button data-view="chat">Chat</button>
-      <button data-view="trace">Trace</button>
-      <button data-view="memory">Memory</button>
-      <button data-view="settings">Settings</button>
+      <button data-view="main"><span class="nav-dot"></span><span class="nav-label">Main</span></button>
+      <button data-view="chat"><span class="nav-dot"></span><span class="nav-label">Chat</span></button>
+      <button data-view="trace"><span class="nav-dot"></span><span class="nav-label">Trace</span></button>
+      <button data-view="memory"><span class="nav-dot"></span><span class="nav-label">Memory</span></button>
+      <button data-view="settings"><span class="nav-dot"></span><span class="nav-label">Settings</span></button>
     </nav>
     <main id="main"></main>
   </div>

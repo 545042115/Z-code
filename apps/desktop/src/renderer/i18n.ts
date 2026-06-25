@@ -35,6 +35,23 @@ const TRANSLATIONS: TranslationMap = {
   'chat.mode_hint':     { 'zh-CN': '输入 /simple /hierarchical /plan /auto 切换，/mode 查看', en: 'Type /simple /hierarchical /plan /auto to switch, /mode to show' },
   'chat.mode_switched': { 'zh-CN': '已切换规划模式为', en: 'Planning mode switched to' },
   'chat.mode_current':  { 'zh-CN': '当前规划模式:',  en: 'Current planning mode:' },
+  'chat.agent_activity': { 'zh-CN': 'Agent 活动', en: 'Agent Activity' },
+  'chat.viewport': { 'zh-CN': '视窗', en: 'Viewport' },
+  'chat.viewport_on': { 'zh-CN': '视窗中', en: 'Viewport On' },
+  'chat.browser_preview': { 'zh-CN': '浏览器预览', en: 'Browser Preview' },
+  'chat.browser_preview_on': { 'zh-CN': '预览中', en: 'Preview On' },
+  'chat.clear':          { 'zh-CN': '清空',       en: 'Clear' },
+
+  // To-do list (plan sub-tasks)
+  'chat.todo_list':      { 'zh-CN': '任务清单',     en: 'Task Plan' },
+  'chat.todo_empty':     { 'zh-CN': '规划器将把请求拆解为子任务并分配给专门的 Agent。', en: 'The planner will decompose your request into sub-tasks and assign each to a specialist.' },
+  'chat.todo_pending':   { 'zh-CN': '等待',         en: 'pending' },
+  'chat.todo_running':   { 'zh-CN': '进行中',       en: 'running' },
+  'chat.todo_done':      { 'zh-CN': '完成',         en: 'done' },
+  'chat.todo_failed':    { 'zh-CN': '失败',         en: 'failed' },
+  'chat.todo_rationale': { 'zh-CN': '规划理由',     en: 'Rationale' },
+  'chat.todo_collapse':  { 'zh-CN': '收起',         en: 'Collapse' },
+  'chat.todo_expand':    { 'zh-CN': '展开',         en: 'Expand' },
 
   // Trace
   'trace.runs':         { 'zh-CN': '运行记录',     en: 'Runs' },
@@ -62,6 +79,7 @@ const TRANSLATIONS: TranslationMap = {
   'trace.status':       { 'zh-CN': '状态',         en: 'Status' },
   'trace.duration':     { 'zh-CN': '耗时',         en: 'Duration' },
   'trace.tools':        { 'zh-CN': '工具调用',     en: 'Tool Calls' },
+  'trace.agents':       { 'zh-CN': 'Agent',       en: 'Agents' },
   'trace.events':       { 'zh-CN': '事件',         en: 'Events' },
   'trace.attributes':   { 'zh-CN': '属性',         en: 'Attributes' },
   'trace.error':        { 'zh-CN': '错误',         en: 'Error' },
@@ -142,10 +160,17 @@ const TRANSLATIONS: TranslationMap = {
   'settings.always_rules_desc': { 'zh-CN': '查看并删除通过"始终允许/拒绝"保存的确认规则。', en: 'View and delete confirmation rules saved via Always Allow/Deny.' },
   'settings.always_rules_all_args': { 'zh-CN': '匹配该工具的所有调用', en: 'Matches all invocations of this tool' },
   'settings.always_rules_remove': { 'zh-CN': '删除', en: 'Remove' },
+  'settings.always_rules_show_more': { 'zh-CN': '展开更多', en: 'Show more' },
+  'settings.always_rules_show_less': { 'zh-CN': '收起', en: 'Show less' },
   'settings.no_always_rules': { 'zh-CN': '暂无 Always-Rules。', en: 'No Always-Rules yet.' },
 
   // Trace audit (P1-4)
   'trace.load_audit': { 'zh-CN': '审计日志', en: 'Audit Log' },
+  'trace.create_skill':   { 'zh-CN': '创建 SKILL', en: 'Create Skill' },
+  'trace.creating_skill': { 'zh-CN': '正在创建...', en: 'Creating...' },
+  'trace.skill_created':  { 'zh-CN': 'SKILL 已创建', en: 'Skill created' },
+  'trace.skill_path':     { 'zh-CN': '路径', en: 'Path' },
+  'trace.skill_error':    { 'zh-CN': '创建 SKILL 失败', en: 'Failed to create skill' },
   'trace.no_audit': { 'zh-CN': '暂无审计记录。', en: 'No audit records.' },
   'trace.audit_entries': { 'zh-CN': '条审计记录', en: 'audit records' },
 

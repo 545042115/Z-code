@@ -16,6 +16,7 @@ import type {
   AgentMetrics,
 } from '@z-assistant/contracts';
 import type { TraceManager } from '@z-assistant/trace';
+import { requestDelegation, waitForDelegation } from '@z-assistant/runtime';
 
 export interface ResearchAgentOptions {
   llmProvider: ILLMProvider;
@@ -44,6 +45,11 @@ export interface ResearchAgentOptions {
   cacheTtlMs?: number;
   /** Optional trace manager for emitting spans. */
   traceManager?: TraceManager;
+  /**
+   * Optional progress callback. Called with a status message at key points
+   * during the research loop so the host can display intermediate progress.
+   */
+  onProgress?: (phase: string, detail: string) => void;
 }
 
 export interface SearchResult {
@@ -83,24 +89,131 @@ interface SearchCacheEntry {
   ttlMs: number;
 }
 
-const RESEARCH_KEYWORDS = [
-  'research', 'investigate', 'survey', 'study', 'analyze',
-  '调研', '研究', '综述', '调查', '分析',
-  'search for', 'find out', 'look up', 'gather information',
-  '搜索', '查找', '查找资料', '收集资料',
-  'report on', 'write a report', 'summary of', 'overview of',
-  '报告', '总结', '概述',
+// Keyword buckets are weighted separately so price/lookup intents score
+// higher than a passing mention of "分析".
+const RESEARCH_KEYWORDS: { kw: string; weight: number }[] = [
+  // Strong research intents (full-sentence-style in EN / CN)
+  { kw: 'research', weight: 0.25 },
+  { kw: 'investigate', weight: 0.25 },
+  { kw: 'survey', weight: 0.20 },
+  { kw: 'study', weight: 0.15 },
+  { kw: 'analyze', weight: 0.18 },
+  { kw: '调研', weight: 0.25 },
+  { kw: '研究', weight: 0.20 },
+  { kw: '综述', weight: 0.20 },
+  { kw: '调查', weight: 0.22 },
+
+  // Look-up / discovery intents (very common in CN — were missing!)
+  { kw: 'search for', weight: 0.20 },
+  { kw: 'find out', weight: 0.18 },
+  { kw: 'look up', weight: 0.18 },
+  { kw: 'gather information', weight: 0.20 },
+  { kw: '搜索', weight: 0.22 },
+  { kw: '查找', weight: 0.18 },
+  { kw: '查找资料', weight: 0.20 },
+  { kw: '收集资料', weight: 0.20 },
+  { kw: '搜集', weight: 0.18 },
+  { kw: '查询', weight: 0.20 },
+  { kw: '查一下', weight: 0.18 },
+  { kw: '查一查', weight: 0.18 },
+  { kw: '了解', weight: 0.10 },
+  { kw: '看看', weight: 0.08 },
+  { kw: '有哪些', weight: 0.18 },
+  { kw: '哪家', weight: 0.15 },
+  { kw: '哪个', weight: 0.10 },
+  { kw: '怎么', weight: 0.08 },
+  { kw: '如何', weight: 0.08 },
+  { kw: '怎么样', weight: 0.10 },
+
+  // Pricing / comparison intents (also missing — was a major blind spot)
+  { kw: '价格', weight: 0.22 },
+  { kw: '费用', weight: 0.22 },
+  { kw: '多少钱', weight: 0.20 },
+  { kw: '划算', weight: 0.20 },
+  { kw: '便宜', weight: 0.15 },
+  { kw: '贵', weight: 0.10 },
+  { kw: '套餐', weight: 0.15 },
+  { kw: '比价', weight: 0.22 },
+  { kw: '比较', weight: 0.18 },
+  { kw: '对比', weight: 0.18 },
+  { kw: '汇总', weight: 0.15 },
+  { kw: '排行', weight: 0.18 },
+  { kw: '推荐', weight: 0.12 },
+  { kw: '优惠', weight: 0.18 },
+  { kw: '折扣', weight: 0.18 },
+  { kw: 'price', weight: 0.22 },
+  { kw: 'pricing', weight: 0.22 },
+  { kw: 'cost', weight: 0.18 },
+  { kw: 'fee', weight: 0.18 },
+  { kw: 'compare', weight: 0.20 },
+  { kw: 'comparison', weight: 0.20 },
+  { kw: 'cheap', weight: 0.15 },
+  { kw: 'best price', weight: 0.20 },
+  { kw: 'deal', weight: 0.15 },
+  { kw: 'discount', weight: 0.15 },
+  { kw: 'plan', weight: 0.05 }, // "coding plan" / "token plan" — weak alone
+
+  // Report-style output
+  { kw: 'report on', weight: 0.20 },
+  { kw: 'write a report', weight: 0.22 },
+  { kw: 'summary of', weight: 0.18 },
+  { kw: 'overview of', weight: 0.18 },
+  { kw: '报告', weight: 0.22 },
+  { kw: '总结', weight: 0.15 },
+  { kw: '概述', weight: 0.15 },
 ];
+
+/**
+ * Signals that suggest a *product / commercial plan* term (like "GLM
+ * coding plan") rather than a coding task. When such a token co-occurs
+ * with research-y terms, we *don't* penalise the research agent — but
+ * the coding agent must NOT benefit from these tokens.
+ */
+const COMMERCIAL_PLAN_TOKENS = [
+  'coding plan', 'code plan', 'token plan', 'subscription plan',
+  'coding套餐', 'token套餐', '订阅套餐', '价格表', 'pricing page',
+];
+
+/**
+ * Compensate for "plan" being in RESEARCH_KEYWORDS at low weight: when a
+ * "plan" hit is clearly a commercial offering (not a research request),
+ * we strip that contribution so the routing is not biased.
+ */
+function isCommercialPlanContext(task: string): boolean {
+  const t = task.toLowerCase();
+  return COMMERCIAL_PLAN_TOKENS.some((tok) => t.includes(tok));
+}
 
 /** URL patterns that typically require JavaScript rendering. */
 const JS_REQUIRED_PATTERNS = [
+  // Travel & e-commerce SPAs
   '.hotel', '.booking', '.airbnb', '.trip.com', '.ctrip', '.fliggy',
   '.meituan', '.dianping', '.taobao', '.tmall', '.jd.com',
+  // Map widgets
   '.google.com/maps', '.amap.com', '.gaode.com',
   'maps.', 'map.',
-  'login', 'signin', 'auth',
+  // Auth & search URLs (dynamic content)
+  'login', 'signin', 'auth', '/sign-in', '/sign-up',
   '/search?', '/s?',
+  // LLM / cloud-vendor pricing pages (heavily JS-rendered)
+  '/pricing', '/price', '/plans', '/plan', '/subscription',
+  'open.bigmodel.cn', 'bigmodel.cn',
+  'volcengine.com', 'volces.com',
+  'openai.com', 'anthropic.com', 'claude.com',
+  'dashscope.aliyun.com', 'aliyun.com',
+  'deepseek.com', 'moonshot.cn', 'kimi.com',
+  'qwen.ai', 'tongyi.aliyun.com',
+  'baichuan-ai.com', 'yiyan.baidu.com', 'wenxin.baidu.com',
+  'minimax.com', 'minimaxi.com',
+  'zhipuai.cn', 'zhipu.cn',
+  'sparkapi.cn', 'xinghuo.xfyun.cn',
+  // Dashboard / console / app pages
+  'console.', '/dashboard', '/app/', '/workspace',
+  // Notion, GitHub blob (raw)
+  'notion.so', 'feishu.cn', 'larksuite.com',
 ];
+
+const MIN_CONTENT_LENGTH = 200;
 const HIGH_QUALITY_DOMAINS = new Set([
   'wikipedia.org',
   'github.com',
@@ -157,6 +270,7 @@ export class ResearchAgent implements IAgent {
   private maxIterations: number;
   private cache?: SearchCache;
   private traceManager?: TraceManager;
+  private onProgress: (phase: string, detail: string) => void;
 
   constructor(opts: ResearchAgentOptions) {
     this.llm = opts.llmProvider;
@@ -171,16 +285,38 @@ export class ResearchAgent implements IAgent {
     this.maxIterations = opts.maxIterations ?? 1;
     this.modelPreference = opts.model;
     this.traceManager = opts.traceManager;
+    this.onProgress = opts.onProgress ?? (() => {});
     if (opts.cacheDir) {
       this.cache = new SearchCache(opts.cacheDir, opts.cacheTtlMs);
     }
   }
 
   canHandle(ctx: TaskContext): number {
-    const task = ctx.task.toLowerCase();
-    const hits = RESEARCH_KEYWORDS.filter((kw) => task.includes(kw.toLowerCase()));
-    // Base score 0.4; boost by keyword hits, capped at 0.95.
-    return Math.min(0.95, 0.4 + hits.length * 0.12);
+    const taskLower = ctx.task.toLowerCase();
+    const commercial = isCommercialPlanContext(ctx.task);
+
+    // Sum weights of all matching keywords. The new keyword set covers
+    // Chinese look-up intents ("查询/查一下/看看") and pricing/comparison
+    // terms ("价格/费用/划算/套餐/比价") that the previous version missed.
+    let weightedHits = 0;
+    for (const { kw, weight } of RESEARCH_KEYWORDS) {
+      if (taskLower.includes(kw.toLowerCase())) {
+        // "plan" alone is too generic — strip it when in a commercial
+        // offering context, otherwise a single word inflates the score.
+        if (kw.toLowerCase() === 'plan' && commercial) continue;
+        weightedHits += weight;
+      }
+    }
+
+    // Base 0.45 so the research agent beats coding (default 0.2) on any
+    // task with at least one strong research signal. Cap at 0.95 so the
+    // router still has headroom to add a secondary agent if needed.
+    const score = Math.min(0.95, 0.45 + weightedHits);
+
+    // If the task clearly mentions a commercial plan (e.g. "GLM coding
+    // plan pricing") we still want research to win over coding, so we
+    // boost slightly. This is a soft signal — embedding will confirm.
+    return commercial ? Math.max(score, 0.55) : score;
   }
 
   async execute(ctx: TaskContext): Promise<AgentResult> {
@@ -207,6 +343,7 @@ export class ResearchAgent implements IAgent {
       const allPages: FetchedPage[] = [];
 
       // Initial query plan.
+      this.onProgress('plan', 'Generating search query plan...');
       const queryPlan = await this.planQueries(ctx.task, metrics, ctx.signal);
       let queries = queryPlan.queries.slice(0, this.maxQueries);
 
@@ -214,6 +351,7 @@ export class ResearchAgent implements IAgent {
         if (ctx.signal?.aborted) break;
         if (queries.length === 0) break;
 
+        this.onProgress('search', `Iteration ${iteration + 1}/${this.maxIterations}: searching for ${queries.length} queries...`);
         allQueries.push(...queries);
 
         // Parallel search across all queries (with cache fallback).
@@ -229,10 +367,11 @@ export class ResearchAgent implements IAgent {
         const newResults = allResults.filter((r) => !seenUrls.has(r.url));
         const rankedUrls = this.rankAndDeduplicateUrls(newResults, ctx.task).slice(0, this.maxPagesToFetch);
 
+        this.onProgress('fetch', `Iteration ${iteration + 1}/${this.maxIterations}: fetching ${rankedUrls.length} pages...`);
         // Parallel fetch.
         const fetched = (
           await Promise.all(
-            rankedUrls.map((url) => this.fetchPage(url, allResults, metrics, ctx.signal)),
+            rankedUrls.map((url) => this.fetchPage(url, allResults, metrics, ctx.signal, ctx.sharedState)),
           )
         ).filter((p): p is FetchedPage => p !== null);
 
@@ -245,6 +384,7 @@ export class ResearchAgent implements IAgent {
 
         // On intermediate iterations, ask the model whether we need more queries.
         if (iteration < this.maxIterations - 1 && allPages.length > 0) {
+          this.onProgress('reflect', `Iteration ${iteration + 1}/${this.maxIterations}: reflecting on coverage...`);
           const reflection = await this.reflectOnCoverage(
             ctx.task,
             allQueries,
@@ -259,6 +399,7 @@ export class ResearchAgent implements IAgent {
         }
       }
 
+      this.onProgress('synthesize', 'Generating structured report...');
       // Generate structured report with citations.
       const report = await this.synthesizeReport(ctx.task, allQueries, allPages, metrics, ctx.signal);
 
@@ -322,11 +463,24 @@ export class ResearchAgent implements IAgent {
     metrics: AgentMetrics,
     signal?: AbortSignal,
   ): Promise<{ queries: string[] }> {
+    // Inject today's date so the LLM doesn't guess a year based on its
+    // training cutoff (e.g. it would add "2025" when "最新优惠" is the
+    // user's intent and the actual year is 2026).
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const year = today.getFullYear();
     const messages: LLMMessage[] = [
       {
         role: 'system',
         content:
-          'You are a research planner. Given a user request, produce up to 5 concise web search queries that will gather the most relevant information. Respond with a JSON object: {"queries": ["...", "..."]}.',
+          `You are a research planner. Today is ${dateStr} (year ${year}). ` +
+          `Given a user request, produce up to 5 concise web search queries that will gather the most relevant information. ` +
+          `CRITICAL RULES:\n` +
+          `1. If the user says "最新/最近/this year" (or doesn't specify a year), use the CURRENT year (${year}). Do NOT default to past years from your training data.\n` +
+          `2. If the user specifies a year, respect it exactly.\n` +
+          `3. Strip filler words like "帮我" / "请" / "我想" from queries — keep only the search-worthy terms.\n` +
+          `4. For pricing/comparison tasks, include the current year to avoid stale data.\n` +
+          `Respond with a JSON object: {"queries": ["...", "..."]}.`,
       },
       { role: 'user', content: task },
     ];
@@ -472,13 +626,28 @@ export class ResearchAgent implements IAgent {
     results: SearchResult[],
     metrics: AgentMetrics,
     signal?: AbortSignal,
+    sharedState?: import('@z-assistant/contracts').SharedState,
   ): Promise<FetchedPage | null> {
     if (signal?.aborted) return null;
 
     const title = results.find((r) => r.url === url)?.title ?? url;
     const needsBrowser = this.browserFetchProvider != null && this.needsBrowserForUrl(url);
 
-    // If the URL likely requires JS, go straight to the browser.
+    // If the URL likely requires JS, try delegation to browser agent first.
+    if (needsBrowser && sharedState) {
+      try {
+        requestDelegation(sharedState, 'browser', `Navigate to ${url} and extract the main content. Return the visible text content of the page.`, this.name, { url });
+        const delegateResp = await waitForDelegation(sharedState, 'browser', 60_000);
+        if (delegateResp.result && delegateResp.result.length > 100) {
+          metrics.toolCalls += 1;
+          return { url, title: (delegateResp.data?.title as string) || title, content: delegateResp.result, score: 0 };
+        }
+      } catch {
+        // Delegation failed or timed out; fall through to browserFetchProvider.
+      }
+    }
+
+    // Fallback to browserFetchProvider if available.
     if (needsBrowser) {
       try {
         const page = await this.browserFetchProvider!(url);
@@ -497,11 +666,15 @@ export class ResearchAgent implements IAgent {
       metrics.toolCalls += 1;
 
       // If content is empty/too short and we have a browser provider, try that.
-      if (content.length < 200 && this.browserFetchProvider != null) {
+      if (content.length < MIN_CONTENT_LENGTH && this.browserFetchProvider != null) {
         try {
           const page = await this.browserFetchProvider(url);
           if (signal?.aborted) return null;
           metrics.toolCalls += 1;
+          this.onProgress(
+            'fetch',
+            `Simple fetch returned ${content.length} chars; browser retry succeeded for ${url.slice(0, 60)}`,
+          );
           return { url, title: page.title || title, content: page.content, score: 0 };
         } catch {
           // Return the original (short) content.
@@ -556,11 +729,18 @@ export class ResearchAgent implements IAgent {
       .map((p, i) => `[${i + 1}] ${p.title}\nURL: ${p.url}\n${p.content.slice(0, 3500)}`)
       .join('\n\n---\n\n');
 
+    const today = new Date();
+    const dateStr = today.toISOString().slice(0, 10);
+    const year = today.getFullYear();
     const messages: LLMMessage[] = [
       {
         role: 'system',
         content:
-          'You are a research synthesizer. Read the collected sources and produce a well-structured Markdown report. Every factual claim must be supported by an inline citation like [1], [2], etc. Include an executive summary, key findings, and a Sources section. Return a JSON object: {"markdown": "...", "satisfied": true|false, "sources": [{"index": 1, "title": "...", "url": "..."}]}.',
+          `You are a research synthesizer. Today is ${dateStr} (year ${year}). ` +
+          `Read the collected sources and produce a well-structured Markdown report. Every factual claim must be supported by an inline citation like [1], [2], etc. ` +
+          `For recency-sensitive topics (e.g. pricing, plans, discounts), flag any data that is clearly from a prior year (${year - 1} or earlier) as potentially stale. ` +
+          `Include an executive summary, key findings, and a Sources section. ` +
+          `Return a JSON object: {"markdown": "...", "satisfied": true|false, "sources": [{"index": 1, "title": "...", "url": "..."}]}.`,
       },
       {
         role: 'user',

@@ -228,7 +228,7 @@ async function exportSession(sessionId: string, format: 'json' | 'markdown'): Pr
 
 // ── Mount ─────────────────────────────────────────────────────────────
 
-export async function mountChat(container: HTMLElement): Promise<void> {
+async function mountChat(container: HTMLElement): Promise<void> {
   container.innerHTML = `
     <div id="chat-layout">
       <div id="chat-sidebar">
@@ -243,6 +243,18 @@ export async function mountChat(container: HTMLElement): Promise<void> {
       </div>
       <div id="chat-main">
         <div id="chat-messages"></div>
+        <div id="chat-todo-panel" style="display:none">
+          <div id="chat-todo-header">
+            <div class="row" style="gap:6px;align-items:center;flex:1;min-width:0">
+              <span class="todo-icon">\u{1F4CB}</span>
+              <strong id="chat-todo-title">${t('chat.todo_list')}</strong>
+              <span id="chat-todo-progress" class="muted" style="font-size:0.78em"></span>
+            </div>
+            <button id="chat-todo-toggle" class="secondary" style="font-size:0.75em;padding:2px 8px;border-radius:var(--radius-sm)" title="${t('chat.todo_collapse')}">\u{2212}</button>
+          </div>
+          <div id="chat-todo-rationale" class="muted" style="display:none;padding:6px 10px;font-size:0.78em;border-bottom:1px solid var(--border-light)"></div>
+          <div id="chat-todo-list"></div>
+        </div>
         <div id="chat-memory-context" style="display:none;padding:4px 8px;border-top:1px solid var(--border-light);background:var(--bg-soft);font-size:0.78em;max-height:80px;overflow-y:auto"></div>
         <div id="chat-input-area">
           <div id="chat-mode-indicator" style="display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:0.75em;color:var(--text-secondary);border-top:1px solid var(--border-light)">
@@ -256,6 +268,16 @@ export async function mountChat(container: HTMLElement): Promise<void> {
           <button id="chat-recall-btn" class="secondary" title="${t('memory.recall_hint')}" style="padding:10px 12px;min-height:42px;font-size:0.85em">${t('memory.recall')}</button>
           <button id="chat-send" class="primary">${t('chat.send')}</button>
         </div>
+      </div>
+      <div id="chat-activity-panel">
+        <div id="chat-activity-header">
+          <h3>${t('chat.agent_activity')}</h3>
+          <div style="display:flex;gap:4px">
+            <button id="chat-viewport-btn" class="secondary" style="font-size:0.75em;padding:2px 8px;border-radius:var(--radius-sm)" title="${t('chat.viewport')}">${t('chat.viewport')}</button>
+            <button id="chat-activity-clear" class="secondary" style="font-size:0.75em;padding:2px 8px;border-radius:var(--radius-sm)" title="${t('chat.clear')}">${t('chat.clear')}</button>
+          </div>
+        </div>
+        <div id="chat-activity-list"></div>
       </div>
     </div>
     <div id="chat-confirm-dialog" class="modal" style="display:none;">
@@ -483,6 +505,7 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   let memoryContextTimeout: ReturnType<typeof setTimeout> | null = null;
 
   async function updateMemoryContext(text: string): Promise<void> {
+    lastMemoryCall = Date.now();
     const trimmed = text.trim();
     if (trimmed.length < 4) {
       memoryContextEl.style.display = 'none';
@@ -509,9 +532,18 @@ export async function mountChat(container: HTMLElement): Promise<void> {
   }
 
   // Debounced input listener for memory context
+  // Throttled: at most once per 800ms, plus debounce to avoid rapid-fire IPC.
+  let lastMemoryCall = 0;
   input.addEventListener('input', () => {
     if (memoryContextTimeout) clearTimeout(memoryContextTimeout);
-    memoryContextTimeout = setTimeout(() => updateMemoryContext(input.value), 500);
+    const now = Date.now();
+    if (now - lastMemoryCall < 800) {
+      // Within throttle window — debounce instead
+      memoryContextTimeout = setTimeout(() => updateMemoryContext(input.value), 800);
+    } else {
+      // Outside throttle window — call immediately (debounced)
+      memoryContextTimeout = setTimeout(() => updateMemoryContext(input.value), 300);
+    }
   });
 
   // ── Send message ──────────────────────────────────────────────────
@@ -729,18 +761,212 @@ export async function mountChat(container: HTMLElement): Promise<void> {
     }
   });
 
+  // ── Agent Activity Panel ──────────────────────────────────────────
+  const activityList = document.getElementById('chat-activity-list')!;
+  const activityClearBtn = document.getElementById('chat-activity-clear') as HTMLButtonElement;
+  const viewportBtn = document.getElementById('chat-viewport-btn') as HTMLButtonElement;
+  const MAX_ACTIVITIES = 100;
+
+  // Agent Viewport toggle
+  viewportBtn.addEventListener('click', async () => {
+    const active = await zApi.toggleAgentViewport();
+    viewportBtn.textContent = active ? `\u{1F5A5} ${t('chat.viewport_on')}` : `\u{1F5A5} ${t('chat.viewport')}`;
+  });
+
+  function addActivityEntry(agent: string, icon: string, message: string, detail?: string): void {
+    const time = new Date().toLocaleTimeString();
+    const entry = document.createElement('div');
+    entry.className = 'activity-entry';
+    entry.innerHTML = `
+      <span class="activity-icon">${escapeHtml(icon)}</span>
+      <span class="activity-agent">${escapeHtml(agent)}</span>
+      <span class="activity-time muted">${escapeHtml(time)}</span>
+      <span class="activity-message">${escapeHtml(message)}</span>
+      ${detail ? `<span class="activity-detail muted">${escapeHtml(detail)}</span>` : ''}
+    `;
+    activityList.appendChild(entry);
+    activityList.scrollTop = activityList.scrollHeight;
+
+    // Trim old entries
+    while (activityList.children.length > MAX_ACTIVITIES) {
+      activityList.removeChild(activityList.firstChild!);
+    }
+  }
+
+  // Subscribe to agent activity events from the main process
+  const unsubActivity = zApi.onAgentActivity((e) => {
+    addActivityEntry(e.agent, e.icon, e.message, e.detail);
+  });
+
+  // Clear button
+  activityClearBtn.addEventListener('click', () => {
+    activityList.innerHTML = '';
+  });
+
+  // ── To-do List Panel (Plan Mode) ───────────────────────────────────
+  // Renders a live sub-task list with pending / running / done / failed
+  // states. Driven by `planDag`, `planSubtaskStarted`, and
+  // `planSubtaskCompleted` events forwarded by the connector.
+  const todoPanel = document.getElementById('chat-todo-panel')!;
+  const todoList = document.getElementById('chat-todo-list')!;
+  const todoProgress = document.getElementById('chat-todo-progress')!;
+  const todoRationale = document.getElementById('chat-todo-rationale')!;
+  const todoToggleBtn = document.getElementById('chat-todo-toggle') as HTMLButtonElement;
+
+  interface TodoItem {
+    id: string;
+    title: string;
+    assignedTo: string;
+    dependsOn: string[];
+    status: 'pending' | 'running' | 'done' | 'failed';
+    startedAt?: number;
+    completedAt?: number;
+    error?: string;
+  }
+  let todoItems: TodoItem[] = [];
+  let todoCollapsed = false;
+
+  function statusLabel(s: TodoItem['status']): string {
+    if (s === 'pending') return t('chat.todo_pending');
+    if (s === 'running') return t('chat.todo_running');
+    if (s === 'done') return t('chat.todo_done');
+    return t('chat.todo_failed');
+  }
+
+  function renderTodoList(): void {
+    if (todoItems.length === 0) {
+      todoList.innerHTML = `<div class="todo-empty muted">${escapeHtml(t('chat.todo_empty'))}</div>`;
+      todoProgress.textContent = '';
+      return;
+    }
+    const done = todoItems.filter((x) => x.status === 'done').length;
+    const failed = todoItems.filter((x) => x.status === 'failed').length;
+    const total = todoItems.length;
+    todoProgress.textContent = `${done + failed}/${total}`;
+
+    todoList.innerHTML = todoItems
+      .map((item, i) => {
+        const isLast = i === todoItems.length - 1;
+        const depClass = item.dependsOn.length > 0 ? ' has-deps' : '';
+        return `
+        <div class="todo-item todo-${item.status}${depClass}" data-id="${escapeHtml(item.id)}">
+          <span class="todo-status-dot todo-dot-${item.status}"></span>
+          <span class="todo-title">${escapeHtml(item.title)}</span>
+          <span class="todo-agent" title="${escapeHtml(item.assignedTo)}">${escapeHtml(item.assignedTo)}</span>
+          <span class="todo-status-label muted">${escapeHtml(statusLabel(item.status))}</span>
+          ${item.error ? `<span class="todo-error" title="${escapeHtml(item.error)}">\u{26A0}</span>` : ''}
+        </div>
+        ${!isLast && !todoCollapsed ? '<div class="todo-sep"></div>' : ''}
+      `;
+      })
+      .join('');
+  }
+
+  function setTodoItems(items: TodoItem[]): void {
+    todoItems = items;
+    todoPanel.style.display = 'block';
+    renderTodoList();
+  }
+
+  function updateTodoItem(id: string, patch: Partial<TodoItem>): void {
+    const idx = todoItems.findIndex((x) => x.id === id);
+    if (idx === -1) {
+      // Sub-task arrived before the DAG (shouldn't happen, but be safe).
+      todoItems.push({ id, title: id, assignedTo: '', dependsOn: [], status: 'pending', ...patch });
+    } else {
+      todoItems[idx] = { ...todoItems[idx], ...patch };
+    }
+    renderTodoList();
+  }
+
+  function resetTodoList(): void {
+    todoItems = [];
+    todoRationale.style.display = 'none';
+    todoRationale.textContent = '';
+    todoPanel.style.display = 'none';
+    todoList.innerHTML = '';
+    todoProgress.textContent = '';
+  }
+
+  todoToggleBtn.addEventListener('click', () => {
+    todoCollapsed = !todoCollapsed;
+    if (todoCollapsed) {
+      todoList.style.display = 'none';
+      todoToggleBtn.textContent = '+';
+      todoToggleBtn.title = t('chat.todo_expand');
+    } else {
+      todoList.style.display = 'block';
+      todoToggleBtn.textContent = '\u{2212}';
+      todoToggleBtn.title = t('chat.todo_collapse');
+    }
+  });
+
+  // Subscribe to plan events via the existing run-event channel.
+  const unsubRunEvent = zApi.onRunEvent((e) => {
+    switch (e.type) {
+      case 'planDag':
+        setTodoItems(
+          e.subtasks.map((st) => ({
+            id: st.id,
+            title: st.title,
+            assignedTo: st.assignedTo,
+            dependsOn: st.dependsOn,
+            status: 'pending',
+          })),
+        );
+        if (e.rationale) {
+          todoRationale.textContent = `${t('chat.todo_rationale')}: ${e.rationale}`;
+          todoRationale.style.display = 'block';
+        }
+        break;
+      case 'planSubtaskStarted':
+        updateTodoItem(e.subTask, {
+          id: e.subTask,
+          title: e.title || e.subTask,
+          assignedTo: e.agent,
+          status: 'running',
+          startedAt: e.startedAt,
+        });
+        break;
+      case 'planSubtaskCompleted':
+        updateTodoItem(e.subTask, {
+          status: e.ok ? 'done' : 'failed',
+          error: e.error,
+          completedAt: e.completedAt,
+        });
+        break;
+      case 'planSubtaskFallback':
+        updateTodoItem(e.subTask, {
+          assignedTo: e.used,
+        });
+        break;
+      case 'runEnd':
+        // Auto-collapse after a short delay so the panel doesn't linger
+        // forever. Comment this out if you'd rather keep the last plan
+        // visible until the next run starts.
+        window.setTimeout(() => {
+          if (todoItems.length > 0) {
+            resetTodoList();
+          }
+        }, 30_000);
+        break;
+    }
+  });
+
   // Initialize
   await renderSessionList();
   input.focus();
 }
 
 // Auto-mount
+let chatInitialized = false;
 const observer = new MutationObserver(() => {
   const container = document.getElementById('view-chat');
-  if (container && !container.querySelector('#chat-layout')) {
+  if (container && !container.querySelector('#chat-layout') && !chatInitialized) {
+    chatInitialized = true;
     mountChat(container);
   }
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
-export {};
+export { mountChat, chatInitialized };

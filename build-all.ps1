@@ -195,6 +195,8 @@ $pkgs = @(
     "$rootDir\packages\runtime",
     "$rootDir\packages\agents\coding-agent",
     "$rootDir\packages\agents\browser-agent",
+    "$rootDir\packages\agents\planner-agent",
+    "$rootDir\packages\agents\synthesizer-agent",
     "$rootDir\apps\vscode-connector",
     "$rootDir\apps\desktop"
 )

@@ -60,6 +60,21 @@ export const IPC_CHANNELS = {
   APPROVE_SKILL_CANDIDATE: 'z:approve-skill-candidate',
   REJECT_SKILL_CANDIDATE: 'z:reject-skill-candidate',
   RUN_SUCCESS_SKILL_DISCOVERY: 'z:run-success-skill-discovery',
+  // Manual skill creation from a session
+  CREATE_SKILL_FROM_SESSION: 'z:create-skill-from-session',
+  // Agent activity (side-panel feed)
+  ON_AGENT_ACTIVITY: 'z:on-agent-activity',
+  // Window controls
+  WINDOW_MINIMIZE: 'z:window-minimize',
+  WINDOW_MAXIMIZE: 'z:window-maximize',
+  WINDOW_CLOSE: 'z:window-close',
+  WINDOW_IS_MAXIMIZED: 'z:window-is-maximized',
+  WINDOW_ON_MAXIMIZE_CHANGE: 'z:window-on-maximize-change',
+  // Browser preview (Marvis-like live view)
+  ON_BROWSER_PREVIEW: 'z:on-browser-preview',
+  // Agent Viewport (floating window)
+  TOGGLE_AGENT_VIEWPORT: 'z:toggle-agent-viewport',
+  VIEWPORT_MODE: 'z:viewport-mode',
 } as const;
 
 export const WINDOW_SIZES = {

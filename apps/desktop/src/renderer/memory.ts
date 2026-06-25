@@ -139,7 +139,7 @@ function downloadJson(data: string, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-export function mountMemory(container: HTMLElement): void {
+function mountMemory(container: HTMLElement): void {
   container.innerHTML = `
     <div class="stack">
       <div class="card">
@@ -211,12 +211,14 @@ export function mountMemory(container: HTMLElement): void {
 }
 
 // Auto-mount
+let memoryInitialized = false;
 const observer = new MutationObserver(() => {
   const container = document.getElementById('view-memory');
-  if (container && !container.querySelector('#memory-list')) {
+  if (container && !container.querySelector('#memory-list') && !memoryInitialized) {
+    memoryInitialized = true;
     mountMemory(container);
   }
 });
 observer.observe(document.body, { childList: true, subtree: true });
 
-export {};
+export { mountMemory, memoryInitialized };

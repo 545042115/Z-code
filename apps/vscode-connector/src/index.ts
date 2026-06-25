@@ -132,7 +132,22 @@ export type ConnectorEvent =
   | { type: 'streamChunk'; runId: string; delta: string }
   | { type: 'streamEnd'; runId: string }
   | { type: 'evalComplete'; evaluationId: string; pass: boolean }
-  | { type: 'evolutionReport'; reportId: string; readyToApply: boolean };
+  | { type: 'evolutionReport'; reportId: string; readyToApply: boolean }
+  | { type: 'agentActivity'; agent: string; icon: string; message: string; detail?: string }
+  // P2 multi-agent plan events — used by the desktop UI's To-do list.
+  | { type: 'planDag'; runId: string; rationale: string; subtasks: PlanSubTaskView[] }
+  | { type: 'planSubtaskStarted'; runId: string; subTask: string; title: string; agent: string; startedAt: number }
+  | { type: 'planSubtaskCompleted'; runId: string; subTask: string; agent: string; status: 'done' | 'failed'; ok: boolean; error?: string; outputPreview?: string; completedAt: number }
+  | { type: 'planSubtaskFallback'; runId: string; subTask: string; requested: string; used: string };
+
+/** Sub-task as observed by the UI (pending / running / done / failed). */
+export interface PlanSubTaskView {
+  id: string;
+  title: string;
+  assignedTo: string;
+  dependsOn: string[];
+  status: 'pending' | 'running' | 'done' | 'failed';
+}
 
 export type ConnectorEventListener = (e: ConnectorEvent) => void;
 
@@ -172,7 +187,7 @@ export class VSCodeConnector {
   private _qqStatusListeners = new Set<(s: QQOneBotStatus) => void>();
   private _runtime: AssistantRuntime | null = null;
   private _runCounter = 0;
-  private _conversationHistory: Record<string, unknown> = {};
+  private _conversationHistoryBySession = new Map<string, Record<string, unknown>>();
   /** Queue for bot task runs to avoid "Run already active" conflicts */
   private _taskQueue: Array<() => Promise<void>> = [];
   private _taskProcessing = false;
@@ -459,10 +474,61 @@ export class VSCodeConnector {
       signal: abortController.signal,
       plannerAgent: opts.plannerAgent,
       synthesizerAgent: opts.synthesizerAgent,
+      // Forward plan.* events from the Orchestrator to the Connector
+      // event bus so the desktop UI can render a live To-do list.
+      // The runId is captured here (closure) because it's not known
+      // to the Orchestrator at construction time.
+      onPlanEvent: (event) => {
+        switch (event.name) {
+          case 'plan.dag':
+            this.emit({
+              type: 'planDag',
+              runId: tracker.id,
+              rationale: String(event.data.rationale ?? ''),
+              subtasks: Array.isArray(event.data.subtasks)
+                ? (event.data.subtasks as PlanSubTaskView[])
+                : [],
+            });
+            break;
+          case 'plan.subtask.started':
+            this.emit({
+              type: 'planSubtaskStarted',
+              runId: tracker.id,
+              subTask: String(event.data.subTask ?? ''),
+              title: String(event.data.title ?? ''),
+              agent: String(event.data.agent ?? ''),
+              startedAt: typeof event.data.startedAt === 'number' ? event.data.startedAt : Date.now(),
+            });
+            break;
+          case 'plan.subtask.completed':
+            this.emit({
+              type: 'planSubtaskCompleted',
+              runId: tracker.id,
+              subTask: String(event.data.subTask ?? ''),
+              agent: String(event.data.agent ?? ''),
+              status: event.data.status === 'done' ? 'done' : 'failed',
+              ok: Boolean(event.data.ok),
+              error: typeof event.data.error === 'string' ? event.data.error : undefined,
+              outputPreview: typeof event.data.outputPreview === 'string' ? event.data.outputPreview : undefined,
+              completedAt: typeof event.data.completedAt === 'number' ? event.data.completedAt : Date.now(),
+            });
+            break;
+          case 'plan.subtask.fallback':
+            this.emit({
+              type: 'planSubtaskFallback',
+              runId: tracker.id,
+              subTask: String(event.data.subTask ?? ''),
+              requested: String(event.data.requested ?? ''),
+              used: String(event.data.used ?? ''),
+            });
+            break;
+        }
+      },
     });
 
     this._runCounter++;
     this.emit({ type: 'runStart', runId: tracker.id, task: opts.task });
+    this.emit({ type: 'agentActivity', agent: 'system', icon: '\u{25B6}', message: `Run started: ${opts.task.slice(0, 80)}`, detail: `mode: ${opts.mode}` });
 
     let status: 'ok' | 'error' | 'cancelled' = 'ok';
     try {
@@ -471,6 +537,7 @@ export class VSCodeConnector {
       await tracker.finish();
       status = result.status === 'success' ? 'ok' : 'error';
       this.emit({ type: 'runEnd', runId: tracker.id, status });
+      this.emit({ type: 'agentActivity', agent: 'system', icon: status === 'ok' ? '\u{2705}' : '\u{274C}', message: `Run ${status}`, detail: `agents: ${opts.agents?.join(', ') ?? 'all'}` });
 
       // P2 multi-agent: when `plan` mode produced multiple sub-task
       // outputs, the Orchestrator's `plan` case already ran the
@@ -496,9 +563,9 @@ export class VSCodeConnector {
           (o) => o.ok && o.artifacts && Array.isArray((o.artifacts as { history?: unknown }).history),
         );
         if (chatOutput && chatOutput.artifacts && (chatOutput.artifacts as { history?: unknown }).history) {
-          this._conversationHistory = {
+          this._conversationHistoryBySession.set(sessionId, {
             [CHAT_HISTORY_KEY]: (chatOutput.artifacts as { history: Array<unknown> }).history,
-          };
+          });
         }
       }
 
@@ -682,8 +749,13 @@ export class VSCodeConnector {
     };
 
     // P1-1: route the user task to the most appropriate registered agent(s).
+    // Exclude internal agents (planner, synthesizer) from routing — they
+    // are only used in `plan` mode, not for direct task dispatch.
     const routingRegistry = new AgentRegistry();
     registerAgents(routingRegistry);
+    for (const name of ['planner', 'synthesizer']) {
+      if (routingRegistry.has(name)) routingRegistry.unregister(name);
+    }
     const localEmbedding = createLocalEmbeddingProvider();
     const selectedAgents = await selectAgentsForTask(routingRegistry, task, model, {
       embeddingProvider: localEmbedding,
@@ -706,19 +778,26 @@ export class VSCodeConnector {
     // and dispatches sub-tasks per the DAG, so the `agents` list here
     // is mostly for the Orchestrator's pre-checks; sub-tasks are
     // resolved by name at dispatch time.
+    //
+    // New default: 'auto' → 'hierarchical'. We now route every task
+    // through the Planner so the user sees a To-do list and each
+    // sub-task is assigned to the best-matching worker agent. Users
+    // who want the old single-agent behaviour can opt in with
+    // `/simple` (sets `planningMode === 'simple'`).
     let effectiveMode: OrchestratorMode = selectedAgents.length > 1 ? 'dag' : 'sequential';
     let plannerAgent: string | undefined;
-    if (planningMode === 'hierarchical') {
+    if (planningMode === 'hierarchical' || planningMode === 'auto' || planningMode === undefined) {
+      // Default: always go through the Planner. The Planner decides
+      // which worker agent handles each sub-task and may decompose
+      // the original task into multiple sub-tasks.
       effectiveMode = 'plan';
       plannerAgent = 'planner';
-      // Make sure Planner is in the selected list. Other agents
-      // (chat, browser, research, ...) can stay in the list as
-      // available for sub-task assignment; the Orchestrator will
-      // dispatch them only when the planner asks for them.
       if (!selectedAgents.includes('planner')) {
         selectedAgents.unshift('planner');
       }
     }
+
+    this.emit({ type: 'agentActivity', agent: 'router', icon: '\u{1F9F0}', message: `Routing to: ${selectedAgents.join(', ')}`, detail: `mode: ${effectiveMode}` });
 
     try {
       const fullResult = await this.runMultiAgentTask({
@@ -728,7 +807,7 @@ export class VSCodeConnector {
         registerAgents,
         agents: selectedAgents,
         maxAgentCalls: Math.max(selectedAgents.length * 4, 16), // plans can fan out
-        initialState: this._conversationHistory,
+        initialState: this._conversationHistoryBySession.get(sessionId ?? '') ?? {},
         sessionId,
         plannerAgent,
       });
@@ -966,6 +1045,13 @@ export class AssistantRuntime {
     plannerAgent?: string;
     /** P2 multi-agent: name of the synthesizer agent to invoke in `plan` mode. */
     synthesizerAgent?: string;
+    /**
+     * Optional callback invoked for each `plan.*` event the Orchestrator
+     * emits. Used by the desktop UI to render a live To-do list. The
+     * connector translates these into `planDag` / `planSubtaskStarted` /
+     * `planSubtaskCompleted` / `planSubtaskFallback` ConnectorEvents.
+     */
+    onPlanEvent?: (event: { name: 'plan.dag' | 'plan.subtask.started' | 'plan.subtask.completed' | 'plan.subtask.fallback'; data: Record<string, unknown> }) => void;
   }): Promise<{ tracker: RunTracker; orchestrator: Orchestrator }> {
     const sessionId = opts.sessionId ?? `run-${Date.now()}`;
     const tracker = await this.trace.startRun({
@@ -986,6 +1072,7 @@ export class AssistantRuntime {
       signal: opts.signal,
       plannerAgent: opts.plannerAgent,
       synthesizerAgent: opts.synthesizerAgent,
+      onPlanEvent: opts.onPlanEvent,
     });
     return { tracker, orchestrator };
   }
@@ -1004,6 +1091,7 @@ export { RUNTIME_VERSION };
 export type { AgentResult, Store, TraceManager, OrchestratorMode, OrchestratorResult };
 export { createCodingAgentFromChat, ChatToolRegistry };
 export type { CodingAgentFactoryOptions };
+export { OpenAIProvider } from './llm-provider';
 export { webSearch, webSearchResults, webFetch, getLocation } from './web-tools';
 export type { SearchResult } from './web-tools';
 export { browserNavigate, browserScreenshot, browserClose } from './browser-tools';
