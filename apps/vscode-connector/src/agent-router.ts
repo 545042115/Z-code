@@ -83,7 +83,7 @@ export async function selectAgentsForTask(
 ): Promise<string[]> {
   const {
     maxAgents = 2,
-    fallback = 'chat',
+    fallback,        // optional; auto-picked from registry when not provided
     threshold = 0.2,
     cacheTtlMs = 60_000,
     embeddingProvider,
@@ -103,10 +103,34 @@ export async function selectAgentsForTask(
     budget: { tokensLeft: Infinity, costLeftUsd: Infinity },
   };
 
+  // Pick a fallback name that actually exists in the registry. The
+  // historical default was the hardcoded string "chat", but the
+  // chat agent is now wrapped and registered as "coding" in
+  // apps/vscode-connector/src/index.ts (see createCodingAgentFromChat
+  // → asIAgent), so the literal "chat" no longer exists and would
+  // make the connector throw AgentNotFoundError downstream.
+  //
+  // Resolution order: explicit `options.fallback` → 'chat' (if
+  // present) → 'coding' (if present) → first agent sorted by name.
+  // Returns null if the registry is empty, in which case the caller
+  // should fall back to using the full registry for dispatch.
+  const resolveFallbackName = (): string | null => {
+    if (fallback && registry.has(fallback)) return fallback;
+    if (registry.has('chat')) return 'chat';
+    if (registry.has('coding')) return 'coding';
+    const names = registry.list().map((a) => a.name).sort();
+    return names[0] ?? null;
+  };
+
   let ranked = await registry.rank(ctx);
   if (ranked.length === 0) {
-    setCachedRoute(task, [fallback], cacheTtlMs);
-    return [fallback];
+    const fb = resolveFallbackName();
+    if (fb == null) {
+      setCachedRoute(task, [], cacheTtlMs);
+      return [];
+    }
+    setCachedRoute(task, [fb], cacheTtlMs);
+    return [fb];
   }
 
   if (embeddingProvider) {
@@ -141,8 +165,13 @@ export async function selectAgentsForTask(
 
   const top = ranked[0];
   if (top.score < threshold) {
-    setCachedRoute(task, [fallback], cacheTtlMs);
-    return [fallback];
+    const fb = resolveFallbackName();
+    if (fb == null) {
+      setCachedRoute(task, [], cacheTtlMs);
+      return [];
+    }
+    setCachedRoute(task, [fb], cacheTtlMs);
+    return [fb];
   }
 
   // Include additional agents only if their score is within a reasonable

@@ -669,12 +669,34 @@ export class Orchestrator {
    * decompositions.
    */
   private _resolveAssignedAgent(requested: string): string {
+    // Happy path: the requested agent is in the registry.
     if (this.opts.registry.has(requested)) return requested;
+
+    // The Planner's prompt still uses the canonical name "chat" as a
+    // soft alias for the general worker. The desktop connector
+    // registers that worker as "coding" (via createCodingAgentFromChat
+    // → asIAgent), so re-map "chat" → "coding" before the next
+    // registry lookup. This keeps the prompt contract stable while
+    // letting the runtime use the name that's actually wired in.
+    if (requested === 'chat' && this.opts.registry.has('coding')) {
+      return 'coding';
+    }
     if (this.opts.registry.has('chat')) return 'chat';
-    // Last resort: any agent. Sort for determinism.
-    const names = this.opts.registry.list().map((a) => a.name).sort();
+
+    // Last resort: any *worker* agent (skip planner / synthesizer,
+    // which would create an infinite dispatch loop and burn budget
+    // for no progress). Sort for determinism.
+    const names = this.opts.registry.list()
+      .map((a) => a.name)
+      .filter((n) => n !== 'planner' && n !== 'synthesizer')
+      .sort();
     if (names.length > 0) return names[0];
-    throw new Error(`no agents available to run sub-task assigned to '${requested}'`);
+    // Nothing at all — surface a clear error rather than
+    // `registry.get(undefined)` or an infinite loop.
+    throw new Error(
+      `Orchestrator: no worker agent available to run sub-task assigned to '${requested}'` +
+      ` (registry is empty or only contains planner/synthesizer)`,
+    );
   }
 
   /**

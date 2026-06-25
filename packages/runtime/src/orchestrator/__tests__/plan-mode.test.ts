@@ -251,6 +251,96 @@ test('plan mode: falls back to chat when sub-task assignedTo is unknown', async 
   });
 });
 
+test('plan mode: re-maps chat → coding when only coding is registered', async () => {
+  // Regression test for the desktop connector's wiring: the chat
+  // agent is registered as "coding" (via createCodingAgentFromChat
+  // → asIAgent), but the Planner's prompt still uses the canonical
+  // name "chat". The orchestrator must translate one to the other
+  // so that the sub-task lands on a real agent instead of throwing
+  // AgentNotFoundError.
+  await withTracker(async (m) => {
+    const reg = new AgentRegistry();
+    let codingInvoked = false;
+    reg.register(makePlanner([
+      { id: 'a', title: 'A', prompt: 'do a', assignedTo: 'chat', dependsOn: [] },
+    ]));
+    reg.register({
+      name: 'coding',
+      role: 'Coding',
+      capabilities: [],
+      dependencies: [],
+      execute: async (ctx) => {
+        codingInvoked = true;
+        const id = ctx.metadata?.['subtask.id'];
+        ctx.sharedState.set(`subtasks.${id}.output`, 'coding-did-it', 'coding');
+        return okResult('coding-did-it');
+      },
+    });
+
+    const t = await m.startRun({ task: 'chat-to-coding', model, sessionId: 's-chat' });
+    const o = new Orchestrator({
+      tracker: t,
+      registry: reg,
+      task: 'chat-to-coding',
+      model,
+      sessionId: 's-chat',
+      mode: 'plan',
+      plannerAgent: 'planner',
+    });
+    const out = await o.run();
+    await t.finish();
+
+    assert.strictEqual(out.status, 'success');
+    assert.strictEqual(codingInvoked, true,
+      'orchestrator should remap "chat" to "coding" when only coding is registered');
+  });
+});
+
+test('plan mode: fallback excludes planner and synthesizer', async () => {
+  // A sub-task assigned to an unknown agent should never be re-routed
+  // to "planner" or "synthesizer" (which would create a dispatch
+  // loop and waste budget). It should land on the first real worker
+  // instead.
+  await withTracker(async (m) => {
+    const reg = new AgentRegistry();
+    let workerInvoked = false;
+    reg.register(makePlanner([
+      { id: 'a', title: 'A', prompt: 'do a', assignedTo: 'ghost', dependsOn: [] },
+    ]));
+    reg.register({
+      name: 'worker',
+      role: 'Worker',
+      capabilities: [],
+      dependencies: [],
+      execute: async (ctx) => {
+        workerInvoked = true;
+        const id = ctx.metadata?.['subtask.id'];
+        ctx.sharedState.set(`subtasks.${id}.output`, 'worker-did-it', 'worker');
+        return okResult('worker-did-it');
+      },
+    });
+    reg.register(makeSynthesizer());
+
+    const t = await m.startRun({ task: 'no-planner-fallback', model, sessionId: 's-pf' });
+    const o = new Orchestrator({
+      tracker: t,
+      registry: reg,
+      task: 'no-planner-fallback',
+      model,
+      sessionId: 's-pf',
+      mode: 'plan',
+      plannerAgent: 'planner',
+      synthesizerAgent: 'synthesizer',
+    });
+    const out = await o.run();
+    await t.finish();
+
+    assert.strictEqual(out.status, 'success');
+    assert.strictEqual(workerInvoked, true,
+      'fallback should land on a real worker, not on planner/synthesizer');
+  });
+});
+
 test('plan mode: continues on sub-task failure (does not abort the run)', async () => {
   await withTracker(async (m) => {
     const reg = new AgentRegistry();

@@ -31,16 +31,64 @@ export interface PlannerAgentConfig {
   systemPrompt?: string;
 }
 
+// Per-agent role descriptions shown in the Planner prompt. Only the
+// agents that are actually registered are included, so the model can
+// never invent a name that would later fail at dispatch time.
+//
+// Keep the canonical "chat" name in this map too, even when the
+// runtime registers the general agent as "coding" — the Planner's
+// system prompt is the *contract* with the LLM, and the connector
+// re-maps "chat" → "coding" at dispatch time via the orchestrator's
+// fallback. That way the prompt stays readable, while the runtime
+// still uses the name that's wired into the agent-registry.
+const AGENT_ROLE_HINTS: Record<string, string> = {
+  chat: 'general reasoning, writing, math, summarisation, comparison, follow-up Q&A',
+  browser: 'interactive web pages (login walls, JS-heavy sites, screenshots, clicks, form fills, pricing tables)',
+  research: 'web search + multi-page synthesis, produces a report with citations',
+  coding: 'write / edit / refactor code, run tests, fix bugs, package changes',
+  office: 'Office documents (.docx/.xlsx/.pptx) read & edit',
+};
+
 const DEFAULT_AVAILABLE_AGENTS = ['chat', 'browser', 'research', 'coding', 'office'];
+
+/**
+ * Pick the best "general" agent from a list of available agents.
+ * The Planner's prompt must always have a single name to fall back
+ * to, otherwise the model invents one and the orchestrator can't
+ * dispatch. We prefer agents whose role covers "general" work
+ * (chat / coding), then the first name in the list as a last resort.
+ */
+function pickFallbackAgent(available: string[]): string {
+  for (const preferred of ['chat', 'coding', 'research', 'browser', 'office']) {
+    if (available.includes(preferred)) return preferred;
+  }
+  return available[0] ?? 'chat';
+}
+
+/**
+ * Render the `available` placeholder with bullet lines including
+ * each agent's role hint. Skips any agent not in AGENT_ROLE_HINTS
+ * (unknown agents get a generic label so the prompt still works).
+ */
+function renderAvailableList(available: string[]): string {
+  return available
+    .map((name) => {
+      const hint = AGENT_ROLE_HINTS[name] ?? 'general worker';
+      return `- ${name.padEnd(8)} — ${hint}`;
+    })
+    .join('\n');
+}
 
 const DEFAULT_SYSTEM_PROMPT = `You are a task-planning agent. Your job is to decompose a user's request into a DAG of sub-tasks so that specialised worker agents can execute them.
 
 Available agents (use exactly these names in \`assignedTo\`):
-- chat      — general reasoning, code, writing, math, summarisation
-- browser   — interactive web pages (login walls, JS-heavy sites, screenshots, clicks, form fills)
-- research  — web search + multi-page synthesis, produces a report
-- coding    — write / edit / refactor code, run tests, fix bugs
-- office    — Office documents (.docx/.xlsx/.pptx) read & edit
+- {available}
+
+The remaining lines of the prompt (HARD RULES through EXAMPLES) are
+unchanged from the previous revision; the placeholder {available}
+above is filled in at runtime with the agents actually registered
+in the live registry (so the model never invents an agent name
+that doesn't exist on this machine).
 
 === HARD RULES — DO NOT VIOLATE ===
 
@@ -56,7 +104,7 @@ Available agents (use exactly these names in \`assignedTo\`):
 
 6. **Use \`dependsOn\` for ordering.** If sub-task B needs A's output, B.dependsOn must include A.id. Independent sub-tasks get empty dependsOn and run in parallel.
 
-7. **NEVER assign a sub-task to yourself.** Never invent agent names not in the list above. If a sub-task truly cannot be done by any listed agent, assign it to "chat" and describe the work in \`prompt\`.
+7. **NEVER assign a sub-task to yourself.** Never invent agent names not in the list above. If a sub-task truly cannot be done by any listed agent, assign it to the most general agent in the list ({fallback_agent}) and describe the work in \`prompt\`.
 
 === OUTPUT FORMAT ===
 
@@ -98,7 +146,7 @@ Example 1 — "查询 GLM/火山方舟 coding plan 费用"
       "id": "compare_and_recommend",
       "title": "Compare and recommend",
       "prompt": "Given the two pricing tables above, compare them on price-per-million-tokens and recommend which is more cost-effective for a developer using ~5M tokens/day. Return a short verdict (3-5 lines).",
-      "assignedTo": "chat",
+      "assignedTo": "{fallback_agent}",
       "dependsOn": ["browse_glm_pricing", "browse_volc_pricing"]
     }
   ]
@@ -124,9 +172,21 @@ Now decompose the user's request. Output ONLY the JSON.`;
 export function createPlannerAgent(config: PlannerAgentConfig): IAgent {
   const maxSubTasks = config.maxSubTasks ?? 5;
   const available = config.availableAgents ?? DEFAULT_AVAILABLE_AGENTS;
+  // When the caller passes a subset of agents (e.g. the connector
+  // filters out 'planner' and 'synthesizer'), make sure the prompt
+  // never mentions agents that aren't actually registered. We also
+  // append the canonical "chat" name as a soft alias when the
+  // runtime registers the general agent as "coding" — the prompt
+  // stays consistent with older revisions and the orchestrator
+  // re-maps "chat" → "coding" at dispatch time.
+  const availableWithFallback = available.includes('chat') || !available.includes('coding')
+    ? available
+    : ['chat', ...available];
+  const fallbackAgent = pickFallbackAgent(availableWithFallback);
   const systemPrompt = (config.systemPrompt ?? DEFAULT_SYSTEM_PROMPT)
     .replace('{max}', String(maxSubTasks))
-    .replace('{available}', available.join(', '));
+    .replace('{available}', renderAvailableList(availableWithFallback))
+    .replace('{fallback_agent}', fallbackAgent);
 
   return {
     name: 'planner',
@@ -158,7 +218,7 @@ export function createPlannerAgent(config: PlannerAgentConfig): IAgent {
         return failResult('4001', `Planner LLM call failed: ${(e as Error).message}`);
       }
 
-      const plan = parsePlan(response.message.content ?? '', ctx.task, available);
+      const plan = parsePlan(response.message.content ?? '', ctx.task, availableWithFallback);
       if (!plan) {
         return failResult('4001', 'Planner could not produce a valid plan DAG');
       }
@@ -221,10 +281,16 @@ function parsePlan(content: string, originalTask: string, availableAgents: strin
     // Force the assigned agent to a known name. LLM can occasionally
     // invent new names (e.g. "research_agent") — in that case we
     // log a warning and keep the raw name; the Orchestrator will
-    // fall back to the chat agent at dispatch time.
+    // fall back to a valid agent at dispatch time.
+    //
+    // When the model omits `assignedTo` entirely, default to the
+    // most-general available agent (chat > coding > research > …).
+    // Hardcoding 'chat' here would break hosts that have re-mapped
+    // 'chat' → 'coding' (e.g. the desktop connector).
+    const fallback = pickFallbackAgent(availableAgents);
     const assignedTo = typeof s.assignedTo === 'string' && s.assignedTo.length > 0
       ? s.assignedTo
-      : 'chat';
+      : fallback;
 
     const dependsOn = Array.isArray(s.dependsOn)
       ? s.dependsOn.filter((d): d is string => typeof d === 'string')
