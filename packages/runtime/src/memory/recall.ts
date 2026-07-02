@@ -1,10 +1,10 @@
-// @z-assistant/runtime — recall
+// @ziner/runtime — recall
 //
 // Universal `recall(query, scope)` entry point. Agents use this when they
 // don't know which memory kind holds the answer; it searches across all
 // kinds, filters by scope, and returns ranked hits.
 
-import type { MemoryScope, MemoryKind, MemoryHit, MemoryQuery } from '@z-assistant/contracts';
+import type { MemoryScope, MemoryKind, MemoryHit, MemoryQuery } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface RecallOptions {

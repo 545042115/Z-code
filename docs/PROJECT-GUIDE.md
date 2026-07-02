@@ -1,4 +1,4 @@
-# Z Code 项目架构指南
+# Ziner 项目架构指南
 
 > **目标读者**：没看过一行代码的人。读完本文，你将理解这个项目的构成、运行流程和核心技术细节。
 >
@@ -8,7 +8,7 @@
 
 ## 一、项目是什么
 
-Z Code 是一个 **桌面 AI 助手平台**，对标 Marvis / WorkBuddy / OpenHands Desktop。
+Ziner 是一个 **桌面 AI 助手平台**，对标 Marvis / WorkBuddy / OpenHands Desktop。
 
 它有两个版本：
 
@@ -30,7 +30,7 @@ Z Code 是一个 **桌面 AI 助手平台**，对标 Marvis / WorkBuddy / OpenHa
 ### 2.1 顶层目录
 
 ```text
-Z Code/
+Ziner/
 ├── packages/          # V2 核心：通用 Runtime + 契约 + 基础设施 + Agent
 ├── apps/              # V2 宿主入口：桌面应用 / CLI / VSCode 连接器
 ├── extensions/        # V1：VSCode Coding Agent 扩展
@@ -358,7 +358,7 @@ renderer/chat.ts 显示结果
 
 ### 4.1 推理模式：Plan + ReAct + Reflect 混合架构
 
-Z Code 不是单一的 ReAct 或 Plan-and-Execute，而是**三者混合**：
+Ziner 不是单一的 ReAct 或 Plan-and-Execute，而是**三者混合**：
 
 | 阶段 | 方法 | 作用 | 触发条件 |
 |---|---|---|---|
@@ -407,7 +407,7 @@ Chat Agent 有 **23 个工具**，分 4 类：
 
 ### 4.4 Memory 系统（6 种记忆）
 
-Z Code 有 **6 种记忆子系统**，模拟人类大脑的不同记忆类型：
+Ziner 有 **6 种记忆子系统**，模拟人类大脑的不同记忆类型：
 
 | 记忆类型 | 类比 | 用途 | 示例 |
 |---|---|---|---|
@@ -517,11 +517,11 @@ npm run typecheck
 npm test
 
 # 运行单个包的测试
-npm test --workspace=@z-assistant/runtime
+npm test --workspace=@ziner/runtime
 
 # Desktop 一键打包（Windows）
 .\build-all.ps1
-# 产物：apps/desktop/dist/win-unpacked/Z Assistant.exe
+# 产物：apps/desktop/dist/win-unpacked/Ziner.exe
 ```
 
 ### 5.3 测试框架

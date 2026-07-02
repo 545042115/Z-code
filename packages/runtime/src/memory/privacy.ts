@@ -1,9 +1,9 @@
-// @z-assistant/runtime — privacy
+// @ziner/runtime — privacy
 //
 // User data control: view, delete, and export memories. Implements the
 // GDPR-style "right to be forgotten" on top of `IMemoryProvider.purge`.
 
-import type { MemoryRecord, MemoryKind, MemoryScope } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryKind, MemoryScope } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface PrivacyExport {

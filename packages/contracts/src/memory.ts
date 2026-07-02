@@ -3,7 +3,7 @@
 // `IMemoryProvider` is the smallest surface the Runtime needs to store,
 // recall, and forget memories. Concrete backends (JSONL, SQLite, vector
 // stores) implement this; agents consume it through the higher-level
-// memory managers in `@z-assistant/runtime/memory`.
+// memory managers in `@ziner/runtime/memory`.
 
 // ── Memory Scope ───────────────────────────────────────────────────────
 

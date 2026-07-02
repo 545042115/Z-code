@@ -1,4 +1,4 @@
-# @z-assistant/runtime
+﻿# @ziner/runtime
 
 V2 Assistant Runtime platform. See [ADR-001 §3.1](../../docs/ADR-001-Architecture-Refactor-Revised.md) for the full layout.
 

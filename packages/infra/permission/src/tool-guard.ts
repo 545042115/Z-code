@@ -2,8 +2,8 @@
 // Re-exports the policy check helpers and adds a pre-call hook that
 // throws when the call is denied.
 
-import { isToolAllowed, toolRequiresConfirm, type ToolPolicy } from '@z-assistant/contracts';
-import { ToolErrorCode } from '@z-assistant/infra-errors';
+import { isToolAllowed, toolRequiresConfirm, type ToolPolicy } from '@ziner/contracts';
+import { ToolErrorCode } from '@ziner/infra-errors';
 
 export class ToolDeniedError extends Error {
   readonly code = ToolErrorCode.PermissionDenied;

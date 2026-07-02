@@ -1,4 +1,4 @@
-# @z-assistant/contracts
+﻿# @ziner/contracts
 
 Cross-package type contracts for the V2 Assistant Runtime. **Pure types only**.
 

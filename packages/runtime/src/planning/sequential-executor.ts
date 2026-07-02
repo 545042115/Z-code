@@ -11,8 +11,8 @@
 // Phase 6A: this is the minimal V2 framework. Future work: better
 // parallelism, retries, rollback hooks (per ADR 4.2).
 
-import type { Plan, PlanStep, PlanResult, TaskContext, ErrorRef } from '@z-assistant/contracts';
-import { classify } from '@z-assistant/infra-errors';
+import type { Plan, PlanStep, PlanResult, TaskContext, ErrorRef } from '@ziner/contracts';
+import { classify } from '@ziner/infra-errors';
 
 /**
  * A StepHandler is the per-step implementation. It returns the step's

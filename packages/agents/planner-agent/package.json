@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/agent-planner",
+  "name": "@ziner/agent-planner",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Planner Agent — decomposes a user task into a DAG of sub-tasks (P2 multi-agent).",
@@ -12,6 +12,6 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0"
+    "@ziner/contracts": "0.1.0"
   }
 }

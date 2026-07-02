@@ -1,4 +1,4 @@
-// @z-assistant/runtime — audit logger tests
+// @ziner/runtime — audit logger tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -6,10 +6,10 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { rmSync, mkdirSync, existsSync, readFileSync } from 'fs';
 import { AuditLogger, NoopAuditLogger } from '../index';
-import type { AuditLogEntry } from '@z-assistant/contracts';
+import type { AuditLogEntry } from '@ziner/contracts';
 
 function makeTempDir(): string {
-  const dir = join(tmpdir(), `z-assistant-audit-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = join(tmpdir(), `ziner-audit-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   if (existsSync(dir)) rmSync(dir, { recursive: true });
   mkdirSync(dir, { recursive: true });
   return dir;

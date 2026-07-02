@@ -10,7 +10,7 @@
 // job. This split keeps scheduling and coordination separate from
 // agent selection, which is testable in isolation.
 
-import type { IAgent, TaskContext } from '@z-assistant/contracts';
+import type { IAgent, TaskContext } from '@ziner/contracts';
 
 export class AgentConflictError extends Error {
   constructor(name: string) {

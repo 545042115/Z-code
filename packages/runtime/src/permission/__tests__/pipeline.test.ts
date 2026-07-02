@@ -1,10 +1,10 @@
-// @z-assistant/runtime — ToolInvocationPipeline tests
+// @ziner/runtime — ToolInvocationPipeline tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ToolInvocationPipeline } from '../pipeline';
 import { ConfirmationGate } from '../confirmation';
-import type { ToolInvocation } from '@z-assistant/contracts';
+import type { ToolInvocation } from '@ziner/contracts';
 
 function inv(toolName: string, args: Record<string, unknown>): ToolInvocation {
   return { id: `test-${toolName}`, toolName, args };

@@ -1,9 +1,9 @@
-// @z-assistant/runtime — skill composition engine tests
+// @ziner/runtime — skill composition engine tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { CooccurrenceCompositionEngine } from '../index';
-import type { SelectedSkill, SkillSpec } from '@z-assistant/contracts';
+import type { SelectedSkill, SkillSpec } from '@ziner/contracts';
 
 function spec(id: string, name: string): SkillSpec {
   return {

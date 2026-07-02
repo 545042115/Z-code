@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — global hotkey
+// @ziner/app-desktop — global hotkey
 
 import { globalShortcut, BrowserWindow } from 'electron';
 

@@ -2,7 +2,7 @@
 //
 // Loading priority (per PHASE0_FOUNDATION.md §"配置中心"):
 //   1. Environment variables (Z_ prefix, e.g. Z_BUDGET_PER_RUN_USD)
-//   2. YAML file (default: ~/.z-assistant/config.yaml or `configPath`)
+//   2. YAML file (default: ~/.ziner/config.yaml or `configPath`)
 //   3. Built-in defaults
 //
 // Validation is fail-fast: any error throws and the extension refuses
@@ -17,12 +17,12 @@ import { existsSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import * as yaml from 'js-yaml';
-import { DEFAULT_CONFIG, type ConfigSpec } from '@z-assistant/contracts';
-import { ConfigErrorCode } from '@z-assistant/infra-errors';
-import type { ErrorRef } from '@z-assistant/contracts';
+import { DEFAULT_CONFIG, type ConfigSpec } from '@ziner/contracts';
+import { ConfigErrorCode } from '@ziner/infra-errors';
+import type { ErrorRef } from '@ziner/contracts';
 
 export interface ConfigLoadOptions {
-  /** Path to YAML file; default ~/.z-assistant/config.yaml */
+  /** Path to YAML file; default ~/.ziner/config.yaml */
   configPath?: string;
   /** Skip env overrides (used by tests). */
   skipEnv?: boolean;
@@ -66,7 +66,7 @@ export async function loadConfig(opts: ConfigLoadOptions = {}): Promise<ConfigSp
 }
 
 function defaultConfigPath(): string {
-  return join(homedir(), '.z-assistant', 'config.yaml');
+  return join(homedir(), '.ziner', 'config.yaml');
 }
 
 // ── Env overrides (Z_ prefix, e.g. Z_BUDGET_PER_RUN_USD=0.5) ──────────

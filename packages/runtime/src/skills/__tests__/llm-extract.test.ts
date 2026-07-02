@@ -1,4 +1,4 @@
-// @z-assistant/runtime — LLM skill extractor tests
+// @ziner/runtime — LLM skill extractor tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -13,7 +13,7 @@ import type {
   FailureCase,
   ILLMProvider,
   LLMResponse,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 function mkGroup(over: Partial<FailureGroup> = {}): FailureGroup {
   const cases: FailureCase[] = over.cases ?? [

@@ -10,7 +10,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { ResearchAgent } from '../src';
-import type { TaskContext } from '@z-assistant/contracts';
+import type { TaskContext } from '@ziner/contracts';
 
 function mkCtx(task: string): TaskContext {
   return {

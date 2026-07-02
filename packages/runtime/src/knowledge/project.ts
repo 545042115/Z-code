@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Project Knowledge
+// @ziner/runtime — Project Knowledge
 //
 // Stores and retrieves project-level knowledge: repo structure,
 // coding conventions, dependency patterns, build rules, and
@@ -6,7 +6,7 @@
 //
 // Builds on IMemoryProvider (long-term, project-scoped records).
 
-import type { IMemoryProvider, MemoryQuery } from '@z-assistant/contracts';
+import type { IMemoryProvider, MemoryQuery } from '@ziner/contracts';
 
 export interface ProjectKnowledge {
   /** Unique key within the project (e.g. "build-system", "testing-convention"). */

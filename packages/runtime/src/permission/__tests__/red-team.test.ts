@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Red-Team / ConfirmationGate prompt-injection tests
+// @ziner/runtime — Red-Team / ConfirmationGate prompt-injection tests
 //
 // Simulates real-world jailbreak / prompt-injection payloads and verifies
 // that the ConfirmationGate blocks them before tool execution.
@@ -6,7 +6,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ConfirmationGate, PromptInjectionDetector } from '../index';
-import type { ToolInvocation } from '@z-assistant/contracts';
+import type { ToolInvocation } from '@ziner/contracts';
 
 function inv(toolName: string, args: Record<string, unknown>): ToolInvocation {
   return { id: `test-${toolName}`, toolName, args };

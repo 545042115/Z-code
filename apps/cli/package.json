@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/app-cli",
+  "name": "@ziner/app-cli",
   "version": "0.1.0",
   "private": true,
   "description": "V2 CLI — independent program entry point. NOT a VSCode extension. Boots V2 Assistant Runtime for terminal use.",
@@ -14,9 +14,9 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/app-vscode-connector": "0.1.0",
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/runtime": "0.1.0",
-    "@z-assistant/trace": "0.1.0"
+    "@ziner/app-vscode-connector": "0.1.0",
+    "@ziner/contracts": "0.1.0",
+    "@ziner/runtime": "0.1.0",
+    "@ziner/trace": "0.1.0"
   }
 }

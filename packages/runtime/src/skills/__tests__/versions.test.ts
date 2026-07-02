@@ -1,4 +1,4 @@
-// @z-assistant/runtime — skill version registry tests
+// @ziner/runtime — skill version registry tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -9,7 +9,7 @@ import {
   JsonFileSkillVersionRegistry,
   NoopSkillVersionRegistry,
 } from '../index';
-import type { SkillVersion } from '@z-assistant/contracts';
+import type { SkillVersion } from '@ziner/contracts';
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `z-skill-versions-${Date.now()}-${Math.random().toString(36).slice(2)}`);

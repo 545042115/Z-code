@@ -1,9 +1,8 @@
 {
-  "name": "@z-assistant/runtime",
+  "name": "@ziner/runtime",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Assistant Runtime — mechanism layer (trace, storage, cost, errors, permission, config, budget, orchestrator) and framework layer (planning, reflection, context, skills, evaluation, evolution, memory, workflow).",
-
   "main": "out/index.js",
   "types": "out/index.d.ts",
   "exports": {
@@ -47,6 +46,10 @@
       "types": "./out/skills/index.d.ts",
       "default": "./out/skills/index.js"
     },
+    "./skills/skill-parser": {
+      "types": "./out/skills/skill-parser.d.ts",
+      "default": "./out/skills/skill-parser.js"
+    },
     "./errors": {
       "types": "./out/errors/index.d.ts",
       "default": "./out/errors/index.js"
@@ -88,12 +91,18 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/infra-config": "0.1.0",
-    "@z-assistant/infra-cost": "0.1.0",
-    "@z-assistant/infra-errors": "0.1.0",
-    "@z-assistant/infra-permission": "0.1.0",
-    "@z-assistant/infra-storage": "0.1.0",
-    "@z-assistant/trace": "0.1.0"
+    "@ziner/contracts": "0.1.0",
+    "@ziner/infra-config": "0.1.0",
+    "@ziner/infra-cost": "0.1.0",
+    "@ziner/infra-errors": "0.1.0",
+    "@ziner/infra-permission": "0.1.0",
+    "@ziner/infra-storage": "0.1.0",
+    "@ziner/trace": "0.1.0",
+    "better-sqlite3": "^12.11.1",
+    "dockerode": "^4.0.2",
+    "unzipper": "^0.12.5"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13"
   }
 }

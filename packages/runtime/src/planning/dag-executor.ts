@@ -9,8 +9,8 @@
 // Phase 6A: minimal V2 framework. Coding/Browser/Research agent-specific
 // planners wrap this in their own package and supply a StepHandler.
 
-import type { Plan, PlanStep, PlanResult, TaskContext, ErrorRef } from '@z-assistant/contracts';
-import { classify } from '@z-assistant/infra-errors';
+import type { Plan, PlanStep, PlanResult, TaskContext, ErrorRef } from '@ziner/contracts';
+import { classify } from '@ziner/infra-errors';
 import type { StepHandler } from './sequential-executor';
 
 export interface DagExecutorOptions {

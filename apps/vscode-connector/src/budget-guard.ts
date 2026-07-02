@@ -1,8 +1,8 @@
-// @z-assistant/app-vscode-connector — BudgetGuard LLM provider wrapper.
+// @ziner/app-vscode-connector — BudgetGuard LLM provider wrapper.
 //
 // Wraps an ILLMProvider and enforces per-run and per-day cost/token caps.
 
-import type { ILLMProvider, LLMRequest, LLMResponse, BudgetPolicy } from '@z-assistant/contracts';
+import type { ILLMProvider, LLMRequest, LLMResponse, BudgetPolicy } from '@ziner/contracts';
 
 export interface BudgetUsage {
   tokensIn: number;
@@ -69,7 +69,7 @@ export class BudgetGuardProvider implements ILLMProvider {
     return res;
   }
 
-  stream?(req: LLMRequest, onChunk: (chunk: import('@z-assistant/contracts').LLMMessage) => void): Promise<LLMResponse> {
+  stream?(req: LLMRequest, onChunk: (chunk: import('@ziner/contracts').LLMMessage) => void): Promise<LLMResponse> {
     if (!this.inner.stream) {
       throw new Error('BUDGET_EXCEEDED: underlying provider does not support streaming');
     }

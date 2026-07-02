@@ -1,10 +1,10 @@
-// @z-assistant/agent-browser — Browser Session persistence
+// @ziner/agent-browser — Browser Session persistence
 //
 // Cookie / session management. Stores and restores browser sessions
 // so the agent can maintain login state across runs.
 
 import type { Cookie, PageSnapshot } from './backend';
-import type { IMemoryProvider } from '@z-assistant/contracts';
+import type { IMemoryProvider } from '@ziner/contracts';
 
 export interface BrowserSession {
   id: string;

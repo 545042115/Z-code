@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — runtime bridge
+// @ziner/app-desktop — runtime bridge
 
 import * as path from 'path';
 import * as fs from 'fs';
@@ -9,7 +9,13 @@ import {
   type ConnectorEvent,
   type McpServerConfig,
   type AgentFactory,
-} from '@z-assistant/app-vscode-connector';
+  type WeChatHookStatus,
+  type QQOneBotStatus,
+  type Checkpoint,
+  type CheckpointIndexEntry,
+  type BenchmarkSuiteSummary,
+  type BenchmarkSuiteSpec,
+} from '@ziner/app-vscode-connector';
 import { createBrowserAgent } from './browser-agent-bridge';
 import { createResearchAgentBridge } from './research-agent-bridge';
 import { onAgentActivity } from './agent-activity-bus';
@@ -24,8 +30,10 @@ import type {
   AlwaysRule,
   ToolPreview,
   CandidateSkill,
-} from '@z-assistant/contracts';
-import { ConfirmationGate, AuditLogger } from '@z-assistant/runtime';
+  ILLMProvider,
+  ModelSpec,
+} from '@ziner/contracts';
+import { ConfirmationGate, AuditLogger } from '@ziner/runtime';
 import { SessionManager } from './session-manager';
 
 type ConfirmationListener = (req: ConfirmationRequest) => void;
@@ -59,12 +67,14 @@ export interface DesktopSettings {
   toolPolicy?: { allow: string[]; deny: string[] };
   /** P1-3: optional budget/cost caps. */
   budget?: { perRunTokens?: number; perRunUsd?: number; perDayUsd?: number };
+  /** Storage backend for memory: 'jsonl' (default) or 'sqlite' (faster, lower memory). */
+  storageBackend?: 'jsonl' | 'sqlite';
 }
 
 const DEFAULT_SETTINGS: DesktopSettings = {
   defaultModel: { provider: 'sglang', name: 'default' },
   memoryEnabled: true,
-  storageDir: path.join(os.homedir(), '.z-assistant', 'desktop'),
+  storageDir: path.join(os.homedir(), '.ziner', 'desktop'),
   language: 'zh-CN',
   apiKey: '',
   apiEndpoint: '',
@@ -86,6 +96,8 @@ export class RuntimeBridge {
   private qqStatusListeners = new Set<(s: { online: boolean; nickname: string; userId: string; messageCount: number; lastEvent: string }) => void>();
   private settingsPath: string;
   private _sessions: SessionManager;
+  private saveSettingsTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly SAVE_DEBOUNCE_MS = 200;
 
   // ── P1-2 HITL Confirmation ──────────────────────────────────────
   private confirmationGate: ConfirmationGate | null = null;
@@ -117,11 +129,21 @@ export class RuntimeBridge {
   }
 
   private saveSettings(): void {
+    if (this.saveSettingsTimer) {
+      clearTimeout(this.saveSettingsTimer);
+    }
+    this.saveSettingsTimer = setTimeout(() => {
+      this.flushSaveSettings();
+    }, RuntimeBridge.SAVE_DEBOUNCE_MS);
+  }
+
+  private flushSaveSettings(): void {
+    this.saveSettingsTimer = null;
     try {
       const dir = path.dirname(this.settingsPath);
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this.settingsPath, JSON.stringify(this.settings, null, 2), 'utf-8');
-    } catch (e) {
+    } catch (e: any) {
       console.error('[RuntimeBridge] save settings error:', e);
     }
   }
@@ -188,15 +210,24 @@ export class RuntimeBridge {
       mcpServers,
       toolPolicy: this.settings.toolPolicy,
       budget: this.settings.budget,
+      storageBackend: this.settings.storageBackend,
+      autoMigrateStorage: true,
+      onStorageMigrationProgress: (processed: number, total: number) => {
+        this.dispatchEvent({
+          type: 'storageMigrationProgress',
+          processed,
+          total,
+        } as any);
+      },
       // Wire the stream callback so the chat-agent's LLM deltas surface
       // as `streamChunk` events on the bridge event bus. The desktop
       // main process forwards them to the renderer over IPC.
-      onStreamChunk: (runId, delta) => {
+      onStreamChunk: (runId: string, delta: string) => {
         this.dispatchEvent({ type: 'streamChunk', runId, delta });
       },
       agentFactories: [
-        (({ llmProvider, model }) => createBrowserAgent({ llmProvider, model })) satisfies AgentFactory,
-        (({ llmProvider, model }) => createResearchAgentBridge({ llmProvider, model, storageDir: this.settings.storageDir })) satisfies AgentFactory,
+        (({ llmProvider, model, mcpTools }: { llmProvider: ILLMProvider; model: ModelSpec; mcpTools?: import('@ziner/contracts').ITool[] }) => createBrowserAgent({ llmProvider, model, mcpTools })) satisfies AgentFactory,
+        (({ llmProvider, model, mcpTools }: { llmProvider: ILLMProvider; model: ModelSpec; mcpTools?: import('@ziner/contracts').ITool[] }) => createResearchAgentBridge({ llmProvider, model, storageDir: this.settings.storageDir, mcpTools })) satisfies AgentFactory,
       ],
     };
     this.connector = new VSCodeConnector(config);
@@ -221,6 +252,9 @@ export class RuntimeBridge {
     for (const id of Array.from(this.pendingConfirmations.keys())) {
       this.cancelConfirmation(id, 'runtime stopped');
     }
+    // Flush pending writes to avoid data loss on shutdown.
+    this.flushSaveSettings();
+    this._sessions.flush();
     // Flush audit log so no entries are lost on shutdown.
     await this.auditLogger?.flush();
     await this.connector?.stop();
@@ -229,9 +263,29 @@ export class RuntimeBridge {
 
   isReady(): boolean { return this.connector?.isReady() ?? false; }
 
-  async runTask(task: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto'): Promise<{ runId: string; result?: string }> {
+  async runTask(
+    task: string,
+    sessionId?: string,
+    planningMode?: 'simple' | 'hierarchical' | 'auto',
+  ): Promise<{ runId: string; result?: string }> {
     if (!this.connector) throw new Error('Runtime not started');
-    return this.connector.runTask(task, 'desktop', sessionId, planningMode);
+    // P1-2: pass a loader that returns the last N turns of this session
+    // so the Orchestrator can inject the user's earlier intent (e.g.
+    // "帮我点个麦当劳") into the downstream sub-task context for a
+    // follow-up like "我想要1+1, 不要番茄酱".
+    const loadRecentMessages = sessionId
+      ? async (sid: string, limit: number): Promise<Array<{ role: 'user' | 'assistant'; content: string }>> => {
+          try {
+            const s = this.sessions.get(sid);
+            if (!s || s.id !== sid) return [];
+            const last = s.messages.slice(-Math.max(1, limit));
+            return last.map((m) => ({ role: m.role, content: m.content }));
+          } catch {
+            return [];
+          }
+        }
+      : undefined;
+    return this.connector.runTask(task, 'desktop', sessionId, planningMode, loadRecentMessages);
   }
 
   async runEvolution(windowMs?: number): Promise<{ reportId: string; readyToApply: boolean }> {
@@ -243,6 +297,92 @@ export class RuntimeBridge {
   async runSkillDiscovery(cfg?: { windowMs?: number; minOccurrences?: number }): Promise<unknown> {
     if (!this.connector) throw new Error('Runtime not started');
     return this.connector.runSkillDiscovery(cfg);
+  }
+
+  /**
+   * Cancel the currently running task, if any. Returns true if a run
+   * was cancelled, false if nothing was running. Idempotent.
+   */
+  cancelRun(): boolean {
+    if (!this.connector) return false;
+    return this.connector.cancelRun();
+  }
+
+  /**
+   * P3 Checkpoint APIs. List / load / resume a previously-saved run.
+   * The IPC layer (`apps/desktop/src/main.ts`) wires these through to
+   * the renderer; the UI uses them to show a "Resume" button for any
+   * in-progress or cancelled run.
+   */
+  async listCheckpoints(
+    opts?: { sessionId?: string; limit?: number },
+  ): Promise<CheckpointIndexEntry[]> {
+    if (!this.connector) return [];
+    return this.connector.listCheckpoints(opts);
+  }
+
+  async loadCheckpoint(runId: string): Promise<Checkpoint | null> {
+    if (!this.connector) return null;
+    return this.connector.loadCheckpoint(runId);
+  }
+
+  async resumeTask(
+    runId: string,
+    planningMode?: 'simple' | 'hierarchical' | 'auto',
+  ): Promise<{ runId: string; result?: string }> {
+    if (!this.connector) throw new Error('Runtime not started');
+    return this.connector.resumeTask(runId, planningMode);
+  }
+
+  async deleteCheckpoint(runId: string): Promise<boolean> {
+    if (!this.connector) return false;
+    return this.connector.deleteCheckpoint(runId);
+  }
+
+  // ── P3 Harness: Benchmarks ────────────────────────────────────
+
+  /** Check if Docker is available for benchmark runs. */
+  async checkDocker(): Promise<{ ok: boolean; version?: string; reason?: string }> {
+    if (!this.connector) return { ok: false, reason: 'runtime not started' };
+    return this.connector.checkDocker();
+  }
+
+  /** List all built-in benchmark suites. */
+  listBenchmarkSuites(): BenchmarkSuiteSpec[] {
+    if (!this.connector) return [];
+    return this.connector.listBenchmarkSuites();
+  }
+
+  /**
+   * Run a benchmark suite by id. Returns the summary when complete.
+   * Progress events are forwarded via the main event bus as
+   * `benchmark.caseStarted` / `benchmark.caseCompleted` /
+   * `benchmark.suiteCompleted` (tunnelled through `ConnectorEvent`
+   * as a synthetic `progress` event with a benchmark phase).
+   */
+  async runBenchmarkSuite(suiteId: string): Promise<BenchmarkSuiteSummary> {
+    if (!this.connector) throw new Error('Runtime not started');
+    return this.connector.runBenchmarkSuite(suiteId);
+  }
+
+  // ── Storage backend ────────────────────────────────────────────────
+
+  /** Get the current memory storage backend. */
+  getStorageBackend(): 'jsonl' | 'sqlite' {
+    if (!this.connector) return this.settings.storageBackend ?? 'jsonl';
+    return this.connector.getStorageBackend();
+  }
+
+  /**
+   * Set the memory storage backend. Requires a full restart to take effect.
+   * Returns true if a restart is needed (i.e. the backend changed).
+   */
+  setStorageBackend(backend: 'jsonl' | 'sqlite'): boolean {
+    const current = this.settings.storageBackend ?? 'jsonl';
+    if (current === backend) return false;
+    this.settings.storageBackend = backend;
+    this.saveSettings();
+    return true;
   }
 
   async runSuccessSkillDiscovery(cfg?: { historyDir?: string; minTurns?: number }): Promise<{ candidates: number; facts: number }> {
@@ -295,7 +435,7 @@ export class RuntimeBridge {
       .join('\n\n');
 
     // Create an LLM provider for skill extraction using the user's configured model
-    const { OpenAIProvider } = require('@z-assistant/app-vscode-connector');
+    const { OpenAIProvider } = require('@ziner/app-vscode-connector');
     const model = this.settings.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
     let baseURL: string;
     if (this.settings.apiEndpoint) {
@@ -318,7 +458,7 @@ export class RuntimeBridge {
     });
 
     // Use the LLM success extractor to create a skill draft
-    const { LlmSuccessSkillExtractor } = require('@z-assistant/runtime');
+    const { LlmSuccessSkillExtractor } = require('@ziner/runtime');
     const extractor = new LlmSuccessSkillExtractor({
       llmProvider,
       model,
@@ -456,7 +596,7 @@ export class RuntimeBridge {
     toolName?: string;
     outcome?: 'pending' | 'success' | 'error' | 'blocked';
     limit?: number;
-  }): Promise<import('@z-assistant/contracts').AuditLogEntry[]> {
+  }): Promise<import('@ziner/contracts').AuditLogEntry[]> {
     if (!this.auditLogger) return [];
     return this.auditLogger.list(filter ?? {});
   }
@@ -488,7 +628,7 @@ export class RuntimeBridge {
 
       // Notify subscribers (main.ts forwards to renderer via IPC).
       for (const fn of this.confirmationListeners) {
-        try { fn(req); } catch (e) { console.error('[RuntimeBridge] confirmation listener error:', e); }
+        try { fn(req); } catch (e: any) { console.error('[RuntimeBridge] confirmation listener error:', e); }
       }
     });
   }
@@ -543,7 +683,7 @@ export class RuntimeBridge {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       const rules = this.confirmationGate?.listRules() ?? [];
       fs.writeFileSync(this.alwaysRulesPath, JSON.stringify(rules, null, 2), 'utf-8');
-    } catch (e) {
+    } catch (e: any) {
       console.error('[RuntimeBridge] save always-rules error:', e);
     }
   }
@@ -678,7 +818,7 @@ export class RuntimeBridge {
 
   async startWeChatHook(config?: { nickname?: string }): Promise<void> {
     if (!this.connector) throw new Error('Runtime not started');
-    this.connector.onWeChatHookStatus((s) => {
+    this.connector.onWeChatHookStatus((s: WeChatHookStatus) => {
       for (const fn of this.wechatHookStatusListeners) fn(s);
     });
     await this.connector.startWeChatHook({ enabled: true, nickname: config?.nickname });
@@ -697,7 +837,7 @@ export class RuntimeBridge {
 
   async startQQ(config?: { wsUrl?: string; accessToken?: string; nickname?: string }): Promise<void> {
     if (!this.connector) throw new Error('Runtime not started');
-    this.connector.onQQStatus((s) => {
+    this.connector.onQQStatus((s: QQOneBotStatus) => {
       for (const fn of this.qqStatusListeners) fn(s);
     });
     await this.connector.startQQ({

@@ -119,7 +119,7 @@ export interface ExperimentConfig {
  * The full runtime configuration. Loaded once at startup, validated,
  * and frozen. Hot-reload is supported for individual sections (Phase 5).
  *
- * Loading priority: env vars > ~/.z-assistant/config.yaml > built-in defaults.
+ * Loading priority: env vars > ~/.ziner/config.yaml > built-in defaults.
  * See infra/config/config-center.ts.
  */
 export interface ConfigSpec {

@@ -15,7 +15,7 @@
 //   await tracker.finish('success');
 //
 // Note (V2): QueryService is no longer a member of TraceManager. Caching +
-// invalidation live in the V1 Connector layer (`@z-assistant/trace-ui` is
+// invalidation live in the V1 Connector layer (`@ziner/trace-ui` is
 // out of scope for the V2 trace package). Use the pure projection functions
 // in `projections.ts` to read the Store.
 
@@ -23,11 +23,11 @@ import { randomUUID } from 'crypto';
 import { promises as fsp, mkdirSync, existsSync, appendFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { Span, type SpanOptions } from './span';
-import type { Store } from '@z-assistant/infra-storage';
-import { classify } from '@z-assistant/infra-errors';
-import { computeCost } from '@z-assistant/infra-cost';
-import { computeDuration } from '@z-assistant/contracts';
-import type { AgentRun, ModelRef, RunStatus, ErrorRef, SpanEvent } from '@z-assistant/contracts';
+import type { Store } from '@ziner/infra-storage';
+import { classify } from '@ziner/infra-errors';
+import { computeCost } from '@ziner/infra-cost';
+import { computeDuration } from '@ziner/contracts';
+import type { AgentRun, ModelRef, RunStatus, ErrorRef, SpanEvent } from '@ziner/contracts';
 
 export interface RunStartOptions {
   task: string;

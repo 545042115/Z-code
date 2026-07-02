@@ -1,4 +1,4 @@
-# @z-assistant/runtime — Python Perception Server dependencies
+# @ziner/runtime — Python Perception Server dependencies
 # Install: pip install -r python/requirements.txt
 #
 # All models use ONNX Runtime — no PyTorch needed.

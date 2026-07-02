@@ -1,4 +1,4 @@
-// @z-assistant/agent-office — Office Agent (P2-2).
+// @ziner/agent-office — Office Agent (P2-2).
 //
 // Creates and edits Word, Excel and PowerPoint files based on natural
 // language instructions. Uses docx / xlsx / pptxgenjs when available;
@@ -13,8 +13,8 @@ import type {
   ModelSpec,
   TaskContext,
   AgentResult,
-} from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
+} from '@ziner/contracts';
+import { ok as okResult, fail as failResult, parseJsonObject, callWithMetrics } from '@ziner/contracts';
 
 export interface OfficeAgentConfig {
   llmProvider: ILLMProvider;
@@ -25,11 +25,42 @@ export interface OfficeAgentConfig {
   maxTokens?: number;
 }
 
+export interface WordSection {
+  heading?: string;
+  paragraphs?: string[];
+}
+
+export interface WordContent {
+  sections: WordSection[];
+}
+
+export interface ExcelSheet {
+  name: string;
+  headers?: string[];
+  rows?: unknown[][];
+}
+
+export interface ExcelContent {
+  sheets: ExcelSheet[];
+}
+
+export interface PptSlide {
+  title?: string;
+  subtitle?: string;
+  bullets?: string[];
+}
+
+export interface PptContent {
+  slides: PptSlide[];
+}
+
+export type OfficeContent = WordContent | ExcelContent | PptContent;
+
 export interface OfficeTask {
   type: 'word' | 'excel' | 'ppt' | 'unknown';
   title: string;
   description?: string;
-  content: unknown;
+  content: OfficeContent | unknown;
   /** Internal marker: task was resolved by the fast-path regex, no LLM used. */
   __fastPath?: boolean;
 }
@@ -98,20 +129,35 @@ export function createOfficeAgent(config: OfficeAgentConfig): IAgent {
     async execute(ctx: TaskContext): Promise<AgentResult> {
       const t0 = Date.now();
       try {
-        const task = tryFastPath(ctx.task) ?? (await parseTask(ctx.task));
+        const fastPathTask = tryFastPath(ctx.task);
+        let task: OfficeTask;
+        let tokensIn = 0;
+        let tokensOut = 0;
+        let costUsd = 0;
+        let llmCalls = 0;
+
+        if (fastPathTask) {
+          task = fastPathTask;
+        } else {
+          const parsed = await parseTask(ctx.task);
+          task = parsed.task;
+          tokensIn = parsed.tokensIn;
+          tokensOut = parsed.tokensOut;
+          costUsd = parsed.costUsd;
+          llmCalls = 1;
+        }
+
         if (task.type === 'unknown') {
           return failResult('OFFICE_UNKNOWN_TYPE', 'Could not determine office file type from task.');
         }
-
-        const llmCalls = task.__fastPath ? 0 : 1;
 
         const editResult = await tryEditExistingFile(ctx.task, outputDir);
         const result = editResult ?? (await generateOfficeFile(task, outputDir, { llmProvider, model, maxTokens }));
         return okResult(result, {
           metrics: {
-            tokensIn: 0,
-            tokensOut: 0,
-            costUsd: 0,
+            tokensIn,
+            tokensOut,
+            costUsd,
             durationMs: Date.now() - t0,
             llmCalls,
             toolCalls: 0,
@@ -180,8 +226,9 @@ export function createOfficeAgent(config: OfficeAgentConfig): IAgent {
     return rows;
   }
 
-  async function parseTask(rawTask: string): Promise<OfficeTask> {
-    const res = await llmProvider.generate({
+  async function parseTask(rawTask: string): Promise<{ task: OfficeTask; tokensIn: number; tokensOut: number; costUsd: number }> {
+    const result = await callWithMetrics({
+      llmProvider,
       model,
       messages: [
         { role: 'system', content: OFFICE_PARSE_PROMPT },
@@ -191,15 +238,44 @@ export function createOfficeAgent(config: OfficeAgentConfig): IAgent {
       temperature: 0.3,
       maxTokens,
     });
-    const text = res.message.content ?? '{}';
-    const parsed = JSON.parse(text.replace(/^```(?:json)?\s*|\s*```$/gi, '')) as OfficeTask;
+
+    const parsed = parseJsonObject<Partial<OfficeTask>>(result.content);
+    const type = (parsed.ok && typeof parsed.value.type === 'string'
+      ? parsed.value.type
+      : 'unknown') as OfficeTask['type'];
+
     return {
-      type: parsed.type ?? 'unknown',
-      title: parsed.title || 'Untitled',
-      description: parsed.description,
-      content: parsed.content ?? {},
+      task: {
+        type,
+        title: (parsed.ok && typeof parsed.value.title === 'string' && parsed.value.title) || 'Untitled',
+        description: parsed.ok ? parsed.value.description : undefined,
+        content: parsed.ok ? parsed.value.content ?? {} : {},
+      },
+      tokensIn: result.metrics.tokensIn,
+      tokensOut: result.metrics.tokensOut,
+      costUsd: result.metrics.costUsd,
     };
   }
+}
+
+type OfficeFileCreator = (task: OfficeTask, outputDir: string) => OfficeResult | Promise<OfficeResult>;
+
+const OFFICE_CREATORS: ReadonlyMap<string, OfficeFileCreator> = new Map<string, OfficeFileCreator>([
+  ['word', createWordDocument],
+  ['excel', createExcelWorkbook],
+  ['ppt', createPresentation],
+]);
+
+function isWordContent(content: OfficeContent | unknown): content is WordContent {
+  return content != null && typeof content === 'object' && Array.isArray((content as WordContent).sections);
+}
+
+function isExcelContent(content: OfficeContent | unknown): content is ExcelContent {
+  return content != null && typeof content === 'object' && Array.isArray((content as ExcelContent).sheets);
+}
+
+function isPptContent(content: OfficeContent | unknown): content is PptContent {
+  return content != null && typeof content === 'object' && Array.isArray((content as PptContent).slides);
 }
 
 async function generateOfficeFile(
@@ -209,16 +285,11 @@ async function generateOfficeFile(
 ): Promise<OfficeResult> {
   fs.mkdirSync(outputDir, { recursive: true });
 
-  switch (task.type) {
-    case 'word':
-      return createWordDocument(task, outputDir);
-    case 'excel':
-      return createExcelWorkbook(task, outputDir);
-    case 'ppt':
-      return createPresentation(task, outputDir);
-    default:
-      throw new Error(`Unsupported office type: ${task.type}`);
+  const creator = OFFICE_CREATORS.get(task.type);
+  if (!creator) {
+    throw new Error(`Unsupported office type: ${task.type}`);
   }
+  return creator(task, outputDir);
 }
 
 function createWordDocument(task: OfficeTask, outputDir: string): OfficeResult {
@@ -231,11 +302,11 @@ function createWordDocument(task: OfficeTask, outputDir: string): OfficeResult {
     const docx = require('docx');
     const { Document, Packer, Paragraph, TextRun, HeadingLevel } = docx;
 
-    const sections: { heading?: string; paragraphs?: string[] }[] = Array.isArray(task.content)
-      ? task.content
-      : (task.content as any).sections ?? [{ heading: 'Content', paragraphs: [JSON.stringify(task.content, null, 2)] }];
+    const sections: WordSection[] = isWordContent(task.content)
+      ? task.content.sections
+      : [{ heading: 'Content', paragraphs: [JSON.stringify(task.content, null, 2)] }];
 
-    const children: any[] = [new Paragraph({ text: task.title, heading: HeadingLevel.TITLE })];
+    const children: unknown[] = [new Paragraph({ text: task.title, heading: HeadingLevel.TITLE })];
     if (task.description) {
       children.push(new Paragraph({ text: task.description }));
     }
@@ -269,13 +340,14 @@ function createExcelWorkbook(task: OfficeTask, outputDir: string): OfficeResult 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const XLSX = require('xlsx');
     const wb = XLSX.utils.book_new();
-    const sheets: { name: string; headers?: string[]; rows?: unknown[][] }[] =
-      (task.content as any).sheets ?? [{ name: 'Sheet1', rows: [] }];
+    const sheets: ExcelSheet[] = isExcelContent(task.content)
+      ? task.content.sheets
+      : [{ name: 'Sheet1', rows: [] }];
 
     for (const sheet of sheets) {
       const rows: unknown[][] = [];
       if (sheet.headers && sheet.headers.length > 0) rows.push(sheet.headers);
-      for (const row of sheet.rows ?? []) rows.push(row as unknown[]);
+      for (const row of sheet.rows ?? []) rows.push(row);
       const ws = XLSX.utils.aoa_to_sheet(rows);
       XLSX.utils.book_append_sheet(wb, ws, sheet.name.slice(0, 31));
     }
@@ -283,7 +355,7 @@ function createExcelWorkbook(task: OfficeTask, outputDir: string): OfficeResult 
     return { fileType: 'excel', filePath: xlsxPath };
   } catch {
     // Fallback: write CSV for the first sheet.
-    const sheet = ((task.content as any).sheets ?? [])[0] as { headers?: string[]; rows?: unknown[][] } | undefined;
+    const sheet = isExcelContent(task.content) ? task.content.sheets[0] : undefined;
     const rows: unknown[][] = [];
     if (sheet?.headers) rows.push(sheet.headers);
     for (const row of sheet?.rows ?? []) rows.push(row);
@@ -305,8 +377,9 @@ async function createPresentation(task: OfficeTask, outputDir: string): Promise<
     pres.title = task.title;
     pres.subject = task.description ?? '';
 
-    const slides: { title?: string; bullets?: string[]; subtitle?: string }[] =
-      (task.content as any).slides ?? [];
+    const slides: PptSlide[] = isPptContent(task.content)
+      ? task.content.slides
+      : [];
 
     for (const slide of slides) {
       const s = pres.addSlide();

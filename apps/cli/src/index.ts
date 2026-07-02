@@ -1,4 +1,4 @@
-// @z-assistant/app-cli
+// @ziner/app-cli
 //
 // V2 CLI entry point. Boots the V2 Assistant Runtime for terminal use.
 //
@@ -17,9 +17,9 @@
 // `version` / `help` are fully implemented; `eval` / `evolution` /
 // `config` are future work.
 
-import { RUNTIME_VERSION } from '@z-assistant/runtime';
-import { listRunSummaries, listSpanNodes, type SpanNode } from '@z-assistant/trace';
-import { VSCodeConnector, type VSCodeConnectorConfig } from '@z-assistant/app-vscode-connector';
+import { RUNTIME_VERSION } from '@ziner/runtime';
+import { listRunSummaries, listSpanNodes, type SpanNode } from '@ziner/trace';
+import { VSCodeConnector, type VSCodeConnectorConfig } from '@ziner/app-vscode-connector';
 
 // ── Subcommand surface ────────────────────────────────────────────────
 
@@ -205,7 +205,7 @@ const versionSubcommand: CLISubcommand = {
   name: 'version',
   description: 'Print the runtime version',
   async run(ctx) {
-    ctx.out(`@z-assistant/runtime v${RUNTIME_VERSION}`);
+    ctx.out(`@ziner/runtime v${RUNTIME_VERSION}`);
     return 0;
   },
 };
@@ -235,7 +235,7 @@ function parseArgv(argv: string[]): { cmd: string; rest: string[] } {
 
 function usage(): string {
   const lines = [
-    `Z Assistant CLI v${RUNTIME_VERSION}`,
+    `Ziner CLI v${RUNTIME_VERSION}`,
     '',
     'Usage: z <command> [args]',
     '',
@@ -255,7 +255,7 @@ export interface CLIOptions {
   err?: (line: string) => void;
   /**
    * Storage directory for the V2 runtime. Defaults to
-   * `<cwd>/.z-assistant/`. Tests override this with a tmp dir.
+   * `<cwd>/.ziner/`. Tests override this with a tmp dir.
    */
   storageDir?: string;
   /**
@@ -270,7 +270,7 @@ export async function run(argv: string[], opts: CLIOptions = {}): Promise<number
   const cwd = opts.cwd ?? process.cwd();
   const out = opts.out ?? ((s: string) => process.stdout.write(s + '\n'));
   const err = opts.err ?? ((s: string) => process.stderr.write(s + '\n'));
-  const storageDir = opts.storageDir ?? `${cwd}/.z-assistant`;
+  const storageDir = opts.storageDir ?? `${cwd}/.ziner`;
 
   const { cmd, rest } = parseArgv(argv);
   const handler = subcommands.find((s) => s.name === cmd);

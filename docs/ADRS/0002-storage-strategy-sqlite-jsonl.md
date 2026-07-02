@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-06-17
-- 决策人：@Z Assistant V2 架构组
+- 决策人：@Ziner V2 架构组
 - 影响阶段：Phase 0 / 1 / 4
 
 ## 背景

@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Chat panel with session management
+// @ziner/app-desktop — Chat panel with session management
 //
 // Features:
 //   - Create / switch / delete sessions (with confirmation)
@@ -256,6 +256,11 @@ async function mountChat(container: HTMLElement): Promise<void> {
           <div id="chat-todo-list"></div>
         </div>
         <div id="chat-memory-context" style="display:none;padding:4px 8px;border-top:1px solid var(--border-light);background:var(--bg-soft);font-size:0.78em;max-height:80px;overflow-y:auto"></div>
+        <div id="chat-resume-banner" style="display:none;padding:8px 12px;border-top:1px solid var(--border-light);background:linear-gradient(90deg,var(--accent-soft),transparent);font-size:0.82em;align-items:center;gap:10px">
+          <span id="chat-resume-text" style="flex:1"></span>
+          <button id="chat-resume-btn" class="primary" style="font-size:0.82em;padding:4px 10px">${t('chat.resume_cta')}</button>
+          <button id="chat-resume-dismiss" class="secondary" style="font-size:0.78em;padding:3px 8px">${t('chat.dismiss')}</button>
+        </div>
         <div id="chat-input-area">
           <div id="chat-mode-indicator" style="display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:0.75em;color:var(--text-secondary);border-top:1px solid var(--border-light)">
             <button id="chat-mode-btn" class="secondary" type="button" style="font-size:0.85em;padding:2px 8px;border-radius:var(--radius-sm);display:inline-flex;align-items:center;gap:4px" title="${t('chat.mode_hint')}">
@@ -333,7 +338,7 @@ async function mountChat(container: HTMLElement): Promise<void> {
   // appends plain text (no markdown re-render per chunk — too expensive
   // on high-frequency streams) and a `finalize(content)` method that
   // runs the full markdown + Mermaid render on the complete text.
-  function startStreamingMessage(): { bubble: HTMLElement; append: (d: string) => void; finalize: (content: string) => Promise<void> } {
+  function startStreamingMessage(): { bubble: HTMLElement; append: (d: string) => void; finalize: (content: string) => Promise<void>; cancel: (content: string) => Promise<void> } {
     const div = document.createElement('div');
     div.className = 'message assistant streaming';
     const label = t('chat.assistant');
@@ -359,6 +364,14 @@ async function mountChat(container: HTMLElement): Promise<void> {
         div.classList.remove('streaming');
         bodySpan.outerHTML = renderMarkdown(content);
         await renderMermaidInElement(div);
+      },
+      async cancel(content: string) {
+        // User-cancelled run. Render the partial content (with a
+        // "[cancelled]" prefix) as plain text and mark the bubble with
+        // a class so the user can tell at a glance that it's truncated.
+        div.classList.remove('streaming');
+        div.classList.add('cancelled');
+        bodySpan.outerHTML = `<span class="cancelled-body">${escapeHtml(content)}</span>`;
       },
     };
   }
@@ -389,8 +402,37 @@ async function mountChat(container: HTMLElement): Promise<void> {
 
   // ── Helper: show/hide progress indicator ─────────────────────────
   let progressEl: HTMLElement | null = null;
+  let typingEl: HTMLElement | null = null;
+
+  function showTypingIndicator(): void {
+    if (typingEl) return;
+    typingEl = document.createElement('div');
+    typingEl.className = 'message typing-indicator';
+    typingEl.innerHTML = `
+      <strong>${t('chat.assistant')}</strong>
+      <div class="typing-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    `;
+    messages.appendChild(typingEl);
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  function hideTypingIndicator(): void {
+    if (typingEl) {
+      typingEl.remove();
+      typingEl = null;
+    }
+  }
+
   function showProgress(phase: string, detail: string): void {
-    if (!progressEl) {
+    hideTypingIndicator();
+    // Self-heal: a stale reference (e.g. after messages.innerHTML = '')
+    // must be discarded so the spinner is appended to the current
+    // messages container instead of being updated in a detached node.
+    if (!progressEl || !progressEl.isConnected) {
       progressEl = document.createElement('div');
       progressEl.className = 'message progress';
       messages.appendChild(progressEl);
@@ -413,15 +455,98 @@ async function mountChat(container: HTMLElement): Promise<void> {
     }
   }
 
+  // ── Resume an in-flight run indicator after switching sessions ────
+  // When the user switches to a session that has a run still in flight,
+  // the original `onProgress` listener is still attached (renderer
+  // outlives the messages container) but the `progressEl` was detached
+  // by `messages.innerHTML = ''`. We can't recover ephemeral progress
+  // messages, so we surface a generic "running" spinner and poll
+  // `listRuns` until the run finishes, then hide it.
+  let activeRunPollHandle: ReturnType<typeof setInterval> | null = null;
+  async function resumeActiveRunIndicator(sessionId: string): Promise<void> {
+    if (activeRunPollHandle !== null) {
+      clearInterval(activeRunPollHandle);
+      activeRunPollHandle = null;
+    }
+    let running = false;
+    try {
+      const runs = await zApi.listRuns(1, sessionId);
+      const latest = runs?.[0];
+      if (latest && latest.status === 'running') {
+        running = true;
+        showProgress('plan', 'Task is still running…');
+      }
+    } catch {
+      // ignore — listRuns is best-effort
+    }
+    if (!running) {
+      hideProgress();
+      return;
+    }
+    activeRunPollHandle = setInterval(async () => {
+      try {
+        const runs = await zApi.listRuns(1, sessionId);
+        const latest = runs?.[0];
+        if (!latest || latest.status !== 'running') {
+          hideProgress();
+          if (activeRunPollHandle !== null) {
+            clearInterval(activeRunPollHandle);
+            activeRunPollHandle = null;
+          }
+        }
+      } catch {
+        // keep polling
+      }
+    }, 2000);
+  }
+
   // ── Load messages into the UI ─────────────────────────────────────
   async function loadSessionMessages(sessionId: string): Promise<void> {
     messages.innerHTML = '';
+    // After swapping the messages container, the existing progressEl
+    // (if any) is now detached. Reset it so the next showProgress call
+    // re-attaches a fresh element to the new messages container —
+    // otherwise the spinner updates are invisible after a session switch.
+    progressEl = null;
+    // Reset the dismissed-checkpoint marker so a session switch can
+    // surface a new resumable run.
+    dismissedResumeRunId = null;
+    void refreshResumeBanner(sessionId);
     try {
       const s = await zApi.getSession(sessionId);
-      if (s) {
-        for (const msg of s.messages) {
-          await addMessage(msg.role, msg.content);
+      if (!s || !s.messages.length) return;
+
+      // Batch-render all messages into a DocumentFragment to avoid
+      // repeated layout thrashing from per-message DOM appends.
+      const fragment = document.createDocumentFragment();
+      const labelYou = t('chat.you');
+      const labelAssistant = t('chat.assistant');
+      for (const msg of s.messages) {
+        const div = document.createElement('div');
+        div.className = `message ${msg.role}`;
+        const label = msg.role === 'user' ? labelYou : labelAssistant;
+        if (msg.role === 'user') {
+          div.innerHTML = `<strong>${label}</strong><br>${escapeHtml(msg.content)}`;
+        } else {
+          div.innerHTML = `<strong>${label}</strong><br>${renderMarkdown(msg.content)}`;
         }
+        fragment.appendChild(div);
+      }
+      messages.appendChild(fragment);
+      messages.scrollTop = messages.scrollHeight;
+
+      // If this session has a currently running agent task, surface a
+      // "running" indicator immediately. Without this, the user sees an
+      // empty progress area after switching back to a session that has an
+      // in-flight run — the original progressEl was detached by
+      // `messages.innerHTML = ''` and ephemeral progress events are not
+      // re-broadcast.
+      void resumeActiveRunIndicator(sessionId);
+
+      // Render Mermaid diagrams in a second pass (async, non-blocking)
+      const msgEls = Array.from(messages.querySelectorAll('.message.assistant'));
+      for (const msgEl of msgEls) {
+        await renderMermaidInElement(msgEl as HTMLElement);
       }
     } catch {
       // ignore
@@ -572,6 +697,7 @@ async function mountChat(container: HTMLElement): Promise<void> {
       await runAgentTask(restText);
       return;
     }
+
     if (firstToken === '/mode') {
       addSystemMessage(`${t('chat.mode_current')} ${PLANNING_MODE_LABELS[currentPlanningMode]}`);
       sendBtn.disabled = false;
@@ -580,6 +706,31 @@ async function mountChat(container: HTMLElement): Promise<void> {
     }
 
     await runAgentTask(text);
+  }
+
+  // ── Cancel current run ───────────────────────────────────────────
+  // While a run is in flight, the send button is repurposed as a stop
+  // button. Clicking it aborts the in-flight LLM/MCP calls and returns
+  // the input area to a usable state. The agent handles the abort via
+  // the Orchestrator's AbortSignal — agents that are mid-tool call get
+  // a chance to write a partial response.
+  let isRunInFlight = false;
+  async function cancelCurrentRun(): Promise<void> {
+    if (!isRunInFlight) return;
+    try {
+      await zApi.cancelRun();
+      addSystemMessage(t('chat.cancelled'));
+    } catch (e) {
+      addSystemMessage(`${t('chat.cancel_failed')} ${(e as Error).message}`);
+    }
+  }
+  function setRunInFlight(inFlight: boolean): void {
+    isRunInFlight = inFlight;
+    sendBtn.classList.toggle('cancel', inFlight);
+    sendBtn.textContent = inFlight ? t('chat.stop') : t('chat.send');
+    sendBtn.title = inFlight ? t('chat.stop_hint') : '';
+    sendBtn.disabled = false; // stop button is always clickable
+    input.disabled = inFlight; // lock input while a run is in flight
   }
 
   // ── Run agent task with the current planning mode ────────────────
@@ -600,10 +751,17 @@ async function mountChat(container: HTMLElement): Promise<void> {
     await zApi.appendMessage(currentSessionId, { role: 'user', content: task, timestamp: Date.now() });
     await addMessage('user', task);
     renderSessionList();
+    // A fresh run is starting for this session — clear any stale
+    // "resumed" poll from a previous in-flight run.
+    if (activeRunPollHandle !== null) {
+      clearInterval(activeRunPollHandle);
+      activeRunPollHandle = null;
+    }
 
     // Call LLM
+    setRunInFlight(true);
     try {
-      showProgress('plan', 'Starting...');
+      showTypingIndicator();
       const unsubProgress = zApi.onProgress((e) => {
         showProgress(e.phase, e.detail);
       });
@@ -613,6 +771,7 @@ async function mountChat(container: HTMLElement): Promise<void> {
       // When the run completes, `finalize` re-renders the accumulated
       // text as full markdown (replacing the plain-text span).
       const stream = startStreamingMessage();
+      hideTypingIndicator();
       let accumulated = '';
       const unsubStream = zApi.onStreamChunk((e) => {
         if (e.delta) {
@@ -627,8 +786,14 @@ async function mountChat(container: HTMLElement): Promise<void> {
         // Prefer the streamed text when available (matches what the user
         // saw), fall back to the IPC-returned `result` otherwise.
         const finalText = accumulated || reply;
-        await zApi.appendMessage(currentSessionId, { role: 'assistant', content: finalText, timestamp: Date.now() });
-        await stream.finalize(finalText);
+        // Distinguish a user-cancelled run from a normal completion so
+        // we don't save the partial streaming text as a full reply.
+        if (isRunInFlight) {
+          await zApi.appendMessage(currentSessionId, { role: 'assistant', content: finalText, timestamp: Date.now() });
+          await stream.finalize(finalText);
+        } else {
+          await stream.cancel(`${t('chat.cancelled_by_user')}\n\n${finalText}`);
+        }
         renderSessionList();
       } finally {
         unsubStream();
@@ -636,12 +801,14 @@ async function mountChat(container: HTMLElement): Promise<void> {
         hideProgress();
       }
     } catch (err: unknown) {
+      hideTypingIndicator();
+      hideProgress();
       const msg = err instanceof Error ? err.message : String(err);
       const errorText = `${t('chat.error')}: ${msg}`;
       await zApi.appendMessage(currentSessionId, { role: 'assistant', content: errorText, timestamp: Date.now() });
       await addMessage('assistant', errorText);
     } finally {
-      sendBtn.disabled = false;
+      setRunInFlight(false);
       input.focus();
     }
   }
@@ -739,11 +906,21 @@ async function mountChat(container: HTMLElement): Promise<void> {
   });
 
   // ── Event binding ─────────────────────────────────────────────────
-  sendBtn.addEventListener('click', sendMessage);
+  sendBtn.addEventListener('click', () => {
+    if (isRunInFlight) {
+      void cancelCurrentRun();
+    } else {
+      void sendMessage();
+    }
+  });
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      sendMessage();
+      if (isRunInFlight) {
+        void cancelCurrentRun();
+      } else {
+        void sendMessage();
+      }
     }
   });
 
@@ -906,7 +1083,7 @@ async function mountChat(container: HTMLElement): Promise<void> {
     switch (e.type) {
       case 'planDag':
         setTodoItems(
-          e.subtasks.map((st) => ({
+          e.subtasks.map((st: import('@ziner/app-vscode-connector').PlanSubTaskView) => ({
             id: st.id,
             title: st.title,
             assignedTo: st.assignedTo,
@@ -953,8 +1130,65 @@ async function mountChat(container: HTMLElement): Promise<void> {
     }
   });
 
+  // ── P3 Resume banner ────────────────────────────────────────────
+  // When a plan-mode run is interrupted (cancelled / crashed /
+  // failed) the Orchestrator persists a checkpoint to
+  // `<storageDir>/checkpoints/`. The chat panel surfaces the
+  // most-recent resumable checkpoint for the current session as a
+  // banner above the input area so the user can pick up where they
+  // left off without digging through the Trace panel.
+  let dismissedResumeRunId: string | null = null;
+  async function refreshResumeBanner(sessionId: string | undefined): Promise<void> {
+    const banner = document.getElementById('chat-resume-banner') as HTMLElement;
+    const text = document.getElementById('chat-resume-text') as HTMLElement;
+    if (!sessionId) {
+      banner.style.display = 'none';
+      return;
+    }
+    try {
+      const entries = await zApi.listCheckpoints({ sessionId, limit: 1 });
+      const resumable = entries.find(
+        (e) => e.status === 'in_progress' || e.status === 'cancelled' || e.status === 'failed',
+      );
+      if (!resumable || resumable.runId === dismissedResumeRunId) {
+        banner.style.display = 'none';
+        return;
+      }
+      const remaining = resumable.totalCount - resumable.completedCount;
+      const preview = resumable.task.length > 60 ? resumable.task.slice(0, 60) + '…' : resumable.task;
+      text.textContent = t('chat.resume_banner', {
+        preview,
+        done: resumable.completedCount,
+        total: resumable.totalCount,
+        remaining,
+      });
+      banner.style.display = 'flex';
+      const btn = document.getElementById('chat-resume-btn') as HTMLButtonElement;
+      const dismiss = document.getElementById('chat-resume-dismiss') as HTMLButtonElement;
+      btn.onclick = async () => {
+        btn.disabled = true;
+        btn.textContent = t('chat.resume_running');
+        try {
+          await zApi.resumeTask(resumable.runId);
+          banner.style.display = 'none';
+        } catch (e) {
+          btn.textContent = t('chat.resume_cta');
+          btn.disabled = false;
+          addSystemMessage(`${t('chat.resume_failed')}: ${(e as Error).message}`);
+        }
+      };
+      dismiss.onclick = () => {
+        dismissedResumeRunId = resumable.runId;
+        banner.style.display = 'none';
+      };
+    } catch {
+      banner.style.display = 'none';
+    }
+  }
+
   // Initialize
   await renderSessionList();
+  await refreshResumeBanner(currentSessionId ?? undefined);
   input.focus();
 }
 

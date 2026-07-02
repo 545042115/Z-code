@@ -1,11 +1,11 @@
-// @z-assistant/runtime — Hierarchical Planner
+// @ziner/runtime — Hierarchical Planner
 //
 // Builds a multi-level plan (milestones → steps) from a task using an LLM,
 // then executes it step-by-step. This is the "deep planning" mode for
 // complex tasks; the chat-agent can fall back to its native ReAct loop for
 // simple tasks.
 
-import type { ILLMProvider, LLMMessage, Plan, PlanResult, PlanStep, TaskContext } from '@z-assistant/contracts';
+import type { ILLMProvider, LLMMessage, Plan, PlanResult, PlanStep, TaskContext } from '@ziner/contracts';
 import { executeSequential, type StepHandler } from './sequential-executor';
 
 export type PlanningMode = 'simple' | 'hierarchical' | 'auto';

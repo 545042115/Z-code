@@ -11,14 +11,14 @@
 // engines (Coding's `ReflectionEngine`, Browser's) sit ON TOP of
 // this framework and supply the agent-specific heuristics. Per
 // ADR-0006, the agent-specific engine stays in the agent package
-// (Coding → `@z-assistant/agent-coding`); this file is the
+// (Coding → `@ziner/agent-coding`); this file is the
 // framework part, which lives in V2.
 //
 // Phase 6A: framework foundation. Future work:
 //   - integrate with V2 `Verifier` from `packages/runtime/evaluation`
 //   - add the `reflection-cycle` agent role that consumes these reports
 
-import type { AgentResult } from '@z-assistant/contracts';
+import type { AgentResult } from '@ziner/contracts';
 
 // ── Generic data shapes ───────────────────────────────────────────────
 

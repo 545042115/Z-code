@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/infra-storage",
+  "name": "@ziner/infra-storage",
   "version": "0.1.0",
   "private": true,
   "description": "V2 infra — JSONL / SQLite storage backend implementing the Store interface. Pure Node (no vscode).",
@@ -12,6 +12,6 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0"
+    "@ziner/contracts": "0.1.0"
   }
 }

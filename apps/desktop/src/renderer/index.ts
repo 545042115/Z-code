@@ -1,14 +1,16 @@
-// @z-assistant/app-desktop — renderer bootstrap (i18n)
+// @ziner/app-desktop — renderer bootstrap (i18n)
 //
 // Views are lazy-mounted via MutationObserver in each module.
 // Top-level imports are fine — the observer defers DOM work until
 // the view container actually appears in the DOM.
 
+import './main';
 import './chat';
 import './trace';
 import './memory';
 import './settings';
 import './confirmation';
+import './benchmarks';
 import { t, loadLanguage } from './i18n';
 
 function getView(): string {
@@ -26,16 +28,22 @@ function showView(view: string): void {
 }
 
 function applyNavTranslations(): void {
-  const btnMain = document.querySelector('#nav button[data-view="main"] .nav-label');
-  const btnChat = document.querySelector('#nav button[data-view="chat"] .nav-label');
-  const btnTrace = document.querySelector('#nav button[data-view="trace"] .nav-label');
-  const btnMemory = document.querySelector('#nav button[data-view="memory"] .nav-label');
-  const btnSettings = document.querySelector('#nav button[data-view="settings"] .nav-label');
-  if (btnMain) btnMain.textContent = t('nav.main');
-  if (btnChat) btnChat.textContent = t('nav.chat');
-  if (btnTrace) btnTrace.textContent = t('nav.trace');
-  if (btnMemory) btnMemory.textContent = t('memory.title');
-  if (btnSettings) btnSettings.textContent = t('nav.settings');
+  const navItems = [
+    { view: 'main', labelKey: 'nav.main' },
+    { view: 'chat', labelKey: 'nav.chat' },
+    { view: 'trace', labelKey: 'nav.trace' },
+    { view: 'memory', labelKey: 'nav.memory' },
+    { view: 'benchmarks', labelKey: 'nav.benchmarks' },
+    { view: 'settings', labelKey: 'nav.settings' },
+  ];
+
+  navItems.forEach(({ view, labelKey }) => {
+    const btn = document.querySelector(`#nav button[data-view="${view}"]`) as HTMLElement;
+    if (!btn) return;
+    const label = btn.querySelector('.nav-label');
+    if (label) label.textContent = t(labelKey);
+    btn.setAttribute('data-tooltip', t(labelKey));
+  });
 }
 
 function setupWindowControls(): void {
@@ -84,14 +92,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadLanguage();
 
   // Create view containers
-  const views = ['main', 'chat', 'trace', 'memory', 'settings'];
+  const views = ['main', 'chat', 'trace', 'memory', 'benchmarks', 'settings'];
   for (const v of views) {
     const div = document.createElement('div');
     div.id = `view-${v}`;
     div.className = 'view';
-    if (v === 'main') {
-      div.innerHTML = `<div class="card"><h1>${t('main.title')}</h1><p class="muted">${t('main.description')}</p></div>`;
-    }
     app.appendChild(div);
   }
 

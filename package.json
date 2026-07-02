@@ -1,8 +1,8 @@
 {
-  "name": "z-assistant",
+  "name": "ziner",
   "version": "2.0.0-alpha.1",
   "private": true,
-  "description": "Z Assistant V2 — Assistant Runtime monorepo root. Houses V2 packages (contracts, runtime, agents) and apps (cli, desktop, vscode-connector). V1 (VSCode Coding Agent extension) lives under extensions/coding-agent/.",
+  "description": "Ziner V2 — Assistant Runtime monorepo root. Houses V2 packages (contracts, runtime, agents) and apps (cli, desktop, vscode-connector). V1 (VSCode Coding Agent extension) lives under extensions/coding-agent/.",
   "workspaces": [
     "packages/*",
     "packages/agents/*",
@@ -12,18 +12,22 @@
     "extensions/coding-agent"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present && npm run compile -w extensions/coding-agent",
+    "build": "tsc -b && npm run compile -w extensions/coding-agent",
     "test": "npm run test --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
+    "prepare": "node -e \"try { require('child_process').execSync('git config core.hooksPath .githooks', {stdio:'ignore'}); } catch {}\""
   },
   "devDependencies": {
     "@types/node": "18.x",
     "@types/ws": "^8.18.1",
+    "lazy-val": "^1.0.5",
     "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }

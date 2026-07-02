@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Review Queue (P1-3).
+// @ziner/runtime — Skill Review Queue (P1-3).
 //
 // Persisted queue of CandidateSkill records awaiting human review.
 // Backed by a single JSON file under `<rootDir>/skill-review-queue.json`.
@@ -13,7 +13,7 @@ import { join } from 'path';
 import type {
   CandidateSkill,
   ISkillReviewQueue,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Options ──────────────────────────────────────────────────────────
 

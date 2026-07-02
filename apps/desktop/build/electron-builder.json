@@ -1,6 +1,6 @@
 {
-  "appId": "com.z-assistant.desktop",
-  "productName": "Z Assistant",
+  "appId": "com.ziner.desktop",
+  "productName": "Ziner",
   "electronVersion": "30.5.1",
   "directories": {
     "output": "dist"
@@ -17,29 +17,24 @@
     "node_modules/koffi/**"
   ],
   "extraResources": [
-    {
-      "from": "../../packages/runtime/python/dist/perception-server.exe",
-      "to": "perception-server.exe",
-      "filter": ["**/*"]
-    }
   ],
   "fileAssociations": [
     {
       "ext": "zap",
-      "name": "Z Assistant Prompt",
-      "description": "Z Assistant Prompt File",
+      "name": "Ziner Prompt",
+      "description": "Ziner Prompt File",
       "role": "Editor"
     },
     {
       "ext": "zconfig",
-      "name": "Z Assistant Config",
-      "description": "Z Assistant Configuration File",
+      "name": "Ziner Config",
+      "description": "Ziner Configuration File",
       "role": "Editor"
     },
     {
       "ext": "zlog",
-      "name": "Z Assistant Trace Log",
-      "description": "Z Assistant Agent Trace Log",
+      "name": "Ziner Trace Log",
+      "description": "Ziner Agent Trace Log",
       "role": "Editor"
     }
   ],
@@ -75,6 +70,6 @@
   },
   "publish": {
     "provider": "generic",
-    "url": "https://update.z-assistant.app"
+    "url": "https://update.ziner.app"
   }
 }

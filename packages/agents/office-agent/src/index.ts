@@ -1,4 +1,4 @@
-// @z-assistant/agent-office — V2 Office Agent entry point.
+// @ziner/agent-office — V2 Office Agent entry point.
 //
 // Word / Excel / PowerPoint document generation from natural language.
 

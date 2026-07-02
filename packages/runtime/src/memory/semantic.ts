@@ -1,10 +1,10 @@
-// @z-assistant/runtime — semantic memory
+// @ziner/runtime — semantic memory
 //
 // Concept-level "I know X" knowledge. Used for project glossaries,
 // architecture facts, API behavior, and other structured knowledge
 // that agents should retrieve by meaning rather than exact keyword.
 
-import type { MemoryRecord, MemoryHit } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryHit } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface SemanticConcept {

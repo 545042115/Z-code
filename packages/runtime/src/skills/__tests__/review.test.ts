@@ -1,4 +1,4 @@
-// @z-assistant/runtime — skill review queue tests
+// @ziner/runtime — skill review queue tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -6,7 +6,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { rmSync, mkdirSync, existsSync } from 'fs';
 import { JsonFileSkillReviewQueue } from '../index';
-import type { CandidateSkill } from '@z-assistant/contracts';
+import type { CandidateSkill } from '@ziner/contracts';
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `z-skill-review-${Date.now()}-${Math.random().toString(36).slice(2)}`);

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — in-memory skill indexer tests
+// @ziner/runtime — in-memory skill indexer tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

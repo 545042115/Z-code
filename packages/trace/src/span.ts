@@ -1,7 +1,7 @@
 // Span — a single unit of work in a Run.
 //
 // Span is a thin, ergonomic wrapper around the `AgentSpan` contract
-// from `@z-assistant/contracts`. It handles:
+// from `@ziner/contracts`. It handles:
 //   - lifecycle (start, end, fail, cancel)
 //   - event appending (streamed to JSONL via the manager)
 //   - parent/child nesting
@@ -17,7 +17,7 @@ import type {
   SpanType,
   SpanStatus,
   ErrorRef,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface SpanOptions {
   runId: string;

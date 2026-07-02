@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { computeCost, lookupPrice, DEFAULT_PRICING } from '../pricing';
 import { BudgetGuard, BudgetExceededError } from '../budget';
-import { AgentErrorCode } from '@z-assistant/infra-errors';
+import { AgentErrorCode } from '@ziner/infra-errors';
 
 test('lookupPrice: known model', () => {
   const p = lookupPrice({ provider: 'openai', name: 'gpt-4o' });

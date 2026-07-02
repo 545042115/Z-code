@@ -1,4 +1,4 @@
-// @z-assistant/agent-coding — adapter layer
+// @ziner/agent-coding — adapter layer
 //
 // V2 Coding Agent adapter layer. Provides thin implementations of the
 // V2 interfaces (IAgent / IPlanner / IReflectionEngine /

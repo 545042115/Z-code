@@ -23,7 +23,7 @@ import type { SelectedSkill } from './skill';
 
 /**
  * Structural Skill record used by the auto-discovery contracts.
- * Mirrors `@z-assistant/runtime`'s parsed Skill shape so the
+ * Mirrors `@ziner/runtime`'s parsed Skill shape so the
  * contracts can describe indexer and community store operations
  * without depending on the runtime. Concrete implementations may
  * provide additional fields.
@@ -379,7 +379,7 @@ export interface ISkillIndexer {
 
 /**
  * Opt-in skill sharing across users / projects. Implementations
- * may be local-folder (`~/.z-assistant/community/`) or remote.
+ * may be local-folder (`~/.ziner/community/`) or remote.
  */
 export interface ICommunitySkillStore {
   /** Publish a skill (with provenance). */

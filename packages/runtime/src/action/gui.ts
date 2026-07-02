@@ -1,4 +1,4 @@
-// @z-assistant/runtime — GUI automation actions
+// @ziner/runtime — GUI automation actions
 //
 // Low-level mouse / keyboard / clipboard / window control.
 // These actions run at the operating system level (not inside a browser).

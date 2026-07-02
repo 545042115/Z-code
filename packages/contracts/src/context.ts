@@ -2,7 +2,7 @@
 //
 // `IContextProvider` is a single source of context chunks (code,
 // search, RAG, retrieval, repo-map, etc.). The Context framework in
-// `@z-assistant/runtime` aggregates multiple providers under a
+// `@ziner/runtime` aggregates multiple providers under a
 // shared token budget.
 
 import type { TaskContext } from './agent';

@@ -5,7 +5,7 @@
 //   - Any other domain denied unless explicitly allowed.
 //   - IP literals denied (avoid SSRF / data leak to internal nets).
 
-import { ToolErrorCode } from '@z-assistant/infra-errors';
+import { ToolErrorCode } from '@ziner/infra-errors';
 
 export interface NetPolicy {
   /** Allowed hostnames, e.g. ["api.openai.com", "*.openai.com"] */

@@ -55,3 +55,16 @@ packages/runtime/python/.requirements-hash
 Z-Assistant-portable.zip
 apps/desktop/dist/
 
+# Mobile (Android) build artifacts
+apps/mobile/.gradle-home/
+apps/mobile/android/.gradle/
+apps/mobile/android/app/build/
+apps/mobile/android/app/release/
+apps/mobile/android/capacitor-cordova-android-plugins/
+apps/mobile/dist/
+apps/mobile/node_modules/
+
+# Log files
+*.log
+package-desktop.log
+

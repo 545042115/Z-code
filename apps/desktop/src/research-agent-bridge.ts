@@ -1,14 +1,14 @@
-// @z-assistant/app-desktop — Research Agent bridge (P1-1 / P2-1).
+// @ziner/app-desktop — Research Agent bridge (P1-1 / P2-1).
 //
 // Wires the Research Agent to the desktop's live web search / fetch tools
 // and the browser-based fetch provider for JS-heavy pages.
 // Uses the shared Playwright backend (from browser-agent-bridge) so the
 // Browser Agent and Research Agent share a single browser instance.
 
-import { createResearchAgent } from '@z-assistant/agent-research';
-import type { IAgent, ILLMProvider, ModelSpec } from '@z-assistant/contracts';
-import { webSearchResults, webFetch } from '@z-assistant/app-vscode-connector';
-import { pageToText } from '@z-assistant/agent-browser';
+import { createResearchAgent } from '@ziner/agent-research';
+import type { IAgent, ILLMProvider, ITool, ModelSpec } from '@ziner/contracts';
+import { webSearchResults, webFetch } from '@ziner/app-vscode-connector';
+import { pageToText } from '@ziner/agent-browser';
 import { getSharedBackend } from './browser-agent-bridge';
 import { emitAgentActivity } from './agent-activity-bus';
 
@@ -17,6 +17,13 @@ export interface DesktopResearchAgentOptions {
   model: ModelSpec;
   /** Desktop storage directory for search cache. */
   storageDir: string;
+  /**
+   * Optional MCP tools (e.g. amap maps_text_search). The research agent
+   * uses them as a fast path for structured map/food/route queries so it
+   * does not have to round-trip through web search for things that have
+   * a dedicated MCP service.
+   */
+  mcpTools?: ITool[];
 }
 
 export function createResearchAgentBridge(options: DesktopResearchAgentOptions): IAgent {
@@ -78,12 +85,15 @@ export function createResearchAgentBridge(options: DesktopResearchAgentOptions):
         message: detail.slice(0, 100),
       });
     },
-    maxQueries: 3,
-    maxResultsPerQuery: 5,
-    maxPagesToFetch: 5,
-    maxReportTokens: 2048,
-    maxIterations: 2,
+    // Plan subtasks are narrow (search hotels, food, route). Lower the
+    // default depth so each subtask returns in ~10-20s instead of ~60s.
+    maxQueries: 2,
+    maxResultsPerQuery: 3,
+    maxPagesToFetch: 3,
+    maxReportTokens: 1536,
+    maxIterations: 1,
     cacheDir: `${options.storageDir}/search-cache`,
     cacheTtlMs: 24 * 60 * 60 * 1000, // 24h
+    ...(options.mcpTools ? { mcpTools: options.mcpTools } : {}),
   });
 }

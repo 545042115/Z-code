@@ -1,4 +1,4 @@
-// @z-assistant/runtime — embedding
+// @ziner/runtime — embedding
 //
 // Pluggable embedding provider facade. The default `local` provider is a
 // dependency-free deterministic embedding that is good enough for unit
@@ -9,9 +9,9 @@
 // 2-word ngram hashes into a fixed-size dense vector, which is then
 // L2-normalized. It is deterministic, fast, and requires no model files.
 
-import type { IEmbeddingProvider } from '@z-assistant/contracts';
+import type { IEmbeddingProvider } from '@ziner/contracts';
 
-export type { IEmbeddingProvider } from '@z-assistant/contracts';
+export type { IEmbeddingProvider } from '@ziner/contracts';
 
 export interface LocalEmbeddingOptions {
   /** Vector dimensions; default 384. */
@@ -94,6 +94,101 @@ export function createLocalEmbeddingProvider(opts: LocalEmbeddingOptions = {}): 
     },
 
     async health() {
+      return { ok: true, checkedAt: Date.now() };
+    },
+  };
+}
+
+export interface CachedEmbeddingOptions {
+  /** Maximum number of cached embeddings (LRU eviction). Default 1000. */
+  maxCacheSize?: number;
+}
+
+/**
+ * Wrap an embedding provider with an LRU in-memory cache.
+ *
+ * Repeated calls to `embed()` with the same text return immediately from cache,
+ * which is especially useful when the same query is recalled multiple times
+ * (e.g. during a single conversation turn).
+ */
+export function withEmbeddingCache(
+  provider: IEmbeddingProvider,
+  opts: CachedEmbeddingOptions = {},
+): IEmbeddingProvider {
+  const maxCacheSize = opts.maxCacheSize ?? 1000;
+  const cache = new Map<string, number[]>();
+  const accessOrder: string[] = [];
+
+  function getCached(key: string): number[] | undefined {
+    const vec = cache.get(key);
+    if (vec) {
+      // Move to end (most recently used)
+      const idx = accessOrder.indexOf(key);
+      if (idx !== -1) accessOrder.splice(idx, 1);
+      accessOrder.push(key);
+    }
+    return vec;
+  }
+
+  function setCached(key: string, vec: number[]): void {
+    cache.set(key, vec);
+    accessOrder.push(key);
+    // LRU eviction
+    while (accessOrder.length > maxCacheSize) {
+      const oldestKey = accessOrder.shift();
+      if (oldestKey) cache.delete(oldestKey);
+    }
+  }
+
+  function normalizeKey(text: string): string {
+    return text.trim().toLowerCase();
+  }
+
+  return {
+    name: `${provider.name}-cached`,
+    dimensions: provider.dimensions,
+
+    async embed(text: string): Promise<number[]> {
+      const key = normalizeKey(text);
+      const cached = getCached(key);
+      if (cached) return cached;
+
+      const vec = await provider.embed(text);
+      setCached(key, vec);
+      return vec;
+    },
+
+    async embedBatch(texts: string[]): Promise<number[][]> {
+      if (provider.embedBatch) {
+        const results: number[][] = new Array(texts.length);
+        const toCompute: Array<{ idx: number; text: string; key: string }> = [];
+
+        for (let i = 0; i < texts.length; i++) {
+          const key = normalizeKey(texts[i]);
+          const cached = getCached(key);
+          if (cached) {
+            results[i] = cached;
+          } else {
+            toCompute.push({ idx: i, text: texts[i], key });
+          }
+        }
+
+        if (toCompute.length > 0) {
+          const computed = await provider.embedBatch(toCompute.map((t) => t.text));
+          for (let i = 0; i < toCompute.length; i++) {
+            results[toCompute[i].idx] = computed[i];
+            setCached(toCompute[i].key, computed[i]);
+          }
+        }
+
+        return results;
+      }
+      // Fallback: call embed for each
+      return Promise.all(texts.map((t) => this.embed(t)));
+    },
+
+    async health() {
+      if (provider.health) return provider.health();
       return { ok: true, checkedAt: Date.now() };
     },
   };

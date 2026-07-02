@@ -1,4 +1,4 @@
-// @z-assistant/infra-errors
+// @ziner/infra-errors
 //
 // Cross-package error code registry + heuristic classifier. Used by
 // `trace` (recording `ErrorRef` on failed Spans) and `evaluation`

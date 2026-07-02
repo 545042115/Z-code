@@ -1,4 +1,4 @@
-// @z-assistant/runtime — ConfirmationGate (P1-2 HITL core).
+// @ziner/runtime — ConfirmationGate (P1-2 HITL core).
 //
 // Sits between the agent and tool execution. For every tool call:
 //
@@ -24,7 +24,7 @@ import type {
   RiskLevel,
   ToolInvocation,
   ToolPreview,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import { randomUUID } from 'node:crypto';
 import {
   classifyToolCall,

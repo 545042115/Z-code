@@ -1,10 +1,10 @@
-// @z-assistant/runtime — background evolution scheduler tests
+// @ziner/runtime — background evolution scheduler tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { BackgroundScheduler } from '../scheduler';
 import { AuditLogger } from '../../audit/logger';
-import type { AuditLogEntry, RiskLevel, AutoDiscoveryReport, ISkillReviewQueue } from '@z-assistant/contracts';
+import type { AuditLogEntry, RiskLevel, AutoDiscoveryReport, ISkillReviewQueue } from '@ziner/contracts';
 import type { EvolutionEngine, EvolutionReport } from '../evolution';
 import type { AutoDiscoveryEngine } from '../../skills/auto-discovery';
 

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Dry-run Executor (P1-2 HITL).
+// @ziner/runtime — Dry-run Executor (P1-2 HITL).
 //
 // Simulates tool execution without performing any side effects.
 // When dry-run mode is enabled, the agent calls `simulate()` instead
@@ -16,7 +16,7 @@
 //   const result = await executor.simulate({ id, toolName: 'write_file', args: { path: '/foo.txt', content: 'hi' } });
 //   // → "[dry-run] Would have written 2 bytes to /foo.txt"
 
-import type { ToolInvocation } from '@z-assistant/contracts';
+import type { ToolInvocation } from '@ziner/contracts';
 
 // ── Options ──────────────────────────────────────────────────────────
 

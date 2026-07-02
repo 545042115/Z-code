@@ -12,9 +12,9 @@
 // Phase 6A: moved from V1 `extensions/coding-agent/src/evolution/evolution.ts`
 // to V2 `packages/runtime/src/evolution/evolution.ts`. Pure Node, no vscode.
 
-import type { AgentRun, AgentSpan } from '@z-assistant/contracts';
-import type { Store, RunQuery } from '@z-assistant/infra-storage';
-import type { TraceManager } from '@z-assistant/trace';
+import type { AgentRun, AgentSpan } from '@ziner/contracts';
+import type { Store, RunQuery } from '@ziner/infra-storage';
+import type { TraceManager } from '@ziner/trace';
 
 // ── Data shapes ───────────────────────────────────────────────────────
 

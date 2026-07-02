@@ -1,4 +1,4 @@
-// @z-assistant/runtime — reflection
+// @ziner/runtime — reflection
 //
 // Universal Reflection framework. Pure Node, no vscode.
 //

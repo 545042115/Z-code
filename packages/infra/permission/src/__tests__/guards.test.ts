@@ -16,7 +16,7 @@ import {
   DangerousCommandError,
   ToolDeniedError,
 } from '../tool-guard';
-import { ToolErrorCode } from '@z-assistant/infra-errors';
+import { ToolErrorCode } from '@ziner/infra-errors';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { mkdtemp } from 'fs/promises';

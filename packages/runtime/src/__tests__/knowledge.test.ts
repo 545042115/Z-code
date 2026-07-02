@@ -1,10 +1,10 @@
-// @z-assistant/runtime — Knowledge subsystem tests
+// @ziner/runtime — Knowledge subsystem tests
 
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert';
 import { createInMemoryVectorStore } from '../storage/vector-store';
 import { createLocalEmbeddingProvider } from '../embedding';
-import type { IMemoryProvider } from '@z-assistant/contracts';
+import type { IMemoryProvider } from '@ziner/contracts';
 import { createJsonlMemoryProvider } from '../memory/provider';
 import { ProjectKnowledgeBase } from '../knowledge/project';
 import { UserKnowledgeBase } from '../knowledge/user';

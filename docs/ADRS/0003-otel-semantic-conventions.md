@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-06-17
-- 决策人：@Z Assistant V2 架构组
+- 决策人：@Ziner V2 架构组
 - 影响阶段：Phase 0 / 1 及之后所有阶段
 
 ## 背景
@@ -30,7 +30,7 @@ Trace 的字段命名有两种思路：
 
 ### 正面
 - 未来对接 Langfuse / Datadog / Honeycomb 零成本
-- 生态工具可直接消费 Z Assistant 的 Trace
+- 生态工具可直接消费 Ziner 的 Trace
 
 ### 负面 / 成本
 - 团队需学习 OTel 语义约定

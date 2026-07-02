@@ -1,4 +1,4 @@
-# Phase 6A — Dependency Graph
+﻿# Phase 6A — Dependency Graph
 
 > Step 10 deliverable. This document maps every package in the V2
 > monorepo and the apps in `apps/` to their declared dependencies.
@@ -55,21 +55,21 @@ in `agents/` (per ADR-0007 §三 "强约束").
 
 | Package | Depends on |
 |---------|------------|
-| `@z-assistant/contracts` | (none — leaf) |
-| `@z-assistant/infra-errors`  | (none) |
-| `@z-assistant/infra-cost`    | (none) |
-| `@z-assistant/infra-storage` | (none) |
-| `@z-assistant/infra-permission` | (none) |
-| `@z-assistant/infra-config`  | (none) |
-| `@z-assistant/trace`         | `contracts`, `infra-errors`, `infra-cost`, `infra-storage` |
-| `@z-assistant/runtime`       | `contracts`, `infra-cost`, `infra-errors`, `infra-storage`, `trace` |
-| `@z-assistant/agent-coding`  | `contracts`, `runtime` |
-| `@z-assistant/agent-browser` | `contracts` |
-| `@z-assistant/agent-office`  | `contracts` |
-| `@z-assistant/agent-research`| `contracts` |
-| `@z-assistant/app-vscode-connector` | `contracts`, `runtime` |
-| `@z-assistant/app-cli`       | `contracts`, `runtime` |
-| `@z-assistant/app-desktop`   | `contracts`, `runtime` |
+| `@ziner/contracts` | (none — leaf) |
+| `@ziner/infra-errors`  | (none) |
+| `@ziner/infra-cost`    | (none) |
+| `@ziner/infra-storage` | (none) |
+| `@ziner/infra-permission` | (none) |
+| `@ziner/infra-config`  | (none) |
+| `@ziner/trace`         | `contracts`, `infra-errors`, `infra-cost`, `infra-storage` |
+| `@ziner/runtime`       | `contracts`, `infra-cost`, `infra-errors`, `infra-storage`, `trace` |
+| `@ziner/agent-coding`  | `contracts`, `runtime` |
+| `@ziner/agent-browser` | `contracts` |
+| `@ziner/agent-office`  | `contracts` |
+| `@ziner/agent-research`| `contracts` |
+| `@ziner/app-vscode-connector` | `contracts`, `runtime` |
+| `@ziner/app-cli`       | `contracts`, `runtime` |
+| `@ziner/app-desktop`   | `contracts`, `runtime` |
 | `extensions/coding-agent` (V1) | `contracts`, `runtime`, `infra-*`, `trace` |
 
 ## 3. ASCII dependency graph (workspace-internal)
@@ -112,7 +112,7 @@ in `agents/` (per ADR-0007 §三 "强约束").
   refactor will lift them into runtime's surface.)
 * **`agents/*` → `runtime`** — Coding adapter imports `IPlanner`,
   `Plan`, `PlanResult` and uses `ContextChunk` from
-  `@z-assistant/runtime`. The other three agent packages are
+  `@ziner/runtime`. The other three agent packages are
   placeholders for future phases.
 * **`apps/*` → `runtime`** — connectors and CLI consume the runtime
   facade; no app imports another app.
@@ -162,10 +162,10 @@ for (const p of walk('packages').concat(walk('apps'))) {
 
 | Package | Test command | Status |
 |---------|--------------|--------|
-| `@z-assistant/runtime`   | `npm test --prefix packages/runtime` | passing — 38 tests across orchestrator, evolution, evaluation |
-| `@z-assistant/trace`     | `npm test --prefix packages/trace`   | passing |
+| `@ziner/runtime`   | `npm test --prefix packages/runtime` | passing — 38 tests across orchestrator, evolution, evaluation |
+| `@ziner/trace`     | `npm test --prefix packages/trace`   | passing |
 | `extensions/coding-agent`| `npm test --prefix extensions/coding-agent` | passing |
-| `@z-assistant/agent-coding` | n/a (Phase 6A stubs only) | n/a |
+| `@ziner/agent-coding` | n/a (Phase 6A stubs only) | n/a |
 
 The integration test for `apps/*` and the cross-package
 `runtime → agents/coding` integration is scheduled for R7 once the

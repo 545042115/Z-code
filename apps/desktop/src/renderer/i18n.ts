@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — i18n (中文 / English)
+// @ziner/app-desktop — i18n (中文 / English)
 
 declare const zApi: import('../preload').ZDesktopAPI;
 
@@ -8,18 +8,54 @@ type TranslationMap = Record<string, { 'zh-CN': string; en: string }>;
 
 const TRANSLATIONS: TranslationMap = {
   // Nav
-  'nav.main':     { 'zh-CN': '主页',       en: 'Main' },
-  'nav.chat':     { 'zh-CN': '对话',       en: 'Chat' },
-  'nav.trace':    { 'zh-CN': '追踪',       en: 'Trace' },
-  'nav.settings': { 'zh-CN': '设置',       en: 'Settings' },
+  'nav.main':       { 'zh-CN': '主页',       en: 'Main' },
+  'nav.chat':       { 'zh-CN': '对话',       en: 'Chat' },
+  'nav.trace':      { 'zh-CN': '追踪',       en: 'Trace' },
+  'nav.memory':     { 'zh-CN': '记忆',       en: 'Memory' },
+  'nav.benchmarks': { 'zh-CN': '基准测试',    en: 'Benchmarks' },
+  'nav.settings':   { 'zh-CN': '设置',       en: 'Settings' },
 
   // Main view
-  'main.title':       { 'zh-CN': 'Z Assistant 桌面版', en: 'Z Assistant Desktop' },
-  'main.description': { 'zh-CN': '使用上方导航栏或系统托盘菜单打开对话、追踪和设置面板。', en: 'Use the navigation above or the tray menu to open Chat, Trace, and Settings panels.' },
+  'main.title':       { 'zh-CN': 'Ziner 桌面版', en: 'Ziner Desktop' },
+  'main.description': { 'zh-CN': '你的智能编程助手，支持多 Agent 协作、长期记忆和丰富的工具集成。', en: 'Your intelligent programming assistant with multi-agent collaboration, long-term memory, and rich tool integrations.' },
+  'main.quick_actions': { 'zh-CN': '快捷操作', en: 'Quick Actions' },
+  'main.new_chat': { 'zh-CN': '开始新对话', en: 'New Chat' },
+  'main.new_chat_desc': { 'zh-CN': '立即开始与 AI 助手交流', en: 'Start a conversation with the AI assistant' },
+  'main.view_memory': { 'zh-CN': '查看记忆', en: 'View Memory' },
+  'main.view_memory_desc': { 'zh-CN': '管理你的长期记忆和偏好', en: 'Manage your long-term memory and preferences' },
+  'main.view_trace': { 'zh-CN': '运行追踪', en: 'Trace Panel' },
+  'main.view_trace_desc': { 'zh-CN': '查看详细的运行记录和 Span', en: 'View detailed run records and spans' },
+  'main.open_settings': { 'zh-CN': '系统设置', en: 'Settings' },
+  'main.open_settings_desc': { 'zh-CN': '配置模型、记忆和安全选项', en: 'Configure models, memory, and security options' },
+  'main.recent_sessions': { 'zh-CN': '最近会话', en: 'Recent Sessions' },
+  'main.no_sessions': { 'zh-CN': '暂无会话记录', en: 'No sessions yet' },
+  'main.no_sessions_desc': { 'zh-CN': '开始你的第一个对话吧！', en: 'Start your first conversation!' },
+  'main.capabilities': { 'zh-CN': '核心能力', en: 'Core Capabilities' },
+  'main.cap_multi_agent': { 'zh-CN': '多 Agent 协作', en: 'Multi-Agent Collaboration' },
+  'main.cap_multi_agent_desc': { 'zh-CN': '专业 Agent 分工协作，复杂任务自动拆解', en: 'Specialized agents work together, auto-decompose complex tasks' },
+  'main.cap_memory': { 'zh-CN': '长期记忆', en: 'Long-term Memory' },
+  'main.cap_memory_desc': { 'zh-CN': '自动记忆对话内容，越用越懂你', en: 'Auto-remembers conversations, gets smarter over time' },
+  'main.cap_tools': { 'zh-CN': '丰富工具', en: 'Rich Toolset' },
+  'main.cap_tools_desc': { 'zh-CN': '支持 MCP 扩展，连接外部服务无限可能', en: 'MCP extensible, connect external services with ease' },
+  'main.cap_plan': { 'zh-CN': '智能规划', en: 'Smart Planning' },
+  'main.cap_plan_desc': { 'zh-CN': '自动制定执行计划，全程可追踪可干预', en: 'Auto-generates execution plans, fully traceable' },
 
   // Chat
   'chat.placeholder':   { 'zh-CN': '输入你的请求…', en: 'Enter your request…' },
   'chat.send':          { 'zh-CN': '发送',         en: 'Send' },
+  'chat.stop':          { 'zh-CN': '停止',         en: 'Stop' },
+  'chat.stop_hint':     { 'zh-CN': '点击中断当前任务', en: 'Click to cancel the current task' },
+  'chat.cancelled':     { 'zh-CN': '已中断',       en: 'Cancelled' },
+  'chat.cancelled_by_user': { 'zh-CN': '⏹ 已中断（部分内容）', en: '⏹ Cancelled (partial)' },
+  'chat.cancel_failed': { 'zh-CN': '中断失败：',   en: 'Cancel failed: ' },
+  'chat.resume_cta':   { 'zh-CN': '⏵ 继续任务',   en: '⏵ Resume' },
+  'chat.resume_running': { 'zh-CN': '⏳ 正在恢复…', en: '⏳ Resuming…' },
+  'chat.resume_banner': {
+    'zh-CN': '上次任务中断了："{preview}"（{done}/{total} 子任务已完成，剩 {remaining}）',
+    en: 'Last task was interrupted: "{preview}" ({done}/{total} sub-tasks done, {remaining} remaining)',
+  },
+  'chat.resume_failed': { 'zh-CN': '恢复失败',     en: 'Resume failed' },
+  'chat.dismiss':      { 'zh-CN': '忽略',         en: 'Dismiss' },
   'chat.you':           { 'zh-CN': '你',           en: 'You' },
   'chat.assistant':     { 'zh-CN': '助手',         en: 'Assistant' },
   'chat.submitted':     { 'zh-CN': '任务已提交。运行 ID:', en: 'Task submitted. Run ID:' },
@@ -63,6 +99,18 @@ const TRANSLATIONS: TranslationMap = {
   'trace.spans':        { 'zh-CN': 'Span',         en: 'Spans' },
   'trace.no_sessions':  { 'zh-CN': '暂无对话记录。开始一个新对话吧！', en: 'No sessions yet. Start a new chat!' },
   'trace.messages':     { 'zh-CN': '条消息',       en: 'messages' },
+  // P3 Resumable Runs
+  'trace.resumable':    { 'zh-CN': '可恢复任务',   en: 'Resumable Tasks' },
+  'trace.no_resumable': { 'zh-CN': '暂无可恢复的任务。', en: 'No resumable tasks.' },
+  'trace.subtasks':     { 'zh-CN': '子任务',       en: 'sub-tasks' },
+  'trace.resume':       { 'zh-CN': '继续',         en: 'Resume' },
+  'trace.delete':       { 'zh-CN': '删除',         en: 'Delete' },
+  'trace.resume_started': { 'zh-CN': '正在从断点恢复任务…', en: 'Resuming from checkpoint…' },
+  'trace.resume_failed':  { 'zh-CN': '恢复失败',   en: 'Resume failed' },
+  'trace.checkpoint_status.in_progress': { 'zh-CN': '进行中', en: 'in progress' },
+  'trace.checkpoint_status.completed':   { 'zh-CN': '已完成', en: 'completed' },
+  'trace.checkpoint_status.cancelled':   { 'zh-CN': '已中断', en: 'cancelled' },
+  'trace.checkpoint_status.failed':      { 'zh-CN': '失败',   en: 'failed' },
   'trace.created':      { 'zh-CN': '创建于',       en: 'Created' },
   'trace.updated':      { 'zh-CN': '更新于',       en: 'Updated' },
   'trace.conversation': { 'zh-CN': '对话内容',     en: 'Conversation' },
@@ -96,6 +144,9 @@ const TRANSLATIONS: TranslationMap = {
   'settings.api_endpoint':{ 'zh-CN': 'API 端点',       en: 'API Endpoint' },
   'settings.memory':      { 'zh-CN': '记忆',           en: 'Memory' },
   'settings.memory_label':{ 'zh-CN': '启用长期记忆',   en: 'Enable Long-Term Memory' },
+  'settings.storage_backend': { 'zh-CN': '存储后端',   en: 'Storage Backend' },
+  'settings.storage_backend_label': { 'zh-CN': '记忆存储引擎', en: 'Memory Storage Engine' },
+  'settings.storage_backend_desc': { 'zh-CN': '切换存储后端后需重启应用生效，首次切换到 SQLite 会自动迁移现有数据', en: 'Requires app restart to take effect. First switch to SQLite will auto-migrate existing data.' },
   'settings.storage':     { 'zh-CN': '存储',           en: 'Storage' },
   'settings.data_dir':    { 'zh-CN': '数据目录',       en: 'Data Directory' },
   'settings.language':    { 'zh-CN': '语言',           en: 'Language' },
@@ -217,10 +268,36 @@ const TRANSLATIONS: TranslationMap = {
   'memory.manage_desc': { 'zh-CN': '查看、搜索、导出或清空记忆数据', en: 'View, search, export or clear memory data' },
   'memory.go_to':       { 'zh-CN': '前往记忆面板', en: 'Go to Memory Panel' },
 
+  // Benchmarks (P3 Harness)
+  'benchmarks.title':          { 'zh-CN': '基准测试',                    en: 'Benchmarks' },
+  'benchmarks.description':    { 'zh-CN': '在 Docker 沙箱中运行真实代码任务，测试 Agent 的代码修复能力。', en: 'Run real code tasks in Docker sandboxes to test the agent\'s code-fixing ability.' },
+  'benchmarks.refresh':        { 'zh-CN': '刷新',                       en: 'Refresh' },
+  'benchmarks.docker_available':   { 'zh-CN': 'Docker 已就绪',           en: 'Docker Available' },
+  'benchmarks.docker_unavailable': { 'zh-CN': 'Docker 不可用',           en: 'Docker Unavailable' },
+  'benchmarks.version':        { 'zh-CN': '版本',                       en: 'Version' },
+  'benchmarks.available_suites': { 'zh-CN': '可用测试套件',              en: 'Available Suites' },
+  'benchmarks.cases':          { 'zh-CN': '个测试用例',                  en: 'cases' },
+  'benchmarks.run_suite':      { 'zh-CN': '运行套件',                    en: 'Run Suite' },
+  'benchmarks.running':        { 'zh-CN': '运行中…',                    en: 'Running…' },
+  'benchmarks.running_desc':   { 'zh-CN': '正在 Docker 沙箱中执行基准测试，请稍候…', en: 'Running benchmarks in Docker sandboxes, please wait…' },
+  'benchmarks.results_title':  { 'zh-CN': '测试结果',                    en: 'Results' },
+  'benchmarks.no_results':     { 'zh-CN': '暂无测试结果，选择一个套件开始运行。', en: 'No results yet. Select a suite to start.' },
+  'benchmarks.no_suites':      { 'zh-CN': '暂无可用的测试套件。',          en: 'No benchmark suites available.' },
+  'benchmarks.results':        { 'zh-CN': '测试结果',                    en: 'Results' },
+  'benchmarks.total':          { 'zh-CN': '总计',                       en: 'Total' },
+  'benchmarks.passed':         { 'zh-CN': '通过',                       en: 'Passed' },
+  'benchmarks.failed':         { 'zh-CN': '失败',                       en: 'Failed' },
+  'benchmarks.mean_score':     { 'zh-CN': '平均分',                     en: 'Mean Score' },
+  'benchmarks.pass_rate':      { 'zh-CN': '通过率',                     en: 'Pass Rate' },
+  'benchmarks.run_failed':     { 'zh-CN': '运行失败',                    en: 'Run Failed' },
+
   // Trace
   'trace.auto_load':    { 'zh-CN': '自动加载 Span', en: 'Auto-load Spans' },
   'trace.filter':       { 'zh-CN': '过滤',         en: 'Filter' },
   'trace.all':          { 'zh-CN': '全部',         en: 'All' },
+  'trace.all_status':   { 'zh-CN': '全部状态',     en: 'All Status' },
+  'trace.success':      { 'zh-CN': '成功',         en: 'Success' },
+  'trace.failed':       { 'zh-CN': '失败',         en: 'Failed' },
   'trace.search_spans': { 'zh-CN': '搜索 Span…',   en: 'Search spans…' },
   'trace.total':        { 'zh-CN': '总计',         en: 'Total' },
 
@@ -257,8 +334,14 @@ export async function loadLanguage(): Promise<Language> {
   return currentLang;
 }
 
-export function t(key: string): string {
+export function t(key: string, vars?: Record<string, string | number>): string {
   const entry = TRANSLATIONS[key];
-  if (!entry) return key;
-  return entry[currentLang];
+  let s: string;
+  if (!entry) s = key;
+  else s = entry[currentLang];
+  if (!vars) return s;
+  for (const [k, v] of Object.entries(vars)) {
+    s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), String(v));
+  }
+  return s;
 }

@@ -1,7 +1,7 @@
 // Reflection module - single import surface.
 //
 // Phase 6A: this is now a thin shim over the V2 Reflection framework
-// (`@z-assistant/runtime` re-exports the `reflection` subpackage).
+// (`@ziner/runtime` re-exports the `reflection` subpackage).
 //
 // The Coding-specific `ReflectionEngine` (which uses
 // `RuntimeVerifier`) stays in V1 (`reflection-engine.ts` in this
@@ -20,6 +20,6 @@ export {
   type VerificationResult,
   type FailureAnalysis,
   type ErrorPattern,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';
 
 export { ReflectionEngine } from './reflection-engine';

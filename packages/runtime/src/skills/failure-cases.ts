@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Failure Case Store (P1-3 Skill Auto-Discovery).
+// @ziner/runtime — Failure Case Store (P1-3 Skill Auto-Discovery).
 //
 // Append-only JSONL persistence for FailureCase records. Used by the
 // auto-discovery pipeline to cluster recurring failures into proposed
@@ -24,7 +24,7 @@ import type {
   IFailureCaseStore,
   AgentRun,
   AgentSpan,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import { normalizePattern } from '../evolution/evolution';
 
 // ── Options ──────────────────────────────────────────────────────────

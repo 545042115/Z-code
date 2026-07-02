@@ -171,14 +171,12 @@ async function runMultiAgentFlow(): Promise<void> {
 
   const modePick = await vscode.window.showQuickPick(
     [
-      { label: 'Sequential', description: 'Agents run in dependency order' },
-      { label: 'Parallel', description: 'Agents run concurrently' },
-      { label: 'DAG', description: 'Topo-sorted waves' },
+      { label: 'DAG', description: 'Topo-sorted waves based on dependencies' },
     ],
     { placeHolder: 'Select execution mode' },
   );
   if (!modePick) return;
-  const mode = modePick.label.toLowerCase() as 'sequential' | 'parallel' | 'dag';
+  const mode = 'dag' as const;
 
   const tm = await getTraceManager();
   const { DEFAULT_CONFIG } = await import('./contracts');

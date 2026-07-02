@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — License Service
+// @ziner/app-desktop — License Service
 //
 // Pro / Free tier management. In production the license key is validated
 // against a remote server; in development mode the license is auto-granted.
@@ -36,7 +36,7 @@ function getAppDataPath(): string {
     return app.getPath('userData');
   } catch {
     // Fallback when Electron is not available (e.g., in tests)
-    return join(homedir(), '.z-assistant', 'desktop');
+    return join(homedir(), '.ziner', 'desktop');
   }
 }
 

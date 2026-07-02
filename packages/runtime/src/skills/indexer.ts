@@ -1,4 +1,4 @@
-// @z-assistant/runtime — In-Memory Skill Indexer (P1-3).
+// @ziner/runtime — In-Memory Skill Indexer (P1-3).
 //
 // Maintains inverted indexes over the active skill set so the runtime
 // can resolve free-text queries to skill candidates quickly. The
@@ -6,7 +6,7 @@
 // match on intents / keywords / tags, plain string match on file
 // globs. Higher-fidelity scoring lives in `scoreSkill` in skills.ts.
 
-import type { Skill, ISkillIndexer } from '@z-assistant/contracts';
+import type { Skill, ISkillIndexer } from '@ziner/contracts';
 
 // ── InMemorySkillIndexer ─────────────────────────────────────────────
 

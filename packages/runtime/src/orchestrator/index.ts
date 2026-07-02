@@ -1,4 +1,4 @@
-// @z-assistant/runtime — orchestrator
+// @ziner/runtime — orchestrator
 //
 // Multi-agent dispatcher / scheduler. Pure Node, no vscode.
 //
@@ -45,3 +45,20 @@ export {
   type DelegationResponse,
   type DelegationStatus,
 } from './delegation';
+export {
+  CheckpointManager,
+  type Checkpoint,
+  type CheckpointIndexEntry,
+  type CheckpointManagerOptions,
+  type CheckpointStatus,
+  type SubTaskResult,
+} from './checkpoint';
+export {
+  TaskScheduler,
+  type Task,
+  type TaskSpec,
+  type TaskStatus,
+  type TaskPriority,
+  type SystemResources,
+  type SchedulerOptions,
+} from './task-scheduler';

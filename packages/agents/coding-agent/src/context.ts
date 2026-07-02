@@ -10,7 +10,7 @@ import type {
   ContextSource,
   IContextProvider,
   TaskContext,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface CodingContextOptions {
   impl?: IContextProvider;

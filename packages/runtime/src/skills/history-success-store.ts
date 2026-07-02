@@ -1,4 +1,4 @@
-// @z-assistant/runtime — History Markdown Success Case Store (F-1).
+// @ziner/runtime — History Markdown Success Case Store (F-1).
 //
 // Parses desktop-style History/*.md conversation files and exposes the
 // winding-but-successful ones through the ISuccessCaseStore contract.
@@ -11,7 +11,7 @@ import type {
   SuccessCase,
   SuccessCaseQuery,
   SuccessGroup,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface HistorySuccessStoreOptions {
   /** Directory containing conversation history markdown files. */

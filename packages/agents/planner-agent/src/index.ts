@@ -1,4 +1,4 @@
-// @z-assistant/agent-planner — entry point
+// @ziner/agent-planner — entry point
 
 export { createPlannerAgent } from './agent';
 export type { PlannerAgentConfig } from './agent';

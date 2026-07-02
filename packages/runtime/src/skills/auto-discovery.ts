@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Auto-Discovery Orchestrator (P1-3 / F-1).
+// @ziner/runtime — Auto-Discovery Orchestrator (P1-3 / F-1).
 //
 // Wires together failure/success case stores, skill extractors and the
 // review queue to drive a single discovery sweep:
@@ -23,7 +23,7 @@ import type {
   ISuccessCaseStore,
   ISuccessSkillExtractor,
   SuccessGroup,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import { extractToCandidate } from './llm-extract';
 import { validateCandidate } from './validator';
 

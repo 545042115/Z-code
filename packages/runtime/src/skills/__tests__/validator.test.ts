@@ -1,9 +1,9 @@
-// @z-assistant/runtime — candidate skill validator tests
+// @ziner/runtime — candidate skill validator tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { validateCandidate } from '../index';
-import type { CandidateSkillDraft } from '@z-assistant/contracts';
+import type { CandidateSkillDraft } from '@ziner/contracts';
 
 function base(over: Partial<CandidateSkillDraft> = {}): CandidateSkillDraft {
   return {

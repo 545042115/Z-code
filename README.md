@@ -12,6 +12,60 @@
 
 ---
 
+## 📥 下载 / Download
+
+最新版本的可执行文件已发布在 **GitHub Releases** 中，无需编译即可直接使用：
+
+👉 [前往 Releases 页面下载](https://github.com/qinyu/Z-code/releases)
+
+| 平台 | 格式 | 说明 |
+|------|------|------|
+| 🪟 **Windows** | `Ziner.exe`（绿色版） | 解压后直接运行，无需安装 |
+| 📱 **Android** | `Ziner.apk` | Android 8.0+，支持 ARM64 |
+| 🧩 **VSCode 扩展** | `ziner-coding-agent-x.x.x.vsix` | VS Code 1.85+，从 VSIX 安装 |
+
+> **提示**：如果 GitHub 下载速度慢，可以尝试使用国内镜像或代理加速。
+
+---
+
+## 📱 移动端（Android App）
+
+Ziner 提供 Android 移动端应用，与桌面端保持一致的 UI 和功能体验，支持随时随地与 AI 对话。
+
+### 移动端功能特性
+
+| 特性 | 说明 |
+|------|------|
+| 💬 **流式对话** | 支持 Markdown 渲染、代码高亮、流式输出 |
+| 📚 **多会话管理** | 侧边栏查看历史会话，一键新建和切换 |
+| 🧠 **长期记忆** | 6 种记忆子系统，自动记住重要信息 |
+| 🔍 **Trace 追踪** | 实时查看 Agent 思考过程、工具调用、耗时分析 |
+| ⚙️ **完整设置** | 模型配置 / MCP 服务 / 工具策略 / 记忆后端，与桌面端一致 |
+| 📤 **配置同步** | 支持导出/导入 JSON 配置，手机电脑一键同步 |
+| 🌐 **双运行模式** | 本地 Runtime（离线 Mock）/ 远程 Runtime（HTTP SSE 流式） |
+| 📋 **点击复制** | 点击消息气泡即可复制内容 |
+| 🎨 **Warm Minimal 主题** | 与桌面端一致的温暖极简浅色主题 |
+
+### 移动端技术栈
+
+- **Capacitor 6** — Web → Native 桥接
+- **Vite 5** — 构建工具
+- **TypeScript** — 类型安全
+- **IndexedDB** — 本地 Trace 存储
+- **LocalStorage** — 配置持久化
+
+### 移动端构建
+
+```powershell
+cd apps/mobile
+npm run build              # 构建 Web 资源
+npx cap sync android       # 同步到 Android 项目
+.\release-build.ps1        # 编译 Release APK
+# 产物：apps/mobile/android/app/release/app-release.apk
+```
+
+---
+
 ## 演示：Agent 旅游规划
 
 以下是一个实际运行结果：用户要求 Agent 从上海虹桥阿里中心自驾（电车）去南京旅游，三天两夜，预算 1500 元，住全季/亚朵酒店。Agent 在 **仅有高德 MCP（地图/导航/搜索）**、**没有携程/飞猪等酒店预订平台 MCP** 的情况下，通过高德 MCP 查询酒店位置和价格，结合 Web 搜索获取美食推荐，完成了完整的预算规划和行程安排。
@@ -102,7 +156,7 @@
 ## 项目结构 / Project Structure
 
 ```
-Z Code/
+Ziner/
 ├── extensions/
 │   └── coding-agent/               V1：VSCode Coding Agent 扩展（v1.2.0，三层混合架构）
 ├── packages/                       V2：Assistant Runtime 平台
@@ -138,9 +192,10 @@ Z Code/
 ├── apps/                           V2 宿主入口
 │   ├── cli/                        CLI（z run / z version / z help；trace 子命令 stub）
 │   ├── desktop/                    Electron 桌面应用（Chat/Trace/Settings/Memory 四面板）
+│   ├── mobile/                     Android 移动端应用（Capacitor 6 + Vite 5）
 │   └── vscode-connector/           V2 ↔ V1 桥接 + 微信/QQ 自动回复 + Computer Use
 ├── docs/                           设计文档 + ADR + Phase 路线
-├── coding-test/                    Trae vs Z Code 对比测试
+├── coding-test/                    Trae vs Ziner 对比测试
 ├── AGENT_SPEC.md                   V1 Coding Agent 构建规范
 ├── build-all.ps1                   一键构建脚本（Python venv + TS + PyInstaller + electron-builder）
 └── package.json                    Monorepo 根（npm workspaces）
@@ -267,7 +322,7 @@ npm run compile
 
 ### V2 定位
 
-Z Assistant V2 是一个**跨 Agent 复用的运行时平台**：trace / storage / cost / errors / permission / config / budget / orchestrator / planning / reflection / context / skills / evaluation / evolution / memory 一套机制，让 Coding / Research / Office / Browser Agent 在同一 Runtime 上跑。
+Ziner V2 是一个**跨 Agent 复用的运行时平台**：trace / storage / cost / errors / permission / config / budget / orchestrator / planning / reflection / context / skills / evaluation / evolution / memory 一套机制，让 Coding / Research / Office / Browser Agent 在同一 Runtime 上跑。
 
 V1 VSCode 扩展保留并继续发版；V2 不替换 V1，而是给 V1 加一层 Adapter，并为未来非 Coding 的 Agent（Browser / Research / Office）铺好 Runtime。
 
@@ -275,21 +330,22 @@ V1 VSCode 扩展保留并继续发版；V2 不替换 V1，而是给 V1 加一层
 
 | 包 | 版本 | 职责 | 状态 |
 |---|---|---|---|
-| `@z-assistant/contracts` | 0.1.0 | 跨包类型 / 接口（`IAgent` / `IPlanner` / `IReflectionEngine` / `IContextProvider` / `ISkillRegistry` / `IToolRegistry` / `IVerifier` / `ILLMProvider` / `IBudgetGuard` / `AgentRun` / `Span` …） | ✅ 真实 |
-| `@z-assistant/infra-errors` | 0.1.0 | 错误码 + 分类器（`3001-3999` 通用错误） | ✅ 真实 |
-| `@z-assistant/infra-cost` | 0.1.0 | pricing + budget（多模型 token 计价 + 预算控制） | ✅ 真实 |
-| `@z-assistant/infra-storage` | 0.1.0 | JSONL Store（runs / spans / evaluations / candidates） | ✅ 真实 |
-| `@z-assistant/infra-permission` | 0.1.0 | fs-guard / net-guard / tool-guard | ✅ 真实 |
-| `@z-assistant/infra-config` | 0.1.0 | 配置中心 + secrets | ✅ 真实 |
-| `@z-assistant/trace` | 0.1.0 | Span 生命周期 / RunTracker / TraceManager / Projections / Instrumenter | ✅ 真实 |
-| `@z-assistant/runtime` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution / **memory（6 种记忆子系统）** / **knowledge（project/user/document）** / **action（GUI 自动化）** / **perception（screen/ocr/caption/audio/document）** / **permission/computer-use（安全策略）** / **storage/vector-store** / **embedding** | ✅ 真实（8 个机制层 `index.ts` 是占位，真实实现在 `infra/*`） |
-| `@z-assistant/agent-browser` | 0.1.0 | Browser Agent（Playwright 后端 / DOM 解析 / Session 持久化 / 元素高亮 / 决策引擎 / 跨标签页操作） | ✅ 真实 |
-| `@z-assistant/agent-coding` | 0.1.0 | Coding Agent V2 适配层 | ⚠️ **stub**（业务方法返回错误码 3001，等待 R7 接入 V1） |
-| `@z-assistant/agent-research` | 0.1.0 | Research Agent | 🟢 占位 |
-| `@z-assistant/agent-office` | 0.1.0 | Office Agent | 🟢 占位 |
-| `@z-assistant/app-cli` | 0.1.0 | V2 CLI 入口（`z run` / `z version` / `z help` 真实；`z trace ls/show` stub） | ⚠️ 部分实现 |
-| `@z-assistant/app-vscode-connector` | 0.1.0 | V2 ↔ V1 桥接 + WeChatFerry / QQ OneBot / Computer Use 微信/QQ 操控 | ✅ 真实（`AssistantRuntime.boot()` 仍是 stub） |
-| `@z-assistant/app-desktop` | 0.1.0 | Electron 桌面应用（Chat / Trace / Settings / Memory 面板 + Tray + Hotkey + Auto Update + License） | ✅ 真实（已打包出 `Z Assistant.exe`） |
+| `@ziner/contracts` | 0.1.0 | 跨包类型 / 接口（`IAgent` / `IPlanner` / `IReflectionEngine` / `IContextProvider` / `ISkillRegistry` / `IToolRegistry` / `IVerifier` / `ILLMProvider` / `IBudgetGuard` / `AgentRun` / `Span` …） | ✅ 真实 |
+| `@ziner/infra-errors` | 0.1.0 | 错误码 + 分类器（`3001-3999` 通用错误） | ✅ 真实 |
+| `@ziner/infra-cost` | 0.1.0 | pricing + budget（多模型 token 计价 + 预算控制） | ✅ 真实 |
+| `@ziner/infra-storage` | 0.1.0 | JSONL Store（runs / spans / evaluations / candidates） | ✅ 真实 |
+| `@ziner/infra-permission` | 0.1.0 | fs-guard / net-guard / tool-guard | ✅ 真实 |
+| `@ziner/infra-config` | 0.1.0 | 配置中心 + secrets | ✅ 真实 |
+| `@ziner/trace` | 0.1.0 | Span 生命周期 / RunTracker / TraceManager / Projections / Instrumenter | ✅ 真实 |
+| `@ziner/runtime` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution / **memory（6 种记忆子系统）** / **knowledge（project/user/document）** / **action（GUI 自动化）** / **perception（screen/ocr/caption/audio/document）** / **permission/computer-use（安全策略）** / **storage/vector-store** / **embedding** | ✅ 真实（8 个机制层 `index.ts` 是占位，真实实现在 `infra/*`） |
+| `@ziner/agent-browser` | 0.1.0 | Browser Agent（Playwright 后端 / DOM 解析 / Session 持久化 / 元素高亮 / 决策引擎 / 跨标签页操作） | ✅ 真实 |
+| `@ziner/agent-coding` | 0.1.0 | Coding Agent V2 适配层 | ⚠️ **stub**（业务方法返回错误码 3001，等待 R7 接入 V1） |
+| `@ziner/agent-research` | 0.1.0 | Research Agent | 🟢 占位 |
+| `@ziner/agent-office` | 0.1.0 | Office Agent | 🟢 占位 |
+| `@ziner/app-cli` | 0.1.0 | V2 CLI 入口（`z run` / `z version` / `z help` 真实；`z trace ls/show` stub） | ⚠️ 部分实现 |
+| `@ziner/app-vscode-connector` | 0.1.0 | V2 ↔ V1 桥接 + WeChatFerry / QQ OneBot / Computer Use 微信/QQ 操控 | ✅ 真实（`AssistantRuntime.boot()` 仍是 stub） |
+| `@ziner/app-desktop` | 0.1.0 | Electron 桌面应用（Chat / Trace / Settings / Memory 面板 + Tray + Hotkey + Auto Update + License） | ✅ 真实（已打包出 `Ziner.exe`） |
+| `@ziner/app-mobile` | 1.8.0 | Android 移动端应用（Capacitor 6 + Vite 5，与桌面端 UI/功能一致） | ✅ 真实（已打包出 `Ziner.apk`） |
 
 ### V2 已落地能力（代码审计确认）
 
@@ -335,18 +391,18 @@ V1 ↔ V2 通过 **shim 文件**双向兼容，迁移期不破坏 V1 旧 import 
 
 ```typescript
 // V1 旧 import 路径：extensions/coding-agent/src/contracts/index.ts
-export * from '@z-assistant/contracts';
+export * from '@ziner/contracts';
 
 // V1 旧 import 路径：extensions/coding-agent/src/trace/index.ts
-export { Span, TraceManager, RunTracker, ... } from '@z-assistant/trace';
+export { Span, TraceManager, RunTracker, ... } from '@ziner/trace';
 export { TraceInstrumentation, ... } from './trace-adapter';   // V1 类型适配
 
 // V1 旧 import 路径：extensions/coding-agent/src/infra/storage/index.ts
-export * from '@z-assistant/infra-storage';
+export * from '@ziner/infra-storage';
 // ... errors / cost / permission / config 同理
 ```
 
-V1 `package.json` 显式声明 9 个 `@z-assistant/*` 依赖；`tsconfig.json` 通过 `references` 声明增量构建。
+V1 `package.json` 显式声明 9 个 `@ziner/*` 依赖；`tsconfig.json` 通过 `references` 声明增量构建。
 
 ### V2 依赖图（单向，往下）
 
@@ -357,7 +413,7 @@ V1 `package.json` 显式声明 9 个 `@z-assistant/*` 依赖；`tsconfig.json` �
                         │
         ┌───────────────┼───────────────┐
         ▼               ▼               ▼
-  @z-assistant     @z-assistant   @z-assistant
+  @ziner           @ziner        @ziner
     /runtime        /agent-coding  /agents/{research,office,browser}
         │                               │
         │   ┌─────────┐  ┌─────────┐    │
@@ -377,9 +433,9 @@ V1 `package.json` 显式声明 9 个 `@z-assistant/*` 依赖；`tsconfig.json` �
                  │                       │
                  ▼                       ▼
             ┌──────────────────────────┐
-            │ @z-assistant/infra/*     │
-            │  + @z-assistant/contracts│  (叶子)
-            │  + @z-assistant/trace    │
+            │ @ziner/infra/*           │
+            │  + @ziner/contracts      │  (叶子)
+            │  + @ziner/trace          │
             └──────────────────────────┘
 ```
 
@@ -395,7 +451,7 @@ V1 `package.json` 显式声明 9 个 `@z-assistant/*` 依赖；`tsconfig.json` �
 
 ### V2 Desktop 应用
 
-`apps/desktop/` 是真实可运行的 Electron 桌面应用，已成功打包出 `Z Assistant.exe`：
+`apps/desktop/` 是真实可运行的 Electron 桌面应用，已成功打包出 `Ziner.exe`：
 
 ```
 apps/desktop/
@@ -428,7 +484,7 @@ apps/desktop/
 ```bash
 # 构建后 / After build
 node apps/cli/out/index.js version
-# → @z-assistant/runtime v0.1.0
+# → @ziner/runtime v0.1.0
 
 node apps/cli/out/index.js run "fix the failing test"
 # → runId=run-...  （通过 VSCodeConnector 走通端到端路径）
@@ -451,7 +507,7 @@ node apps/cli/out/index.js trace ls
 
 ## 测试与对比 / Tests & Comparisons
 
-- **Trae vs Z Code 图像拼接代码生成对比**：[coding-test/image-stitching-comparison.md](coding-test/image-stitching-comparison.md) — 分析相同 Prompt 下不同 Agent 的代码生成质量、正确性与可运行性差异
+- **Trae vs Ziner 图像拼接代码生成对比**：[coding-test/image-stitching-comparison.md](coding-test/image-stitching-comparison.md) — 分析相同 Prompt 下不同 Agent 的代码生成质量、正确性与可运行性差异
 
 ---
 
@@ -484,8 +540,8 @@ npm run build --workspaces --if-present  # 全部 V1 + V2 包构建
 npm run clean --workspaces --if-present  # 清理 out/ dist/
 
 # 单包操作 / Per-package
-npm test --workspace=@z-assistant/runtime
-npm run build --workspace=@z-assistant/agent-browser
+npm test --workspace=@ziner/runtime
+npm run build --workspace=@ziner/agent-browser
 ```
 
 ### V2 Desktop 一键打包 / Build Desktop App
@@ -499,8 +555,8 @@ npm run build --workspace=@z-assistant/agent-browser
 .\build-all.ps1 -Clean
 
 # 产物位置
-# apps/desktop/dist/win-unpacked/Z Assistant.exe
-# apps/desktop/dist/Z Assistant Setup x.x.x.exe
+# apps/desktop/dist/win-unpacked/Ziner.exe
+# apps/desktop/dist/Ziner Setup x.x.x.exe
 ```
 
 `build-all.ps1` 完成 6 步：Clean（可选）→ Python 环境（uv/conda/系统 python）→ TypeScript 构建（contracts/runtime/browser-agent/vscode-connector/desktop）→ Typecheck → Python sidecar 打包（PyInstaller → `perception-server.exe`）→ electron-builder 打包。
@@ -525,9 +581,27 @@ npm run build --workspace=@z-assistant/agent-browser
 
 ## 更新日志 / Changelog
 
+### v2.0.0-alpha.6 — 2026-07-02
+
+Ziner Mobile — Android 移动端正式发布
+
+#### ✨ 版本摘要 / Highlights
+
+- **📱 Android 移动端正式发布**：基于 Capacitor 6 + Vite 5 构建，与桌面端保持一致的 UI 和功能体验
+- **🎨 Warm Minimal Light 主题**：移动端与桌面端统一的温暖极简浅色主题设计
+- **💬 流式对话界面**：支持 Markdown 渲染、代码高亮、消息点击复制、新对话按钮
+- **📚 多会话管理**：侧边栏查看历史会话，一键新建和切换对话
+- **🧠 长期记忆面板**：查看 6 种记忆子系统存储的内容，支持 SQLite/JSONL 双后端
+- **🔍 Trace 追踪面板**：实时查看 Agent 思考过程、工具调用、Span 树和耗时分析
+- **⚙️ 完整设置中心**：模型配置（8 种 provider）/ MCP 服务 / 工具策略 / 记忆后端，与桌面端数据结构完全对齐
+- **📤 配置导出/导入**：JSON 格式导出导入配置，手机电脑一键同步
+- **🌐 双运行模式**：本地 Runtime（离线 Mock + 流式响应）/ 远程 Runtime（HTTP SSE 流式）
+- **🔌 API 端点智能适配**：自动识别 OpenAI 兼容接口的路径格式（/v1、/v1/chat/completions 等）
+- **📱 原生能力**：通知权限、振动、剪贴板、系统分享、平台信息检测
+
 ### v2.0.0-alpha.5 — 2026-06-22
 
-Z Assistant V2 — 通用 Agent 能力全面升级
+Ziner V2 — 通用 Agent 能力全面升级
 
 #### ✨ 版本摘要 / Highlights
 
@@ -541,7 +615,7 @@ Z Assistant V2 — 通用 Agent 能力全面升级
 
 ### v2.0.0-alpha.4 — 2026-06-20
 
-Z Assistant V2 — QQ OneBot 集成 + 微信/QQ 双协议自动回复
+Ziner V2 — QQ OneBot 集成 + 微信/QQ 双协议自动回复
 
 #### ✨ 版本摘要 / Highlights
 
@@ -554,7 +628,7 @@ Z Assistant V2 — QQ OneBot 集成 + 微信/QQ 双协议自动回复
 
 ### v2.0.0-alpha.3 — 2026-06-19
 
-Z Assistant V2 — 微信/QQ 自动回复 + Computer Use 桌面操控
+Ziner V2 — 微信/QQ 自动回复 + Computer Use 桌面操控
 
 #### ✨ 版本摘要 / Highlights
 
@@ -566,7 +640,7 @@ Z Assistant V2 — 微信/QQ 自动回复 + Computer Use 桌面操控
 
 ### v2.0.0-alpha.2 — 2026-06-18
 
-Z Assistant V2 — P0 三重能力落地 / P0 Triple Capabilities Landed
+Ziner V2 — P0 三重能力落地 / P0 Triple Capabilities Landed
 
 #### ✨ 版本摘要 / Highlights
 
@@ -576,7 +650,7 @@ Z Assistant V2 — P0 三重能力落地 / P0 Triple Capabilities Landed
 
 ### v2.0.0-alpha.1 — 2026-06-18
 
-Z Assistant V2 — Assistant Runtime 平台（Phase 6A 落地）
+Ziner V2 — Assistant Runtime 平台（Phase 6A 落地）
 
 #### ✨ 版本摘要 / Highlights
 

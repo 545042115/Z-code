@@ -3,9 +3,9 @@
 // Supports web search, file operations, shell commands, code search,
 // and cross-session memory for personalized, context-aware responses.
 
-import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, LLMRequest, LLMResponse, IConfirmationGate, ToolInvocation, ToolPolicy } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult, isToolAllowed } from '@z-assistant/contracts';
-import { computeCost } from '@z-assistant/infra-cost';
+import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, LLMRequest, LLMResponse, IConfirmationGate, ToolInvocation, ToolPolicy } from '@ziner/contracts';
+import { ok as okResult, fail as failResult, isToolAllowed } from '@ziner/contracts';
+import { computeCost } from '@ziner/infra-cost';
 import {
   MemoryManager,
   JsonlMemoryProvider,
@@ -23,12 +23,12 @@ import {
   selectPlanningMode,
   type JsonlMemoryProviderOptions,
   type PlanningMode,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';
 import {
   selectSkills,
   type SkillIndex,
   type SelectedSkill,
-} from '@z-assistant/runtime/skills';
+} from '@ziner/runtime/skills';
 import { CHAT_TOOLS as WEB_TOOLS, webSearch, webFetch, getLocation } from './web-tools';
 import { TASK_TOOLS, readFile, writeFile, replaceText, appendText, insertText, runTerminal, searchCode, listDirectory, getProjectContext } from './task-tools';
 import { BROWSER_TOOLS, browserNavigate, browserClick, browserScroll, browserScreenshot, browserGoBack, browserGoForward, browserClose } from './browser-tools';
@@ -142,6 +142,38 @@ function truncateToolResult(text: string, max = MAX_TOOL_RESULT_CHARS): string {
 function compressToolResult(name: string, text: string, max = MAX_TOOL_RESULT_CHARS): string {
   if (text.length <= max) return text;
 
+  // MCP tools frequently return structured data (menus, store lists,
+  // route options) where dropping items would mislead the LLM into
+  // believing the data is incomplete and triggering retry loops. We
+  // expand the budget for MCP / list-shaped outputs and only fall back
+  // to truncation for very large payloads. Menu / catalogue data from
+  // McDonald's, KFC, AMap, etc. is the canonical example.
+  const isMcpList = /^mcp_/i.test(name)
+    || /menu|catalogue|store|product|item|order|cart|route|amap|poi|hotel/i.test(name);
+  if (isMcpList) {
+    const expanded = max * 6; // up to 12,000 chars for MCP list data
+    if (text.length <= expanded) return text;
+    // For structured JSON, try to keep the array intact and drop the
+    // tail (last N items) so the LLM still sees the head + count.
+    try {
+      const parsed = JSON.parse(text);
+      if (Array.isArray(parsed)) {
+        const half = Math.floor(parsed.length / 2);
+        const head = parsed.slice(0, half);
+        const tail = parsed.slice(-Math.min(20, Math.floor(parsed.length / 4)));
+        const summarized = JSON.stringify({
+          _note: `Truncated: showing first ${head.length} of ${parsed.length} items and last ${tail.length}. Use pagination/filter parameters to see more.`,
+          first: head,
+          last: tail,
+        });
+        if (summarized.length <= expanded) return summarized;
+      }
+    } catch {
+      // not JSON, fall through
+    }
+    return truncateToolResult(text, expanded);
+  }
+
   const lines = text.split('\n');
   if (name === 'run_terminal' || name === 'web_search') {
     const head = Math.ceil(max * 0.35 / lines.length) || 30;
@@ -194,6 +226,8 @@ const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversa
 ## Guidelines
 - Be conversational, natural, and concise
 - **MCP external tools**: when MCP servers are configured, additional tools with names like 'mcp_<serverName>_<toolName>' are available. After thinking about the user's request, prefer the corresponding 'mcp_<serverName>_' tools for tasks that match those external services (e.g. McDonald's ordering, food delivery, payment, maps/navigation) instead of using web_search, web_fetch, or the browser. Examples: "帮我点麦当劳" → prefer 'mcp_mcdonald_...' tools; "帮我叫外卖" → prefer the configured delivery MCP tools; "附近有什么餐厅" / "导航去天安门" / "查上海天气" → prefer 'mcp_amap_...' tools when AMap MCP is configured.
+- **Avoid MCP tool-call loops**: MCP tools (menu queries, store lookups, route searches) often return *all available data* in a single call. If a tool result already contains the data you need (menu items, store list, route options), do NOT re-call the same tool with the same arguments hoping to "see more" — the result is final. If you genuinely need a different slice (e.g. menu filtered by category, stores near a different location), change the parameters; otherwise summarise and answer. Repeated identical calls are detected by the system and will be cut off with a forced final answer.
+- **Multi-step transactional tasks** (ordering, booking, paying): if a required input is missing or ambiguous (store id, product id, delivery address, payment method), ask the user directly with a short follow-up question — do NOT retry the search tool. Once you have enough information, call the action tool (e.g. mcp_mcdonalds_create-order) exactly once and report the result.
 - When asked about current events, weather, or real-time info → use web_search
 - For live price queries (hotels, flights, high-speed trains), follow this workflow **unless a relevant MCP tool is configured**:
   1. Use **web_search** with a specific query including the platform, route/location, and date, e.g. "携程 上海外滩W酒店 2025-06-25 价格" or "北京到上海 高铁票 2025-06-25".
@@ -235,11 +269,59 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
   function buildChatSummary(task: string, reply: string): { concept: string; description: string } {
     const t = task.trim();
     const r = reply.trim();
-    // Concept: first clause of the task, capped at 40 chars.
     const concept = t.split(/[，。,!?！？;；]|\n/)[0].slice(0, 40) || 'Chat';
     const replyHead = r.split(/\n/)[0].slice(0, 120);
     const description = `User: ${t.slice(0, 160)} | Assistant: ${replyHead}${r.length > replyHead.length ? '…' : ''}`;
     return { concept, description };
+  }
+
+  // Unified memory save — called on both normal exit and max-iterations.
+  // Fire-and-forget: never throws, never blocks the response.
+  function saveRunMemory(task: string, reply: string, outcome: 'success' | 'partial' | 'failure', runId: string, extraTags: string[] = []): void {
+    if (!shortTermMem || !episodicMem || !longTermMem || !preferencesMem || !semanticMem) return;
+
+    episodicMem.record({
+      task: task.slice(0, 200),
+      story: reply.slice(0, 500),
+      outcome,
+      tags: ['chat', ...extraTags],
+    }).catch(() => {});
+
+    const summary = buildChatSummary(task, reply);
+    semanticMem.learn(
+      { concept: summary.concept, description: summary.description, runId },
+      'user',
+    ).catch(() => {});
+
+    const combinedText = `${task}\n${reply}`;
+    extractFacts(combinedText, { minConfidence: 0.7 }).then(async (facts) => {
+      for (const f of facts) {
+        await longTermMem!.remember(
+          {
+            content: `${f.entity ?? 'user'} ${f.factType}: ${f.value}`,
+            payload: {
+              factType: f.factType,
+              entity: f.entity ?? 'user',
+              value: f.value,
+              statement: f.statement,
+              confidence: f.confidence,
+              source: f.source,
+            },
+            importance: f.confidence,
+          },
+          'user',
+        ).catch(() => {});
+
+        if (f.factType === 'preference') {
+          await preferencesMem!.learn({
+            key: `inferred-${f.factType}`,
+            value: f.value,
+            statement: f.statement,
+            confidence: f.confidence,
+          }).catch(() => {});
+        }
+      }
+    }).catch(() => {});
   }
   // Append style profile if available
   if (opts.profileDescription) {
@@ -318,12 +400,27 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
     ],
     dependencies: [],
 
-    canHandle(): number {
-      // Chat is the fallback. Return a low base (below the 0.2 router
-      // threshold) so domain-specific agents (research, browser, coding)
-      // always outrank it when they have any signal. When nothing else
-      // matches, the router's `fallback` option still picks us.
-      return 0.1;
+    canHandle(ctx: TaskContext): number {
+      // Chat is the default fallback. Return a moderate base so that
+      // generic / conversational tasks (no strong coding, research or
+      // browser signal) route to chat — which can handle short replies,
+      // follow-up clarifications, MCP-driven tool calls and general
+      // Q&A. Domain-specific agents (research, coding, browser) can
+      // still outrank chat when they detect a strong signal.
+      //
+      // EXCEPTION: tasks that are transactional / MCP-driven (ordering,
+      // paying, booking, sending, navigating, querying a configured MCP
+      // service) must go to chat because chat has the full ReAct tool
+      // loop wired with MCP tools. We return 0.9 to outrank any
+      // keyword-based agent.
+      const task = ctx.task.toLowerCase();
+      // Match colloquial Chinese ("点个/想要/来一份/给我来...") and
+      // English action verbs. Keep the list permissive — false positives
+      // (chat handles generic Q&A just fine) are cheap; false negatives
+      // (research runs on an ordering task) are expensive.
+      const transactional = /(点[一份个]|来[一]?[份个]?|想要|我想要|想[要吃]?个?|请帮我点|给我来|帮我[来买做]|来[杯碗]?|点[杯碗盘]?|下[一]?[个份]?单|叫[一]?[份个]?|外卖|订[一]?[份个张张位]?|预[购订]|订[票房]|点[餐饭]?|支付|付款|买单|结账|place[ _-]?order|order[ _-]?food|waimai|叫车|打车|网约车|叫[一]?辆[车]|收银|加好友|发[一]?[条个]?消息?|转账|登录|login|sign[ _-]?in|登出|logout|sign[ _-]?out|注册|register|高德|amap|gaode|麦当劳|mcdonald|kfc|肯德基|starbucks|星巴克|必胜客|pizzahut|meituan|美团|eleme|饿了么|滴滴|didi|jdb|京东|taobao|淘宝|baidu|百度)/i;
+      if (transactional.test(task)) return 0.9;
+      return 0.3;
     },
 
     async execute(ctx: TaskContext): Promise<AgentResult> {
@@ -436,6 +533,84 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           { role: 'user', content: ctx.task },
         ];
 
+        // Execute a single tool call with all the common bookkeeping.
+        // Used by both native tool calls and XML/DSML fallback tool calls.
+        async function executeOneTool(
+          toolName: string,
+          toolId: string,
+          args: Record<string, unknown>,
+        ): Promise<void> {
+          if (!allToolNames.has(toolName)) {
+            messages.push({
+              role: 'tool',
+              content: `Unknown tool: ${toolName}. Available tools: ${[...allToolNames].join(', ')}`,
+              toolCallId: toolId,
+            });
+            return;
+          }
+
+          toolCalls++;
+          const toolSpan = startSpan?.('tool:' + toolName, 'tool', { name: toolName, args });
+          const inv: ToolInvocation = { id: toolId, toolName, args };
+          progress('tool', opts.dryRun ? `Simulating ${toolName}...` : `Executing ${toolName}...`);
+          const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(toolName, args, extraToolMap, opts.toolPolicy));
+          const result = pipelineResult.ok
+            ? String(pipelineResult.output ?? '')
+            : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
+          toolSpan?.end({ result: result.slice(0, 200) });
+          messages.push({
+            role: 'tool',
+            content: compressToolResult(toolName, result),
+            toolCallId: toolId,
+          });
+        }
+
+        // Build the final result object with metrics, history, and memory save.
+        // Used by both normal exit and max-iterations exit paths.
+        function buildFinalResult(
+          reply: string,
+          outcome: 'success' | 'partial' | 'failure',
+          extraTags: string[] = [],
+        ): AgentResult {
+          const durationMs = Date.now() - t0;
+          const costUsd = computeCost(ctx.model, totalTokensIn, totalTokensOut);
+          const updatedHistory: LLMMessage[] = [
+            ...fullHistory,
+            { role: 'user', content: ctx.task },
+            { role: 'assistant', content: reply },
+          ];
+          ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
+          saveRunMemory(ctx.task, reply, outcome, ctx.parentRunId, extraTags);
+          return okResult(reply, {
+            artifacts: { reply, history: updatedHistory },
+            metrics: {
+              tokensIn: totalTokensIn,
+              tokensOut: totalTokensOut,
+              costUsd,
+              durationMs,
+              llmCalls,
+              toolCalls,
+            },
+          });
+        }
+
+        // Record LLM usage stats from a response.
+        function recordLlmUsage(response: LLMResponse): void {
+          llmCalls++;
+          totalTokensIn += response.usage.tokensIn;
+          totalTokensOut += response.usage.tokensOut;
+        }
+
+        // Strip XML/DSML tool call tags from reply text.
+        function stripXmlToolTags(text: string): string {
+          return text
+            .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '')
+            .replace(/<invoke[\s\S]*?<\/invoke>/g, '')
+            .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')
+            .replace(/<｜｜DSML｜｜invoke[\s\S]*?<\/｜｜DSML｜｜invoke>/g, '')
+            .trim();
+        }
+
         // Pick stream() vs generate() once per execute() so the ReAct
         // loop can stream text deltas via opts.onStreamChunk when the
         // provider supports it. Falls back to generate() silently.
@@ -449,6 +624,24 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           return opts.llmProvider.generate(req);
         };
 
+        // Track tool-call fingerprints for the current task so we can
+        // detect when the LLM is calling the same tool with the same
+        // arguments in a loop (a common ReAct failure mode for MCP
+        // tools that return partial / ambiguous results, e.g. McDonald's
+        // "查完整菜单" repeated 5 times). The LLM doesn't remember
+        // earlier tool results as well as it thinks — adding a hint
+        // to its message history breaks the loop.
+        const recentCallFingerprints: string[] = [];
+        const DUP_WINDOW = 4; // look back over the last 4 iterations
+        const DUP_THRESHOLD = 2; // 2 identical calls in the window → warn
+        function fingerprint(toolName: string, args: Record<string, unknown>): string {
+          try {
+            return `${toolName}::${JSON.stringify(args ?? {})}`;
+          } catch {
+            return `${toolName}::${Date.now()}`;
+          }
+        }
+
         for (let i = 0; i < maxIterations; i++) {
           progress('think', `Step ${i + 1}: Thinking...`);
           const response = await callLlm({
@@ -460,9 +653,7 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
             signal: ctx.signal,
           });
 
-          llmCalls++;
-          totalTokensIn += response.usage.tokensIn;
-          totalTokensOut += response.usage.tokensOut;
+          recordLlmUsage(response);
 
           // No tool calls → check for XML-style tool calls (fallback for models
           // that don't fully support native OpenAI function calling)
@@ -472,14 +663,8 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
             // Try to parse XML tool calls from the text response
             const xmlCalls = parseXmlToolCalls(reply);
             if (xmlCalls && xmlCalls.length > 0) {
-              // Execute XML tool calls (same as native tool calls)
               // Strip the XML/DSML tags from the content for display
-              const cleanReply = reply
-                .replace(/<tool_calls>[\s\S]*?<\/tool_calls>/g, '')
-                .replace(/<invoke[\s\S]*?<\/invoke>/g, '')
-                .replace(/<｜｜DSML｜｜tool_calls>[\s\S]*?<\/｜｜DSML｜｜tool_calls>/g, '')
-                .replace(/<｜｜DSML｜｜invoke[\s\S]*?<\/｜｜DSML｜｜invoke>/g, '')
-                .trim();
+              const cleanReply = stripXmlToolTags(reply);
 
               // Only keep the clean text as the assistant message
               if (cleanReply) {
@@ -489,125 +674,13 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
               }
 
               for (const tc of xmlCalls) {
-                if (!allToolNames.has(tc.name)) {
-                  messages.push({
-                    role: 'tool',
-                    content: `Unknown tool: ${tc.name}. Available tools: ${[...allToolNames].join(', ')}`,
-                    toolCallId: `xml_${tc.name}_${i}`,
-                  });
-                  continue;
-                }
-
-                // P1-2: Confirmation gate — check before executing.
-                if (opts.confirmationGate) {
-                  const inv: ToolInvocation = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
-                  const decision = await opts.confirmationGate.confirm(inv);
-                  if (decision === 'deny') {
-                    messages.push({
-                      role: 'tool',
-                      content: `Blocked by user (tool: ${tc.name}).`,
-                      toolCallId: `xml_${tc.name}_${i}`,
-                    });
-                    continue;
-                  }
-                }
-
-                toolCalls++;
-                const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-                const inv = { id: `xml_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
-                progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-                const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap, opts.toolPolicy));
-                const result = pipelineResult.ok
-                  ? String(pipelineResult.output ?? '')
-                  : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
-                toolSpan?.end({ result: result.slice(0, 200) });
-                messages.push({
-                  role: 'tool',
-                  content: compressToolResult(tc.name, result),
-                  toolCallId: `xml_${tc.name}_${i}`,
-                });
+                await executeOneTool(tc.name, `xml_${tc.name}_${i}`, tc.arguments);
               }
               continue; // Go to next iteration
             }
 
             progress('answer', 'Generating final answer...');
-            const durationMs = Date.now() - t0;
-            const costUsd = computeCost(ctx.model, totalTokensIn, totalTokensOut);
-
-            // Append to conversation history
-            const updatedHistory: LLMMessage[] = [
-              ...fullHistory,
-              { role: 'user', content: ctx.task },
-              { role: 'assistant', content: reply },
-            ];
-            ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
-
-            // ── Phase 4: Memory Save (async, non-blocking) ──────────
-          if (shortTermMem && episodicMem && longTermMem && preferencesMem && semanticMem) {
-            // Save as episode (fire-and-forget)
-            episodicMem.record({
-              task: ctx.task.slice(0, 200),
-              story: reply.slice(0, 500),
-              outcome: 'success',
-              tags: ['chat'],
-            }).catch(() => {});
-
-            // Save a concise semantic summary so the conversation topic is
-            // retrievable by meaning in future sessions (no extra LLM call).
-            const summary = buildChatSummary(ctx.task, reply);
-            semanticMem.learn(
-              { concept: summary.concept, description: summary.description, runId: ctx.parentRunId },
-              'user',
-            ).catch(() => {});
-
-            // Extract durable facts about the user using rules + optional LLM.
-            // Scan both the user task and the assistant reply so facts mentioned
-            // in either side (e.g. weather results containing a location) are
-            // captured as long-term memory.
-            const combinedText = `${ctx.task}\n${reply}`;
-            extractFacts(combinedText, { minConfidence: 0.7 }).then(async (facts) => {
-              for (const f of facts) {
-                await longTermMem!.remember(
-                  {
-                    content: `${f.entity ?? 'user'} ${f.factType}: ${f.value}`,
-                    payload: {
-                      factType: f.factType,
-                      entity: f.entity ?? 'user',
-                      value: f.value,
-                      statement: f.statement,
-                      confidence: f.confidence,
-                      source: f.source,
-                    },
-                    importance: f.confidence,
-                  },
-                  'user',
-                ).catch(() => {});
-
-                // Also keep explicit preferences in the preference subsystem
-                // for backwards-compatible recall paths.
-                if (f.factType === 'preference') {
-                  await preferencesMem!.learn({
-                    key: `inferred-${f.factType}`,
-                    value: f.value,
-                    statement: f.statement,
-                    confidence: f.confidence,
-                  }).catch(() => {});
-                }
-              }
-            }).catch(() => {});
-          }
-
-            return okResult(reply, {
-              artifacts: { reply, history: updatedHistory },
-              metrics: {
-                tokensIn: totalTokensIn,
-                tokensOut: totalTokensOut,
-                costUsd,
-                durationMs,
-                llmCalls,
-                toolCalls,
-              },
-            });
+            return buildFinalResult(reply, 'success');
           }
 
           // ── Execute tool calls ──────────────────────────────────
@@ -618,30 +691,49 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           });
 
           for (const tc of response.message.toolCalls) {
-            // Validate tool name
-            if (!allToolNames.has(tc.name)) {
-              messages.push({
-                role: 'tool',
-                content: `Unknown tool: ${tc.name}. Available tools: ${[...allToolNames].join(', ')}`,
-                toolCallId: tc.id,
-              });
-              continue;
+            const fp = fingerprint(tc.name, tc.arguments);
+            recentCallFingerprints.push(fp);
+            if (recentCallFingerprints.length > DUP_WINDOW) {
+              recentCallFingerprints.splice(0, recentCallFingerprints.length - DUP_WINDOW);
             }
+            await executeOneTool(tc.name, tc.id ?? `native_${tc.name}_${i}`, tc.arguments);
+          }
 
-            toolCalls++;
-            const toolSpan = startSpan?.('tool:' + tc.name, 'tool', { name: tc.name, args: tc.arguments });
-            const inv: ToolInvocation = { id: tc.id ?? `native_${tc.name}_${i}`, toolName: tc.name, args: tc.arguments };
-            progress('tool', opts.dryRun ? `Simulating ${tc.name}...` : `Executing ${tc.name}...`);
-            const pipelineResult = await toolPipeline.invoke(inv, async () => executeTool(tc.name, tc.arguments, extraToolMap, opts.toolPolicy));
-            const result = pipelineResult.ok
-              ? String(pipelineResult.output ?? '')
-              : `Error: ${pipelineResult.error?.message ?? 'unknown'}`;
-            toolSpan?.end({ result: result.slice(0, 200) });
-            messages.push({
-              role: 'tool',
-              content: compressToolResult(tc.name, result),
-              toolCallId: tc.id,
-            });
+          // Loop guard: if the LLM is calling the same tool with the same
+          // arguments repeatedly, it's not converging. Inject a strong
+          // hint and, if the loop persists, force a final answer.
+          if (i + 1 < maxIterations) {
+            const counts = new Map<string, number>();
+            for (const fp of recentCallFingerprints) {
+              counts.set(fp, (counts.get(fp) ?? 0) + 1);
+            }
+            let worstFp: string | null = null;
+            let worstCount = 0;
+            for (const [fp, c] of counts) {
+              if (c > worstCount) { worstCount = c; worstFp = fp; }
+            }
+            if (worstCount >= DUP_THRESHOLD && worstFp) {
+              const [toolName] = worstFp.split('::');
+              messages.push({
+                role: 'user',
+                content:
+                  `注意：你刚才已经用完全相同的参数连续调用了 \`${toolName}\` ${worstCount} 次，得到的结果已经在上面历史消息里。` +
+                  `请**停止重复调用**，改用其他策略：` +
+                  `(1) 如果你需要的字段在返回结果中已经存在，直接使用；` +
+                  `(2) 如果需要用不同的参数再次调用（例如分页/不同类别），请用**不同的参数**；` +
+                  `(3) 如果工具已经返回最终结果或不能提供更多数据，直接基于已有信息给出最终答案。`,
+              });
+              if (worstCount >= DUP_THRESHOLD + 1) {
+                // Two consecutive rounds of duplicate calls — force
+                // convergence: replace the next tool-call instruction
+                // with a final-answer instruction.
+                progress('think', 'Loop detected, forcing final answer...');
+                messages.push({
+                  role: 'user',
+                  content: '请立即基于已有工具结果给出最终答案，不要再调用任何工具。',
+                });
+              }
+            }
           }
         }
 
@@ -660,78 +752,10 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
           signal: ctx.signal,
         });
 
-        llmCalls++;
-        totalTokensIn += finalResponse.usage.tokensIn;
-        totalTokensOut += finalResponse.usage.tokensOut;
+        recordLlmUsage(finalResponse);
 
         const reply = finalResponse.message.content ?? '';
-        const durationMs = Date.now() - t0;
-        const costUsd = computeCost(ctx.model, totalTokensIn, totalTokensOut);
-
-        const updatedHistory: LLMMessage[] = [
-          ...fullHistory,
-          { role: 'user', content: ctx.task },
-          { role: 'assistant', content: reply },
-        ];
-        ctx.sharedState.set(CHAT_HISTORY_KEY, updatedHistory, 'chat');
-
-        // ── Phase 4: Memory Save (async, non-blocking) ──────────
-        if (shortTermMem && episodicMem && longTermMem && preferencesMem && semanticMem) {
-          episodicMem.record({
-            task: ctx.task.slice(0, 200),
-            story: reply.slice(0, 500),
-            outcome: 'partial',
-            tags: ['chat', 'max-iterations'],
-          }).catch(() => {});
-
-          const summary = buildChatSummary(ctx.task, reply);
-          semanticMem.learn(
-            { concept: summary.concept, description: summary.description, runId: ctx.parentRunId },
-            'user',
-          ).catch(() => {});
-
-          const combinedText = `${ctx.task}\n${reply}`;
-          extractFacts(combinedText, { minConfidence: 0.7 }).then(async (facts) => {
-            for (const f of facts) {
-              await longTermMem!.remember(
-                {
-                  content: `${f.entity ?? 'user'} ${f.factType}: ${f.value}`,
-                  payload: {
-                    factType: f.factType,
-                    entity: f.entity ?? 'user',
-                    value: f.value,
-                    statement: f.statement,
-                    confidence: f.confidence,
-                    source: f.source,
-                  },
-                  importance: f.confidence,
-                },
-                'user',
-              ).catch(() => {});
-
-              if (f.factType === 'preference') {
-                await preferencesMem!.learn({
-                  key: `inferred-${f.factType}`,
-                  value: f.value,
-                  statement: f.statement,
-                  confidence: f.confidence,
-                }).catch(() => {});
-              }
-            }
-          }).catch(() => {});
-        }
-
-        return okResult(reply, {
-          artifacts: { reply, history: updatedHistory },
-          metrics: {
-            tokensIn: totalTokensIn,
-            tokensOut: totalTokensOut,
-            costUsd,
-            durationMs,
-            llmCalls,
-            toolCalls,
-          },
-        });
+        return buildFinalResult(reply, 'partial', ['max-iterations']);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         return failResult('LLM_ERROR', msg);
@@ -827,6 +851,85 @@ function parseDsmlToolCalls(text: string): Array<{ name: string; arguments: Reco
   return calls.length > 0 ? calls : null;
 }
 
+// ── Tool executor ─────────────────────────────────────────────────────
+
+type ToolHandler = (args: Record<string, unknown>) => Promise<string>;
+
+const toolHandlers = new Map<string, ToolHandler>([
+  // Web tools
+  ['web_search', (args) => webSearch(
+    String(args.query ?? ''),
+    typeof args.maxResults === 'number' ? args.maxResults : 5
+  )],
+  ['web_fetch', (args) => webFetch(
+    String(args.url ?? ''),
+    typeof args.maxLength === 'number' ? args.maxLength : 5000
+  )],
+  ['get_location', () => getLocation()],
+  // File & task tools
+  ['read_file', (args) => readFile(
+    String(args.filePath ?? args.path ?? ''),
+    typeof args.startLine === 'number' ? args.startLine : undefined,
+    typeof args.lineCount === 'number' ? args.lineCount : undefined
+  )],
+  ['write_file', (args) => writeFile(
+    String(args.filePath ?? args.path ?? ''),
+    String(args.content ?? '')
+  )],
+  ['replace_text', (args) => replaceText(
+    String(args.filePath ?? args.path ?? ''),
+    String(args.oldText ?? ''),
+    String(args.newText ?? '')
+  )],
+  ['append_text', (args) => appendText(
+    String(args.filePath ?? args.path ?? ''),
+    String(args.content ?? '')
+  )],
+  ['insert_text', (args) => insertText(
+    String(args.filePath ?? args.path ?? ''),
+    String(args.anchorText ?? ''),
+    String(args.newText ?? ''),
+    (args.mode as 'before' | 'after') ?? 'after'
+  )],
+  ['run_terminal', (args) => runTerminal(
+    String(args.command ?? args.cmd ?? ''),
+    typeof args.cwd === 'string' ? args.cwd : undefined,
+    typeof args.timeoutMs === 'number' ? args.timeoutMs : undefined
+  )],
+  ['search_code', (args) => searchCode(
+    String(args.pattern ?? args.query ?? ''),
+    typeof args.filePattern === 'string' ? args.filePattern : undefined,
+    typeof args.maxResults === 'number' ? args.maxResults : 20
+  )],
+  ['list_directory', (args) => listDirectory(
+    typeof args.dirPath === 'string' ? args.dirPath : undefined,
+    typeof args.depth === 'number' ? args.depth : 1
+  )],
+  ['get_project_context', (args) => getProjectContext(
+    (args.detail as 'summary' | 'full') ?? 'summary'
+  )],
+  // Browser tools
+  ['browser_navigate', (args) => browserNavigate(String(args.url ?? ''))],
+  ['browser_click', (args) => browserClick(
+    typeof args.elementId === 'number' ? args.elementId : undefined,
+    typeof args.x === 'number' ? args.x : undefined,
+    typeof args.y === 'number' ? args.y : undefined
+  )],
+  ['browser_scroll', (args) => browserScroll(
+    String(args.direction ?? 'down'),
+    typeof args.amount === 'number' ? args.amount : 500
+  )],
+  ['browser_screenshot', () => browserScreenshot()],
+  ['browser_go_back', () => browserGoBack()],
+  ['browser_go_forward', () => browserGoForward()],
+  ['browser_close', () => browserClose()],
+  // Perception tools
+  ['ocr_image', (args) => ocrImage(String(args.filePath ?? ''))],
+  ['describe_image', (args) => describeImage(String(args.filePath ?? ''))],
+  ['transcribe_audio', (args) => transcribeAudio(String(args.filePath ?? ''))],
+  ['parse_document', (args) => parseDocument(String(args.filePath ?? ''))],
+]);
+
 async function executeTool(
   name: string,
   args: Record<string, unknown>,
@@ -838,115 +941,22 @@ async function executeTool(
     return `Error: TOOL_DENIED_BY_POLICY — tool '${name}' is not allowed by the active tool policy.`;
   }
 
-  switch (name) {
-    // Web tools
-    case 'web_search':
-      return webSearch(
-        String(args.query ?? ''),
-        typeof args.maxResults === 'number' ? args.maxResults : 5
-      );
-    case 'web_fetch':
-      return webFetch(
-        String(args.url ?? ''),
-        typeof args.maxLength === 'number' ? args.maxLength : 5000
-      );
-    case 'get_location':
-      return getLocation();
-    // File & task tools
-    case 'read_file':
-      return readFile(
-        String(args.filePath ?? args.path ?? ''),
-        typeof args.startLine === 'number' ? args.startLine : undefined,
-        typeof args.lineCount === 'number' ? args.lineCount : undefined
-      );
-    case 'write_file':
-      return writeFile(
-        String(args.filePath ?? args.path ?? ''),
-        String(args.content ?? '')
-      );
-    case 'replace_text':
-      return replaceText(
-        String(args.filePath ?? args.path ?? ''),
-        String(args.oldText ?? ''),
-        String(args.newText ?? '')
-      );
-    case 'append_text':
-      return appendText(
-        String(args.filePath ?? args.path ?? ''),
-        String(args.content ?? '')
-      );
-    case 'insert_text':
-      return insertText(
-        String(args.filePath ?? args.path ?? ''),
-        String(args.anchorText ?? ''),
-        String(args.newText ?? ''),
-        (args.mode as 'before' | 'after') ?? 'after'
-      );
-    case 'run_terminal':
-      return runTerminal(
-        String(args.command ?? args.cmd ?? ''),
-        typeof args.cwd === 'string' ? args.cwd : undefined,
-        typeof args.timeoutMs === 'number' ? args.timeoutMs : undefined
-      );
-    case 'search_code':
-      return searchCode(
-        String(args.pattern ?? args.query ?? ''),
-        typeof args.filePattern === 'string' ? args.filePattern : undefined,
-        typeof args.maxResults === 'number' ? args.maxResults : 20
-      );
-    case 'list_directory':
-      return listDirectory(
-        typeof args.dirPath === 'string' ? args.dirPath : undefined,
-        typeof args.depth === 'number' ? args.depth : 1
-      );
-    case 'get_project_context':
-      return getProjectContext(
-        (args.detail as 'summary' | 'full') ?? 'summary'
-      );
-    // Browser tools
-    case 'browser_navigate':
-      return browserNavigate(String(args.url ?? ''));
-    case 'browser_click':
-      return browserClick(
-        typeof args.elementId === 'number' ? args.elementId : undefined,
-        typeof args.x === 'number' ? args.x : undefined,
-        typeof args.y === 'number' ? args.y : undefined
-      );
-    case 'browser_scroll':
-      return browserScroll(
-        String(args.direction ?? 'down'),
-        typeof args.amount === 'number' ? args.amount : 500
-      );
-    case 'browser_screenshot':
-      return browserScreenshot();
-    case 'browser_go_back':
-      return browserGoBack();
-    case 'browser_go_forward':
-      return browserGoForward();
-    case 'browser_close':
-      return browserClose();
-    // Perception tools
-    case 'ocr_image':
-      return ocrImage(String(args.filePath ?? ''));
-    case 'describe_image':
-      return describeImage(String(args.filePath ?? ''));
-    case 'transcribe_audio':
-      return transcribeAudio(String(args.filePath ?? ''));
-    case 'parse_document':
-      return parseDocument(String(args.filePath ?? ''));
-    default: {
-      const extra = extraTools?.get(name);
-      if (extra) {
-        try {
-          return await extra(args);
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return `Error: ${msg}`;
-        }
-      }
-      return `Unknown tool: ${name}`;
+  const handler = toolHandlers.get(name);
+  if (handler) {
+    return handler(args);
+  }
+
+  const extra = extraTools?.get(name);
+  if (extra) {
+    try {
+      return await extra(args);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return `Error: ${msg}`;
     }
   }
+
+  return `Unknown tool: ${name}`;
 }
 
 // Exported for V2 adapter wiring (see coding-agent-factory.ts).

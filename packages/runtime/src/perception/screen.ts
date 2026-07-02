@@ -1,4 +1,4 @@
-// @z-assistant/runtime — screen perception
+// @ziner/runtime — screen perception
 //
 // Screen capture abstraction. On Desktop, this uses the OS screenshot
 // API (via Electron's desktopCapturer or system-level screenshot tools).

@@ -9,7 +9,7 @@
 //   delegation.<targetAgent>.response — { id, result, error }
 //   delegation.<targetAgent>.status   — 'pending' | 'running' | 'done' | 'failed'
 
-import type { SharedState } from '@z-assistant/contracts';
+import type { SharedState } from '@ziner/contracts';
 
 export interface DelegationRequest {
   /** Unique delegation id (uuid). */

@@ -1,4 +1,4 @@
-// @z-assistant/agent-browser — Browser backend abstraction
+// @ziner/agent-browser — Browser backend abstraction
 //
 // Pluggable browser automation backend. The default implementation uses
 // Playwright (when available). The interface is agnostic so other

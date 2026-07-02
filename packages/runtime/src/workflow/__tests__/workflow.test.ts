@@ -1,4 +1,4 @@
-// @z-assistant/runtime — workflow engine tests
+// @ziner/runtime — workflow engine tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Universal tool risk classification (P1-2).
+// @ziner/runtime — Universal tool risk classification (P1-2).
 //
 // Promotes the rule-engine pattern from `computer-use.ts` to a universal
 // `ToolRiskClassifier` that covers every tool in the chat-agent's arsenal
@@ -13,8 +13,8 @@
 // `requiresConfirmation` flag or the ToolPolicy's `requireConfirm` list
 // says otherwise).
 
-import type { RiskClassification, RiskLevel } from '@z-assistant/contracts';
-import { isDangerousCommand } from '@z-assistant/infra-permission';
+import type { RiskClassification, RiskLevel } from '@ziner/contracts';
+import { isDangerousCommand } from '@ziner/infra-permission';
 
 // ── Risk rules ───────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Document Parsing Service
+// @ziner/runtime — Document Parsing Service
 //
 // Parses PDF, DOCX, PPTX, and TXT files into plain text.
 // Uses the Python sidecar for robust parsing (PyMuPDF, python-docx, python-pptx).

@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/agent-browser",
+  "name": "@ziner/agent-browser",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Browser Agent — Computer Use: browser automation, DOM parsing, screen perception, decision engine.",
@@ -12,7 +12,7 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0"
+    "@ziner/contracts": "0.1.0"
   },
   "optionalDependencies": {
     "playwright": "^1.45.0"

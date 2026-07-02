@@ -1,4 +1,4 @@
-// @z-assistant/runtime — skills
+// @ziner/runtime — skills
 //
 // Universal Skills framework. Pure Node, no vscode.
 //

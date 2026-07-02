@@ -1,11 +1,11 @@
-// @z-assistant/app-desktop — preload script
+// @ziner/app-desktop — preload script
 //
 // Exposes a safe, typed API to the renderer via contextBridge.
 
 import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './constants';
-import type { ConnectorEvent } from '@z-assistant/app-vscode-connector';
-import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule, CandidateSkill } from '@z-assistant/contracts';
+import type { ConnectorEvent, Checkpoint, CheckpointIndexEntry } from '@ziner/app-vscode-connector';
+import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule, CandidateSkill } from '@ziner/contracts';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
@@ -19,6 +19,12 @@ export interface ZDesktopAPI {
   recallMemory: (query: string, limit?: number) => Promise<MemoryHit[]>;
   onRunEvent: (cb: (e: ConnectorEvent) => void) => () => void;
   onProgress: (cb: (e: { phase: string; detail: string }) => void) => () => void;
+  cancelRun: () => Promise<boolean>;
+  // P3 Checkpoint APIs
+  listCheckpoints: (opts?: { sessionId?: string; limit?: number }) => Promise<CheckpointIndexEntry[]>;
+  loadCheckpoint: (runId: string) => Promise<Checkpoint | null>;
+  resumeTask: (runId: string, planningMode?: 'simple' | 'hierarchical' | 'auto') => Promise<{ runId: string; result?: string }>;
+  deleteCheckpoint: (runId: string) => Promise<boolean>;
   onStreamChunk: (cb: (e: { runId: string; delta: string }) => void) => () => void;
   onStreamEnd: (cb: (e: { runId: string }) => void) => () => void;
   selectDirectory: () => Promise<string | null>;
@@ -80,6 +86,13 @@ export interface ZDesktopAPI {
   onBrowserPreview: (cb: (base64Data: string) => void) => () => void;
   // Agent Viewport (floating window)
   toggleAgentViewport: () => Promise<boolean>;
+  // P3 Harness: Benchmarks
+  checkDocker: () => Promise<{ ok: boolean; version?: string; reason?: string }>;
+  listBenchmarkSuites: () => Promise<Array<{ id: string; name: string; cases: Array<{ id: string; name: string }> }>>;
+  runBenchmarkSuite: (suiteId: string) => Promise<any>;
+  // Storage backend
+  getStorageBackend: () => Promise<'jsonl' | 'sqlite'>;
+  setStorageBackend: (backend: 'jsonl' | 'sqlite') => Promise<boolean>;
 }
 
 interface WeChatHookStatus {
@@ -97,6 +110,25 @@ interface QQStatus {
   lastEvent: string;
 }
 
+function createEventListener<T>(channel: string): (cb: (event: T) => void) => () => void {
+  return (cb: (event: T) => void) => {
+    const handler = (_: unknown, event: T) => cb(event);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  };
+}
+
+const onRunEvent = createEventListener<ConnectorEvent>(IPC_CHANNELS.ON_RUN_EVENT);
+const onProgress = createEventListener<{ phase: string; detail: string }>(IPC_CHANNELS.ON_PROGRESS);
+const onStreamChunk = createEventListener<{ runId: string; delta: string }>(IPC_CHANNELS.ON_STREAM_CHUNK);
+const onStreamEnd = createEventListener<{ runId: string }>(IPC_CHANNELS.ON_STREAM_END);
+const onWeChatHookStatus = createEventListener<WeChatHookStatus>(IPC_CHANNELS.ON_WECHAT_HOOK_STATUS);
+const onQQStatus = createEventListener<QQStatus>(IPC_CHANNELS.ON_QQ_STATUS);
+const onConfirmationRequest = createEventListener<ConfirmationRequest>(IPC_CHANNELS.ON_CONFIRMATION_REQUEST);
+const onAgentActivity = createEventListener<{ agent: string; icon: string; message: string; detail?: string }>(IPC_CHANNELS.ON_AGENT_ACTIVITY);
+const windowOnMaximizeChange = createEventListener<boolean>(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE);
+const onBrowserPreview = createEventListener<string>(IPC_CHANNELS.ON_BROWSER_PREVIEW);
+
 const api: ZDesktopAPI = {
   runTask: (task, sessionId, planningMode) => ipcRenderer.invoke(IPC_CHANNELS.RUN_TASK, task, sessionId, planningMode),
   listRuns: (limit, sessionId) => ipcRenderer.invoke(IPC_CHANNELS.LIST_RUNS, limit, sessionId),
@@ -105,26 +137,16 @@ const api: ZDesktopAPI = {
   getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.GET_SETTINGS),
   setSettings: (patch) => ipcRenderer.invoke(IPC_CHANNELS.SET_SETTINGS, patch),
   recallMemory: (query, limit) => ipcRenderer.invoke(IPC_CHANNELS.RECALL_MEMORY, query, limit),
-  onRunEvent: (cb) => {
-    const handler = (_: unknown, e: ConnectorEvent) => cb(e);
-    ipcRenderer.on(IPC_CHANNELS.ON_RUN_EVENT, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_RUN_EVENT, handler);
-  },
-  onProgress: (cb) => {
-    const handler = (_: unknown, e: { phase: string; detail: string }) => cb(e);
-    ipcRenderer.on(IPC_CHANNELS.ON_PROGRESS, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_PROGRESS, handler);
-  },
-  onStreamChunk: (cb) => {
-    const handler = (_: unknown, e: { runId: string; delta: string }) => cb(e);
-    ipcRenderer.on(IPC_CHANNELS.ON_STREAM_CHUNK, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_STREAM_CHUNK, handler);
-  },
-  onStreamEnd: (cb) => {
-    const handler = (_: unknown, e: { runId: string }) => cb(e);
-    ipcRenderer.on(IPC_CHANNELS.ON_STREAM_END, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_STREAM_END, handler);
-  },
+  onRunEvent,
+  onProgress,
+  cancelRun: () => ipcRenderer.invoke(IPC_CHANNELS.CANCEL_RUN),
+  // P3 Checkpoint APIs
+  listCheckpoints: (opts) => ipcRenderer.invoke(IPC_CHANNELS.LIST_CHECKPOINTS, opts),
+  loadCheckpoint: (runId) => ipcRenderer.invoke(IPC_CHANNELS.LOAD_CHECKPOINT, runId),
+  resumeTask: (runId, planningMode) => ipcRenderer.invoke(IPC_CHANNELS.RESUME_TASK, runId, planningMode),
+  deleteCheckpoint: (runId) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_CHECKPOINT, runId),
+  onStreamChunk,
+  onStreamEnd,
   selectDirectory: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_DIRECTORY),
   // Session management
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_SESSIONS),
@@ -143,20 +165,12 @@ const api: ZDesktopAPI = {
   startWeChatHook: (config) => ipcRenderer.invoke(IPC_CHANNELS.START_WECHAT_HOOK, config),
   stopWeChatHook: () => ipcRenderer.invoke(IPC_CHANNELS.STOP_WECHAT_HOOK),
   getWeChatHookStatus: () => ipcRenderer.invoke(IPC_CHANNELS.GET_WECHAT_HOOK_STATUS),
-  onWeChatHookStatus: (cb) => {
-    const handler = (_: unknown, s: WeChatHookStatus) => cb(s);
-    ipcRenderer.on(IPC_CHANNELS.ON_WECHAT_HOOK_STATUS, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_WECHAT_HOOK_STATUS, handler);
-  },
+  onWeChatHookStatus,
   // QQ Bot
   startQQ: (config) => ipcRenderer.invoke(IPC_CHANNELS.START_QQ, config),
   stopQQ: () => ipcRenderer.invoke(IPC_CHANNELS.STOP_QQ),
   getQQStatus: () => ipcRenderer.invoke(IPC_CHANNELS.GET_QQ_STATUS),
-  onQQStatus: (cb) => {
-    const handler = (_: unknown, s: QQStatus) => cb(s);
-    ipcRenderer.on(IPC_CHANNELS.ON_QQ_STATUS, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_QQ_STATUS, handler);
-  },
+  onQQStatus,
   // Chat profile
   getProfile: () => ipcRenderer.invoke(IPC_CHANNELS.GET_PROFILE),
   rebuildProfile: () => ipcRenderer.invoke(IPC_CHANNELS.REBUILD_PROFILE),
@@ -166,11 +180,7 @@ const api: ZDesktopAPI = {
   writeFile: (filePath, content) => ipcRenderer.invoke(IPC_CHANNELS.WRITE_FILE, filePath, content),
   selectSaveDir: () => ipcRenderer.invoke(IPC_CHANNELS.SELECT_SAVE_DIR),
   // Confirmation (P1-2 HITL)
-  onConfirmationRequest: (cb) => {
-    const handler = (_: unknown, req: ConfirmationRequest) => cb(req);
-    ipcRenderer.on(IPC_CHANNELS.ON_CONFIRMATION_REQUEST, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_CONFIRMATION_REQUEST, handler);
-  },
+  onConfirmationRequest,
   confirmAction: (requestId, decision) => ipcRenderer.invoke(IPC_CHANNELS.CONFIRM_ACTION, requestId, decision),
   // Audit log (P1-2 HITL)
   listAuditEntries: (filter) => ipcRenderer.invoke(IPC_CHANNELS.LIST_AUDIT_ENTRIES, filter),
@@ -185,29 +195,24 @@ const api: ZDesktopAPI = {
   // Manual skill creation from a session
   createSkillFromSession: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.CREATE_SKILL_FROM_SESSION, sessionId),
   // Agent activity (side-panel feed)
-  onAgentActivity: (cb) => {
-    const handler = (_: unknown, e: { agent: string; icon: string; message: string; detail?: string }) => cb(e);
-    ipcRenderer.on(IPC_CHANNELS.ON_AGENT_ACTIVITY, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_AGENT_ACTIVITY, handler);
-  },
+  onAgentActivity,
   // Window controls
   windowMinimize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MINIMIZE),
   windowMaximize: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_MAXIMIZE),
   windowClose: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_CLOSE),
   windowIsMaximized: () => ipcRenderer.invoke(IPC_CHANNELS.WINDOW_IS_MAXIMIZED),
-  windowOnMaximizeChange: (cb) => {
-    const handler = (_: unknown, maximized: boolean) => cb(maximized);
-    ipcRenderer.on(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.WINDOW_ON_MAXIMIZE_CHANGE, handler);
-  },
+  windowOnMaximizeChange,
   // Browser preview
-  onBrowserPreview: (cb) => {
-    const handler = (_: unknown, b64: string) => cb(b64);
-    ipcRenderer.on(IPC_CHANNELS.ON_BROWSER_PREVIEW, handler);
-    return () => ipcRenderer.removeListener(IPC_CHANNELS.ON_BROWSER_PREVIEW, handler);
-  },
+  onBrowserPreview,
   // Agent Viewport
   toggleAgentViewport: () => ipcRenderer.invoke(IPC_CHANNELS.TOGGLE_AGENT_VIEWPORT),
+  // P3 Harness: Benchmarks
+  checkDocker: () => ipcRenderer.invoke(IPC_CHANNELS.CHECK_DOCKER),
+  listBenchmarkSuites: () => ipcRenderer.invoke(IPC_CHANNELS.LIST_BENCHMARK_SUITES),
+  runBenchmarkSuite: (suiteId: string) => ipcRenderer.invoke(IPC_CHANNELS.RUN_BENCHMARK_SUITE, suiteId),
+  // Storage backend
+  getStorageBackend: () => ipcRenderer.invoke(IPC_CHANNELS.GET_STORAGE_BACKEND),
+  setStorageBackend: (backend: 'jsonl' | 'sqlite') => ipcRenderer.invoke(IPC_CHANNELS.SET_STORAGE_BACKEND, backend),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);

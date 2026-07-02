@@ -1,4 +1,4 @@
-// @z-assistant/runtime — fact extractor tests
+// @ziner/runtime — fact extractor tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

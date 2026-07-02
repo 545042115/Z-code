@@ -1,4 +1,4 @@
-// @z-assistant/app-vscode-connector — Result cache for pure-query agent runs.
+// @ziner/app-vscode-connector — Result cache for pure-query agent runs.
 //
 // Caches successful orchestrator results keyed by (model + agents + task)
 // so that repeated questions like "What's the weather?" or "Latest news"
@@ -25,19 +25,30 @@ export class ResultCache<T> {
       this.store.delete(key);
       return undefined;
     }
+    // LRU: re-insert to move to end (most recently used)
+    this.store.delete(key);
+    this.store.set(key, entry);
     return entry.value;
   }
 
   set(key: string, value: T): void {
-    if (this.store.size >= this.opts.maxSize) {
-      const first = this.store.keys().next().value;
-      if (first) this.store.delete(first);
+    // If key already exists, delete first so re-insert moves it to end
+    if (this.store.has(key)) {
+      this.store.delete(key);
+    } else if (this.store.size >= this.opts.maxSize) {
+      // Evict the oldest (first inserted / least recently used) entry
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) this.store.delete(oldest);
     }
     this.store.set(key, { value, expires: Date.now() + this.opts.ttlMs });
   }
 
   clear(): void {
     this.store.clear();
+  }
+
+  get size(): number {
+    return this.store.size;
   }
 }
 

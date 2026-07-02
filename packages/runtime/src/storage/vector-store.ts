@@ -1,4 +1,4 @@
-// @z-assistant/runtime — vector store
+// @ziner/runtime — vector store
 //
 // Pluggable vector storage abstraction. The default `InMemoryVectorStore`
 // keeps everything in-process and is suitable for unit tests, demos, and
@@ -6,7 +6,7 @@
 // Pinecone) implement the same `IVectorStore` interface and can be
 // swapped in by changing the factory call.
 
-import type { MemoryKind, MemoryScope } from '@z-assistant/contracts';
+import type { MemoryKind, MemoryScope } from '@ziner/contracts';
 
 export interface VectorRecord {
   id: string;
@@ -112,6 +112,11 @@ function matchesFilter(r: VectorRecord, filter?: Partial<VectorPurgeFilter>): bo
   return true;
 }
 
+export interface InMemoryVectorStoreOptions {
+  /** Maximum number of active (non-deleted) records before LRU eviction. */
+  maxRecords?: number;
+}
+
 /**
  * In-memory vector store with cosine-similarity brute-force search.
  * Performs well up to tens of thousands of records; for larger corpora,
@@ -120,9 +125,33 @@ function matchesFilter(r: VectorRecord, filter?: Partial<VectorPurgeFilter>): bo
 export class InMemoryVectorStore implements IVectorStore {
   readonly name = 'in-memory-vector-store';
   private readonly records = new Map<string, VectorRecord>();
+  /** LRU access order: most recently accessed IDs at the end. */
+  private readonly accessOrder: string[] = [];
+  private readonly maxRecords: number;
+
+  constructor(opts?: InMemoryVectorStoreOptions) {
+    this.maxRecords = opts?.maxRecords ?? 10000;
+  }
+
+  private touchAccess(id: string): void {
+    const idx = this.accessOrder.indexOf(id);
+    if (idx !== -1) this.accessOrder.splice(idx, 1);
+    this.accessOrder.push(id);
+  }
+
+  private enforceMaxRecords(): void {
+    while (this.accessOrder.length > this.maxRecords) {
+      const oldestId = this.accessOrder.shift();
+      if (oldestId && this.records.has(oldestId)) {
+        this.records.delete(oldestId);
+      }
+    }
+  }
 
   async upsert(record: VectorRecord): Promise<void> {
     this.records.set(record.id, record);
+    this.touchAccess(record.id);
+    this.enforceMaxRecords();
   }
 
   async query(q: VectorQuery): Promise<VectorHit[]> {
@@ -165,6 +194,12 @@ export class InMemoryVectorStore implements IVectorStore {
         count++;
       }
     }
+    // Also clean accessOrder
+    for (let i = this.accessOrder.length - 1; i >= 0; i--) {
+      if (!this.records.has(this.accessOrder[i])) {
+        this.accessOrder.splice(i, 1);
+      }
+    }
     return count;
   }
 
@@ -179,10 +214,11 @@ export class InMemoryVectorStore implements IVectorStore {
 
   async close(): Promise<void> {
     this.records.clear();
+    this.accessOrder.length = 0;
   }
 }
 
 /** Factory for the default in-memory vector store. */
-export function createInMemoryVectorStore(): IVectorStore {
-  return new InMemoryVectorStore();
+export function createInMemoryVectorStore(opts?: InMemoryVectorStoreOptions): IVectorStore {
+  return new InMemoryVectorStore(opts);
 }

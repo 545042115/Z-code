@@ -12,7 +12,7 @@ import type {
   SkillSpec,
   SelectedSkill,
   TaskContext,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface CodingSkillOptions {
   impl?: ISkillRegistry;

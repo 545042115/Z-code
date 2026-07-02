@@ -1,4 +1,4 @@
-// @z-assistant/runtime — perception
+// @ziner/runtime — perception
 //
 // Sensory input for the V2 Agent: screen capture, OCR, image captioning,
 // audio transcription, document parsing, and Python sidecar bridge.

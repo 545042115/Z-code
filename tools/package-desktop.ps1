@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-One-click build Z Assistant Desktop Windows installer (.exe)
+One-click build Ziner Desktop Windows installer (.exe)
 #>
 
 param(
@@ -10,7 +10,21 @@ param(
 
 $RootDir = Split-Path -Parent $PSScriptRoot
 $DesktopDir = Join-Path $RootDir "apps\desktop"
-$DistDir = if ($OutDir) { $OutDir } else { Join-Path $DesktopDir "dist" }
+
+# Guard against callers passing switches as positional arguments (e.g. --SkipPython).
+# Only treat $OutDir as a directory when it is not empty and does not look like a switch.
+$resolvedOutDir = if ($OutDir -and -not $OutDir.StartsWith('-')) {
+  $OutDir
+} else {
+  ""
+}
+
+$DistDir = if ($resolvedOutDir) {
+  Resolve-Path $resolvedOutDir -ErrorAction SilentlyContinue
+  if (-not $DistDir) { $DistDir = $resolvedOutDir }
+} else {
+  Join-Path $DesktopDir "dist"
+}
 
 function Write-Step($Title) {
   Write-Host ""
@@ -63,17 +77,21 @@ Push-Location $RootDir
 
 # Build in strict dependency order (TypeScript project references)
 $buildOrder = @(
-  "@z-assistant/contracts",
-  "@z-assistant/infra-errors",
-  "@z-assistant/infra-storage",
-  "@z-assistant/infra-cost",
-  "@z-assistant/infra-config",
-  "@z-assistant/infra-permission",
-  "@z-assistant/trace",
-  "@z-assistant/runtime",
-  "@z-assistant/agent-coding",
-  "@z-assistant/agent-browser",
-  "@z-assistant/app-vscode-connector"
+  "@ziner/contracts",
+  "@ziner/infra-errors",
+  "@ziner/infra-storage",
+  "@ziner/infra-cost",
+  "@ziner/infra-config",
+  "@ziner/infra-permission",
+  "@ziner/trace",
+  "@ziner/runtime",
+  "@ziner/agent-coding",
+  "@ziner/agent-browser",
+  "@ziner/agent-planner",
+  "@ziner/agent-research",
+  "@ziner/agent-synthesizer",
+  "@ziner/agent-office",
+  "@ziner/app-vscode-connector"
 )
 
 foreach ($pkg in $buildOrder) {
@@ -106,15 +124,22 @@ $appDir = Join-Path $unpackedDir "resources\app"
 $electronDist = Join-Path $RootDir "node_modules\electron\dist"
 
 # Kill any running instances BEFORE copying files
+# Also terminate the legacy executable name in case an old build is still running.
 taskkill /f /im "Z Assistant.exe" 2>$null
+taskkill /f /im "Ziner.exe" 2>$null
 taskkill /f /im electron.exe 2>$null
-Start-Sleep -Seconds 2
+Start-Sleep -Seconds 3
 
-# Clean old build artifacts to avoid dll locking issues
-if (Test-Path $unpackedDir) {
+# Clean old build artifacts to avoid dll locking issues.
+# Remove the whole $DistDir so no stale files (e.g. legacy @z-assistant packages)
+# survive between runs. Use the node rm-rf helper because PowerShell's Remove-Item
+# can be very slow on large nested directories.
+if (Test-Path $DistDir) {
   Write-Host "  Cleaning old build artifacts..."
-  Remove-Item -Path "$unpackedDir\*" -Recurse -Force -ErrorAction SilentlyContinue
+  $rmRf = Join-Path $RootDir "tools\rm-rf.js"
+  & node $rmRf $DistDir
 }
+Start-Sleep -Seconds 1
 
 Write-Host "  Copying Electron base..."
 if (-not (Test-Path $electronDist\electron.exe)) {
@@ -142,14 +167,18 @@ if (Test-Path "$DesktopDir\build") {
   robocopy "$DesktopDir\build" "$appDir\build" /E /NJH /NJS /NDL /NP 2>&1 | Out-Null
 }
 
-# Step D: copy workspace packages (@z-assistant/*) into app's node_modules
+# Step D: copy workspace packages (@ziner/*) into app's node_modules
 Write-Host "  Copying workspace packages..."
 $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
-$zAssistantDst = Join-Path $appNodeModules "@z-assistant"
+$zinerDst = Join-Path $appNodeModules "@ziner"
 $neededPackages = @(
   @{Name="app-vscode-connector"; Source="apps\vscode-connector"}
   @{Name="agent-browser";       Source="packages\agents\browser-agent"}
   @{Name="agent-coding";        Source="packages\agents\coding-agent"}
+  @{Name="agent-planner";       Source="packages\agents\planner-agent"}
+  @{Name="agent-research";      Source="packages\agents\research-agent"}
+  @{Name="agent-synthesizer";   Source="packages\agents\synthesizer-agent"}
+  @{Name="agent-office";        Source="packages\agents\office-agent"}
   @{Name="runtime";             Source="packages\runtime"}
   @{Name="trace";               Source="packages\trace"}
   @{Name="infra-storage";       Source="packages\infra\storage"}
@@ -160,10 +189,10 @@ $neededPackages = @(
   @{Name="contracts";           Source="packages\contracts"}
 )
 
-New-Item -ItemType Directory -Force -Path $zAssistantDst | Out-Null
+New-Item -ItemType Directory -Force -Path $zinerDst | Out-Null
 foreach ($pkg in $neededPackages) {
   $srcDir = Join-Path $RootDir $pkg.Source
-  $dstDir = Join-Path $zAssistantDst $pkg.Name
+  $dstDir = Join-Path $zinerDst $pkg.Name
   if (Test-Path "$srcDir\out") {
     New-Item -ItemType Directory -Force -Path "$dstDir\out" | Out-Null
     # Copy compiled JS output
@@ -173,125 +202,101 @@ foreach ($pkg in $neededPackages) {
   }
 }
 
-# Step D2: recursively copy all third-party dependencies
-# Walks the FULL dependency closure of apps/desktop, including workspace
-# packages (e.g. @z-assistant/app-vscode-connector) and their deps.
-# This catches transitive deps like @modelcontextprotocol/sdk which are
-# declared by workspace packages but not by apps/desktop directly.
-Write-Host "  Installing runtime dependencies (recursive closure)..."
+# Step D2: copy all runtime dependencies from root node_modules
+# Direct copy is more reliable than recursive dependency walking because
+# some packages have nested node_modules (e.g. duplexer2/node_modules/readable-stream)
+# that contain their own dependencies (like process-nextick-args).
+# We exclude obvious dev-only packages to keep size reasonable.
+Write-Host "  Installing runtime dependencies (full node_modules copy)..."
 $rootNodeModules = Join-Path $RootDir "node_modules"
 $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 
-# Track copied packages to avoid infinite loops
-$script:copiedPkgs = @{}
-# Track missing third-party packages (so we can warn at the end)
-$script:missingPkgs = @{}
-# Directories we have already visited to read package.json
-$script:visitedDirs = @{}
+New-Item -ItemType Directory -Force -Path $appNodeModules | Out-Null
 
-function Copy-PkgRecursive {
-  param([string]$PkgName, [string]$PkgSubDir = "")
-  $srcPath = if ($PkgSubDir) { Join-Path $rootNodeModules "$PkgSubDir\$PkgName" } else { Join-Path $rootNodeModules $PkgName }
-  $dstPath = if ($PkgSubDir) { Join-Path $appNodeModules "$PkgSubDir\$PkgName" } else { Join-Path $appNodeModules $PkgName }
-  $cacheKey = if ($PkgSubDir) { "$PkgSubDir/$PkgName" } else { $PkgName }
-
-  if ($script:copiedPkgs.ContainsKey($cacheKey)) { return }
-
-  if (-not (Test-Path $srcPath)) {
-    # If a third-party package is missing in root node_modules, remember it
-    # and skip — workspace packages may be missing because they live only
-    # in their source directory.
-    if ($PkgSubDir -and $PkgSubDir.StartsWith('@')) {
-      $script:missingPkgs[$cacheKey] = $true
-    } elseif ($PkgName -notlike '@*') {
-      $script:missingPkgs[$cacheKey] = $true
-    }
-    return
-  }
-
-  # Mark as copied BEFORE copying so nested calls don't recurse forever
-  $script:copiedPkgs[$cacheKey] = $true
-
-  # Copy the package directory
-  New-Item -ItemType Directory -Force -Path $dstPath | Out-Null
-  Copy-Item -Path "$srcPath\*" -Destination $dstPath -Recurse -Force -ErrorAction SilentlyContinue
-
-  # Read package.json to find dependencies (declare once per directory)
-  if (-not $script:visitedDirs.ContainsKey($srcPath)) {
-    $script:visitedDirs[$srcPath] = $true
-    $pkgJson = Join-Path $srcPath "package.json"
-    if (Test-Path $pkgJson) {
-      try {
-        $json = Get-Content $pkgJson -Raw | ConvertFrom-Json
-        foreach ($depField in @('dependencies', 'optionalDependencies', 'peerDependencies')) {
-          $deps = $json.$depField
-          if ($deps) {
-            foreach ($prop in $deps.PSObject.Properties) {
-              $depName = $prop.Name
-              # Skip only known irrelevant top-level tools (e.g. @types/*)
-              if ($depName -like '@types/*') { continue }
-              if ($depName -like '@*/*') {
-                $scope = $depName.Split('/')[0]
-                $name = $depName.Split('/')[1]
-                Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
-              } else {
-                Copy-PkgRecursive -PkgName $depName
-              }
-            }
-          }
-        }
-      } catch {}
-    }
-  }
-}
-
-# Start from apps/desktop's package.json AND recurse into every workspace
-# package it transitively depends on. This is required because workspace
-# packages (e.g. @z-assistant/app-vscode-connector) declare their own
-# runtime deps which won't be visible from apps/desktop alone.
-$rootPkg = Join-Path $RootDir "package.json"
-$rootJson = if (Test-Path $rootPkg) { Get-Content $rootPkg -Raw | ConvertFrom-Json } else { $null }
-$workspaceDirs = @()
-if ($rootJson -and $rootJson.workspaces) {
-  $workspaceDirs = @($rootJson.workspaces)
-}
-
-$entryPoints = @(
-  Join-Path $RootDir "apps/desktop/package.json"
+$excludePatterns = @(
+  '.bin',
+  '.cache',
+  '.package-lock.json',
+  '@types',
+  '@ziner',
+  '@z-assistant',
+  'electron',
+  'electron-builder',
+  'app-builder-bin',
+  'builder-util',
+  'dmg-builder',
+  'ts-node',
+  'typescript',
+  'vite',
+  'vitest',
+  'webpack',
+  'esbuild',
+  'rollup',
+  'sass',
+  'less',
+  'stylus',
+  'postcss',
+  'autoprefixer',
+  'eslint',
+  'prettier',
+  'jest',
+  'mocha',
+  'chai',
+  'sinon',
+  '@jest',
+  '@vitest',
+  '@eslint',
+  'rimraf',
+  'cross-env',
+  'dotenv-cli',
+  'npm-run-all',
+  'concurrently',
+  'wait-on',
+  'nodemon',
+  'tsc-alias',
+  'tsconfig-paths'
 )
-foreach ($ws in $workspaceDirs) {
-  foreach ($p in @(Get-Item (Join-Path $RootDir $ws) -ErrorAction SilentlyContinue)) {
-    $pkgJson = Join-Path $p.FullName "package.json"
-    if (Test-Path $pkgJson) { $entryPoints += $pkgJson }
-  }
-}
 
-foreach ($entry in $entryPoints) {
-  if (-not (Test-Path $entry)) { continue }
-  $json = Get-Content $entry -Raw | ConvertFrom-Json
-  foreach ($prop in $json.dependencies.PSObject.Properties) {
-    $depName = $prop.Name
-    if ($depName -like '@types/*') { continue }
-    if ($depName -like '@*/*') {
-      $scope = $depName.Split('/')[0]
-      $name = $depName.Split('/')[1]
-      Copy-PkgRecursive -PkgName $name -PkgSubDir $scope
+# Packages that must match exactly (not prefix) to avoid excluding related runtime packages
+$exactMatch = @(
+  'electron'
+)
+
+$pkgCount = 0
+Get-ChildItem $rootNodeModules -Directory | ForEach-Object {
+  $name = $_.Name
+  $shouldExclude = $false
+  foreach ($pattern in $excludePatterns) {
+    if ($exactMatch -contains $pattern) {
+      if ($name -eq $pattern) {
+        $shouldExclude = $true
+        break
+      }
     } else {
-      Copy-PkgRecursive -PkgName $depName
+      if ($name -eq $pattern -or $name -like "$pattern*") {
+        $shouldExclude = $true
+        break
+      }
     }
   }
+  if (-not $shouldExclude) {
+    $src = $_.FullName
+    $dst = Join-Path $appNodeModules $name
+    if (-not (Test-Path $dst)) {
+      New-Item -ItemType Directory -Force -Path $dst | Out-Null
+    }
+    Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
+    $pkgCount++
+  }
 }
 
-Write-Host "  [OK] Runtime dependencies installed ($($script:copiedPkgs.Count) packages)" -ForegroundColor Green
-if ($script:missingPkgs.Count -gt 0) {
-  Write-Host "  [WARN] Missing packages (not found in root node_modules):" -ForegroundColor Yellow
-  $script:missingPkgs.Keys | Sort-Object | ForEach-Object { Write-Host "    - $_" -ForegroundColor Yellow }
-}
+# Also ensure workspace scope dir exists (Step D already created @ziner)
+Write-Host "  [OK] Runtime dependencies installed ($pkgCount packages)" -ForegroundColor Green
 
 # Re-name the exe
-$targetExe = Join-Path $unpackedDir "Z Assistant.exe"
+$targetExe = Join-Path $unpackedDir "Ziner.exe"
 if (Test-Path "$unpackedDir\electron.exe") {
-  Rename-Item -Path "$unpackedDir\electron.exe" -NewName "Z Assistant.exe" -Force -ErrorAction SilentlyContinue
+  Rename-Item -Path "$unpackedDir\electron.exe" -NewName "Ziner.exe" -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "  [OK] Portable EXE ready" -ForegroundColor Green
@@ -337,3 +342,5 @@ Write-Host "Tip: dev mode (no packaging):" -ForegroundColor Magenta
 Write-Host "  npm run build --workspaces --if-present" -ForegroundColor White
 Write-Host "  npm run start -w apps/desktop" -ForegroundColor White
 Write-Host ""
+
+exit 0

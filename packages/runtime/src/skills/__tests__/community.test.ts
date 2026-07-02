@@ -1,4 +1,4 @@
-// @z-assistant/runtime — local community skill store tests
+// @ziner/runtime — local community skill store tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';

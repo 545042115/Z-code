@@ -1,4 +1,4 @@
-// @z-assistant/runtime — memory
+// @ziner/runtime — memory
 //
 // Cross-session Long-Term Memory framework. Provides:
 //   - contracts-compliant `IMemoryProvider` (JsonlMemoryProvider)
@@ -23,9 +23,9 @@ export type {
   MemoryListFilter,
   MemoryPurgeFilter,
   MemoryWritePolicy,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
-export { createLocalEmbeddingProvider, type LocalEmbeddingOptions } from '../embedding';
+export { createLocalEmbeddingProvider, type LocalEmbeddingOptions, withEmbeddingCache, type CachedEmbeddingOptions } from '../embedding';
 export {
   createInMemoryVectorStore,
   InMemoryVectorStore,
@@ -42,19 +42,42 @@ export {
   type JsonlMemoryProviderOptions,
 } from './provider';
 
+export {
+  SqliteMemoryProvider,
+  createSqliteMemoryProvider,
+  type SqliteMemoryProviderOptions,
+} from './sqlite-provider';
+
 export { MemoryManager, type MemoryManagerOptions } from './memory-manager';
 
-export { ShortTermMemory, type ShortTermTurn } from './short-term';
+export { ShortTermMemory, type ShortTermTurn, type ShortTermCompressionResult, type ConversationSummarizer } from './short-term';
 export { LongTermMemory, type LongTermFact } from './long-term';
 export { EpisodicMemory, type Episode } from './episodic';
 export { SemanticMemory, type SemanticConcept } from './semantic';
 export { ProceduralMemory, type Procedure } from './procedural';
 export { PreferencesMemory, type UserPreference } from './preferences';
+export { WorkingMemory, type WorkingMemoryEntry, type PromoteOptions } from './working';
 
 export { recall, type RecallOptions } from './recall';
-export { MemoryPolicy } from './policy';
+export { MemoryPolicy, type DedupMode, type DedupOptions, type RetentionOptions } from './policy';
 export { SharedMemory, type SharedMemoryOptions } from './shared';
 export { PrivacyManager, type PrivacyExport } from './privacy';
+
+export {
+  hybridRetrieve,
+  retrieveWithExpansion,
+  rerankHits,
+  expandToParentContext,
+  retrievalPipeline,
+  createSynonymExpander,
+  type HybridRetrievalOptions,
+  type QueryExpander,
+  type QueryExpansionOptions,
+  type Reranker,
+  type RerankOptions,
+  type ParentChildChunk,
+  type RetrievalPipelineOptions,
+} from './retrieval';
 
 export {
   extractFacts,
@@ -64,3 +87,16 @@ export {
   type FactExtractorOptions,
   type LLMFactExtractor,
 } from './fact-extractor';
+
+export {
+  migrateJsonlToSqlite,
+  type MigrationOptions,
+  type MigrationResult,
+} from './migrate';
+
+export {
+  createMemoryProvider,
+  type MemoryProviderFactoryOptions,
+  type CreateMemoryProviderResult,
+  type StorageBackend,
+} from './factory';

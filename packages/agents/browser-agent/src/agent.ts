@@ -1,11 +1,18 @@
-// @z-assistant/agent-browser — Browser Agent decision engine
+// @ziner/agent-browser — Browser Agent decision engine
 //
 // Observes the current page (DOM + screenshot), decides the next action
 // using the LLM, executes it, and repeats until the task is done.
 
-import type { ILLMProvider, LLMMessage } from '@z-assistant/contracts';
+import type { ILLMProvider, LLMMessage } from '@ziner/contracts';
+import { parseJsonObject, getPath } from '@ziner/contracts';
 import type { IBrowserBackend, BrowserAction, BrowserActionType, PageSnapshot, ActionResult } from './backend';
 import { pageToText } from './dom';
+
+const ALLOWED_ACTIONS: BrowserActionType[] = [
+  'click', 'dblclick', 'type', 'scroll', 'hover', 'select',
+  'navigate', 'back', 'forward', 'reload', 'wait', 'screenshot',
+  'press_key', 'new_tab', 'close_tab', 'switch_tab',
+];
 
 export interface BrowserAgentConfig {
   /** Max consecutive actions before forcing a break. */
@@ -172,42 +179,21 @@ Continue until the task is complete, then respond with {"done": true, "summary":
     });
 
     const text = response.message.content ?? '';
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed.done) return null;
-      if (parsed.action) {
-        const allowed: BrowserActionType[] = [
-          'click', 'dblclick', 'type', 'scroll', 'hover', 'select',
-          'navigate', 'back', 'forward', 'reload', 'wait', 'screenshot',
-          'press_key', 'new_tab', 'close_tab', 'switch_tab',
-        ];
-        if (allowed.includes(parsed.action.type)) {
-          return parsed.action as BrowserAction;
-        }
-        throw new Error(`Invalid action type: ${parsed.action.type}`);
+    const parsed = parseJsonObject<{ done?: boolean; action?: BrowserAction }>(text);
+    if (parsed.ok) {
+      if (parsed.value.done) return null;
+      if (parsed.value.action && ALLOWED_ACTIONS.includes(parsed.value.action.type)) {
+        return parsed.value.action as BrowserAction;
       }
-      throw new Error('No action in response');
-    } catch (err) {
-      // If JSON parsing fails, try to extract action from text
-      const actionMatch = text.match(/\{"type":/);
-      if (actionMatch) {
-        try {
-          const jsonStart = text.indexOf('{');
-          const jsonEnd = text.lastIndexOf('}') + 1;
-          return JSON.parse(text.slice(jsonStart, jsonEnd)).action as BrowserAction;
-        } catch {
-          // fall through
-        }
-      }
-      if (attempt >= MAX_RETRIES) {
-        return { type: 'wait', waitMs: 1000 } as BrowserAction;
-      }
-      this.conversation.push({
-        role: 'user',
-        content: `Invalid response format. Please respond with a valid JSON action object. Error: ${err instanceof Error ? err.message : String(err)}`,
-      });
-      // Retry recursively with bounded attempts
-      return this.decideAction(step, attempt + 1);
     }
+
+    if (attempt >= MAX_RETRIES) {
+      return { type: 'wait', waitMs: 1000 } as BrowserAction;
+    }
+    this.conversation.push({
+      role: 'user',
+      content: `Invalid response format. Please respond with a valid JSON action object.`,
+    });
+    return this.decideAction(step, attempt + 1);
   }
 }

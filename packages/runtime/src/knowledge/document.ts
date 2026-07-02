@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Document Knowledge
+// @ziner/runtime — Document Knowledge
 //
 // Stores parsed / extracted information from documents (PDFs, specs,
 // READMEs, API references). Each document is stored as a set of
@@ -6,7 +6,7 @@
 //
 // Builds on IMemoryProvider (long-term, project- or user-scoped records).
 
-import type { IMemoryProvider, MemoryQuery } from '@z-assistant/contracts';
+import type { IMemoryProvider, MemoryQuery } from '@ziner/contracts';
 
 export interface DocumentChunk {
   /** Chunk ID within the document. */

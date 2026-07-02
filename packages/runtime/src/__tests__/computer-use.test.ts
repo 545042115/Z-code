@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Computer Use subsystem tests
+// @ziner/runtime — Computer Use subsystem tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

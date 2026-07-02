@@ -8,7 +8,7 @@
 // Heavyweight operations (multi-record aggregations, baseline comparisons)
 // live here so they can be unit-tested without spinning up a Store.
 
-import type { Store, RunQuery, SpanQuery } from '@z-assistant/infra-storage';
+import type { Store, RunQuery, SpanQuery } from '@ziner/infra-storage';
 import type {
   AgentRun,
   AgentSpan,
@@ -21,11 +21,11 @@ import type {
   VariantStats,
   EvaluationAggregate,
   EvaluationDelta,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import {
   aggregateEvaluations,
   diffAggregates,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── UI-shaped records ─────────────────────────────────────────────────
 

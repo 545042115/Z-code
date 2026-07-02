@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Validator (P1-3 Skill Auto-Discovery).
+// @ziner/runtime — Skill Validator (P1-3 Skill Auto-Discovery).
 //
 // Structural / semantic validation for CandidateSkillDraft records
 // proposed by ISkillExtractor implementations. The runtime's existing
@@ -10,7 +10,7 @@
 import type {
   CandidateSkillDraft,
   CandidateValidation,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export { validateSkill } from './skills';
 

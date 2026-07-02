@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Path Guard (Sandbox layer 2)
+// @ziner/runtime — Path Guard (Sandbox layer 2)
 //
 // Restricts file-system tool operations to a set of allowed root directories.
 // Prevents agents from reading/writing arbitrary files outside the project

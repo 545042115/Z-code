@@ -1,4 +1,4 @@
-// @z-assistant/runtime — failure case store tests
+// @ziner/runtime — failure case store tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -11,7 +11,7 @@ import {
   createJsonlFailureCaseStore,
   failureCaseFromRun,
 } from '../index';
-import type { AgentRun, AgentSpan, FailureCase } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, FailureCase } from '@ziner/contracts';
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `z-failure-cases-${Date.now()}-${Math.random().toString(36).slice(2)}`);

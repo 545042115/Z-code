@@ -1,12 +1,12 @@
-# V1 `contracts/` — MIGRATED in R3
+﻿# V1 `contracts/` — MIGRATED in R3
 
-**Phase 6A R3 (2026-06-17)**: V1 contract types (`run`, `agent`, `eval`, `config`) and their tests have been moved to V2 package [`@z-assistant/contracts`](../../../../packages/contracts/).
+**Phase 6A R3 (2026-06-17)**: V1 contract types (`run`, `agent`, `eval`, `config`) and their tests have been moved to V2 package [`@ziner/contracts`](../../../../packages/contracts/).
 
 This directory now contains **only** the V1 re-export shim:
 
 ```
 src/contracts/
-└── index.ts    →  re-exports from '@z-assistant/contracts'
+└── index.ts    →  re-exports from '@ziner/contracts'
 ```
 
 V1 consumers continue to work via:

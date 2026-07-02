@@ -1,6 +1,6 @@
-// @z-assistant/app-desktop — constants
+// @ziner/app-desktop — constants
 
-export const APP_NAME = 'Z Assistant';
+export const APP_NAME = 'Ziner';
 
 export const IPC_CHANNELS = {
   RUN_TASK: 'z:run-task',
@@ -12,6 +12,12 @@ export const IPC_CHANNELS = {
   RECALL_MEMORY: 'z:recall-memory',
   ON_RUN_EVENT: 'z:on-run-event',
   ON_PROGRESS: 'z:on-progress',
+  CANCEL_RUN: 'z:cancel-run',
+  // P3 Checkpoint APIs
+  LIST_CHECKPOINTS: 'z:list-checkpoints',
+  LOAD_CHECKPOINT: 'z:load-checkpoint',
+  RESUME_TASK: 'z:resume-task',
+  DELETE_CHECKPOINT: 'z:delete-checkpoint',
   // Streaming (chat token deltas + stream end marker)
   ON_STREAM_CHUNK: 'z:on-stream-chunk',
   ON_STREAM_END: 'z:on-stream-end',
@@ -75,6 +81,13 @@ export const IPC_CHANNELS = {
   // Agent Viewport (floating window)
   TOGGLE_AGENT_VIEWPORT: 'z:toggle-agent-viewport',
   VIEWPORT_MODE: 'z:viewport-mode',
+  // P3 Harness: Benchmarks
+  CHECK_DOCKER: 'z:check-docker',
+  LIST_BENCHMARK_SUITES: 'z:list-benchmark-suites',
+  RUN_BENCHMARK_SUITE: 'z:run-benchmark-suite',
+  // Storage backend
+  GET_STORAGE_BACKEND: 'z:get-storage-backend',
+  SET_STORAGE_BACKEND: 'z:set-storage-backend',
 } as const;
 
 export const WINDOW_SIZES = {

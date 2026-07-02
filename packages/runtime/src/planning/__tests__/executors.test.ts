@@ -1,7 +1,7 @@
 // Tests for the V2 Plan executors.
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import type { Plan, PlanStep, TaskContext } from '@z-assistant/contracts';
+import type { Plan, PlanStep, TaskContext } from '@ziner/contracts';
 import { executeSequential } from '../sequential-executor';
 import { executeDag, buildWaves } from '../dag-executor';
 

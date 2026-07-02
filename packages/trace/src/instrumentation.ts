@@ -19,9 +19,9 @@
 // errors via `classify()`, and ends the Span on exit. Token usage is
 // recorded on `llm` Spans; tool execution time on `tool` Spans.
 
-import type { ModelRef, ErrorRef } from '@z-assistant/contracts';
-import { classify } from '@z-assistant/infra-errors';
-import { computeCost } from '@z-assistant/infra-cost';
+import type { ModelRef, ErrorRef } from '@ziner/contracts';
+import { classify } from '@ziner/infra-errors';
+import { computeCost } from '@ziner/infra-cost';
 import type { RunTracker } from './run-tracker';
 
 export interface InstrumenterOptions {

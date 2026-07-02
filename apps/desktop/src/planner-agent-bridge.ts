@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Planner Agent bridge (P2 multi-agent).
+// @ziner/app-desktop — Planner Agent bridge (P2 multi-agent).
 //
 // Creates a Planner instance with the live `LLMProvider` so the
 // Orchestrator's `plan` mode can decompose a user task into a DAG of
@@ -9,8 +9,8 @@
 // chat loop). The desktop supplies them as a parameter so the prompt
 // always matches the registry.
 
-import { createPlannerAgent } from '@z-assistant/agent-planner';
-import type { IAgent, ILLMProvider, ModelSpec } from '@z-assistant/contracts';
+import { createPlannerAgent } from '@ziner/agent-planner';
+import type { IAgent, ILLMProvider, ModelSpec } from '@ziner/contracts';
 
 export interface DesktopPlannerAgentOptions {
   llmProvider: ILLMProvider;

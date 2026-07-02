@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Prompt Injection Detector (P1-2 Stage E).
+// @ziner/runtime — Prompt Injection Detector (P1-2 Stage E).
 //
 // Heuristic scanner for prompt-injection / jailbreak attempts embedded
 // in tool arguments, assistant messages, or user content.
@@ -19,7 +19,7 @@ import type {
   PromptInjectionMatch,
   PromptInjectionReport,
   PromptInjectionRule,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Default rule set ─────────────────────────────────────────────────
 

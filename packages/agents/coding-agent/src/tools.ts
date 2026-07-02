@@ -6,7 +6,7 @@
 // implements V2 `IToolRegistry` so V2 Apps / Orchestrator can
 // invoke Coding tools by name.
 
-import type { ITool, IToolRegistry, ToolInvocation, ToolResult, ToolPolicy } from '@z-assistant/contracts';
+import type { ITool, IToolRegistry, ToolInvocation, ToolResult, ToolPolicy } from '@ziner/contracts';
 
 export interface CodingToolOptions {
   impl?: IToolRegistry;

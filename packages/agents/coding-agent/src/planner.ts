@@ -11,7 +11,7 @@ import type {
   Plan,
   PlanResult,
   TaskContext,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface CodingPlannerOptions {
   /** Optional override; used by tests. */

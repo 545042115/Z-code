@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { createPlannerAgent } from '../src';
-import type { ILLMProvider, LLMMessage, LLMResponse, TaskContext } from '@z-assistant/contracts';
+import type { ILLMProvider, LLMMessage, LLMResponse, TaskContext } from '@ziner/contracts';
 
 function mkCtx(task: string): TaskContext {
   return {

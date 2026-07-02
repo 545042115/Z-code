@@ -10,10 +10,10 @@ import { strict as assert } from 'node:assert';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createFileStore, type Store } from '@z-assistant/infra-storage';
-import { TraceManager } from '@z-assistant/trace';
+import { createFileStore, type Store } from '@ziner/infra-storage';
+import { TraceManager } from '@ziner/trace';
 import { EvolutionEngine, normalizePattern } from '../evolution';
-import type { AgentRun, AgentSpan } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan } from '@ziner/contracts';
 
 async function withEngine<T>(fn: (m: TraceManager, engine: EvolutionEngine) => Promise<T>): Promise<T> {
   const root = await mkdtemp(join(tmpdir(), 'z-evo-'));

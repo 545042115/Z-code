@@ -1,4 +1,4 @@
-// @z-assistant/runtime — memory manager
+// @ziner/runtime — memory manager
 //
 // High-level memory facade used by agents. Wraps an `IMemoryProvider`
 // with convenience methods and sensible defaults for scope/kind.
@@ -12,7 +12,7 @@ import type {
   MemoryScope,
   MemoryListFilter,
   MemoryPurgeFilter,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import { newMemoryId } from './types';
 
 export interface MemoryManagerOptions {

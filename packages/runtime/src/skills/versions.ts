@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Version Registry (P1-3).
+// @ziner/runtime — Skill Version Registry (P1-3).
 //
 // JSON-file backed registry for SkillVersion records. One file per
 // rootDir; the in-memory cache is loaded lazily on the first call.
@@ -12,7 +12,7 @@ import { join } from 'path';
 import type {
   ISkillVersionRegistry,
   SkillVersion,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Storage shape ────────────────────────────────────────────────────
 

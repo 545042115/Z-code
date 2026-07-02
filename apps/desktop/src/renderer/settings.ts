@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Settings panel (i18n + model support)
+// @ziner/app-desktop — Settings panel (i18n + model support)
 
 declare const zApi: import('../preload').ZDesktopAPI;
 import { t, setLanguage, getLanguage, loadLanguage, type Language } from './i18n';
@@ -10,222 +10,371 @@ function escapeHtml(text: string): string {
 }
 
 function applyTranslations(): void {
-  // Nav buttons
-  (document.querySelector('#nav button[data-view="main"]') as HTMLElement)!.textContent = t('nav.main');
-  (document.querySelector('#nav button[data-view="chat"]') as HTMLElement)!.textContent = t('nav.chat');
-  (document.querySelector('#nav button[data-view="trace"]') as HTMLElement)!.textContent = t('nav.trace');
-  (document.querySelector('#nav button[data-view="settings"]') as HTMLElement)!.textContent = t('nav.settings');
-  // Main view
-  const mainView = document.getElementById('view-main');
-  if (mainView) {
-    mainView.innerHTML = `<div class="card"><h1>${t('main.title')}</h1><p class="muted">${t('main.description')}</p></div>`;
-  }
+  const navItems = [
+    { view: 'main', labelKey: 'nav.main' },
+    { view: 'chat', labelKey: 'nav.chat' },
+    { view: 'trace', labelKey: 'nav.trace' },
+    { view: 'memory', labelKey: 'nav.memory' },
+    { view: 'settings', labelKey: 'nav.settings' },
+  ];
+
+  navItems.forEach(({ view, labelKey }) => {
+    const btn = document.querySelector(`#nav button[data-view="${view}"]`) as HTMLElement;
+    if (!btn) return;
+    const label = btn.querySelector('.nav-label');
+    if (label) label.textContent = t(labelKey);
+    btn.setAttribute('data-tooltip', t(labelKey));
+  });
 }
 
 function renderSettings(container: HTMLElement): void {
   container.innerHTML = `
-    <div class="stack">
-      <div class="card">
-        <h3>${t('settings.language')}</h3>
-        <label class="stack">
-          <select id="settings-lang">
-            <option value="zh-CN">中文</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-      </div>
-      <div class="card">
-        <h3>${t('settings.model')}</h3>
-        <label class="stack">
-          <span>${t('settings.provider')}</span>
-          <select id="settings-provider">
-            <option value="sglang">${t('provider.sglang')}</option>
-            <option value="openai">${t('provider.openai')}</option>
-            <option value="anthropic">${t('provider.anthropic')}</option>
-            <option value="deepseek">${t('provider.deepseek')}</option>
-            <option value="gemini">${t('provider.gemini')}</option>
-            <option value="ollama">${t('provider.ollama')}</option>
-            <option value="custom">${t('provider.custom')}</option>
-          </select>
-        </label>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.model_name')}</span>
-          <input id="settings-model" type="text" placeholder="${t('settings.model_placeholder')}">
-        </label>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.api_key')}</span>
-          <input id="settings-apikey" type="password" placeholder="sk-...">
-        </label>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.api_endpoint')}</span>
-          <input id="settings-endpoint" type="text" placeholder="https://api.openai.com/v1">
-        </label>
-      </div>
-      <div class="card">
-        <h3>${t('settings.memory')}</h3>
-        <label class="row">
-          <input id="settings-memory" type="checkbox">
-          <span>${t('settings.memory_label')}</span>
-        </label>
-        <div class="row" style="margin-top:8px;gap:8px">
-          <button id="settings-goto-memory" class="secondary" style="font-size:0.82em">${t('memory.go_to')}</button>
-          <button id="settings-export-memory" class="secondary" style="font-size:0.82em">${t('memory.export')}</button>
-          <button id="settings-purge-memory" class="secondary danger" style="font-size:0.82em">${t('memory.purge')}</button>
-        </div>
-        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('memory.manage_desc')}</p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.storage')}</h3>
-        <label class="stack">
-          <span>${t('settings.data_dir')}</span>
-          <div class="row">
-            <input id="settings-storage" type="text" placeholder="C:\Users\...\.z-assistant\desktop" style="flex:1">
-            <button id="settings-browse" class="primary" style="white-space:nowrap">浏览</button>
+    <div class="settings-layout">
+      <div class="settings-sidebar">
+        <div class="settings-sidebar-group">
+          <div class="settings-sidebar-group-title">基础设置</div>
+          <div class="settings-nav-item active" data-section="general">
+            <span class="settings-nav-icon">⚙️</span>
+            <span>通用</span>
           </div>
-        </label>
-        <p class="muted" style="font-size:0.85em;margin-top:4px">此路径在重启后生效</p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.project')}</h3>
-        <label class="stack">
-          <span>${t('settings.project_dir')}</span>
-          <div class="row">
-            <input id="settings-projectdir" type="text" placeholder="F:\Z-code" style="flex:1">
-            <button id="settings-browse-project" class="primary" style="white-space:nowrap">浏览</button>
+          <div class="settings-nav-item" data-section="model">
+            <span class="settings-nav-icon">🧠</span>
+            <span>模型配置</span>
           </div>
-        </label>
-        <p class="muted" style="font-size:0.85em;margin-top:4px">文件操作和 Shell 命令的工作目录</p>
-      </div>
-      <div class="card">
-        <h3>安全 / Safety</h3>
-        <label class="row">
-          <input id="settings-dryrun" type="checkbox">
-          <span>Dry-run 模式（模拟执行，不产生副作用）</span>
-        </label>
-        <p class="muted" style="font-size:0.82em;margin-top:4px">启用后，Agent 的所有工具调用将被模拟执行，仅返回"将要做什么"的描述，方便预览完整计划后再正式执行。</p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.tool_policy_title')}</h3>
-        <p class="muted" style="font-size:0.82em;margin-bottom:8px">${t('settings.tool_policy_desc')}</p>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.tool_policy_allow')}</span>
-          <textarea id="settings-tool-allow" rows="2" placeholder="read_file, web_search, mcp_*"></textarea>
-        </label>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.tool_policy_deny')}</span>
-          <textarea id="settings-tool-deny" rows="2" placeholder="run_terminal, write_file"></textarea>
-        </label>
-        <p class="muted" style="font-size:0.78em;margin-top:4px">${t('settings.tool_policy_hint')}</p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.budget_title')}</h3>
-        <p class="muted" style="font-size:0.82em;margin-bottom:8px">${t('settings.budget_desc')}</p>
-        <label class="row" style="margin-top:8px;gap:12px">
-          <span style="min-width:120px">${t('settings.budget_tokens')}</span>
-          <input id="settings-budget-tokens" type="number" style="flex:1" min="0" step="1000">
-        </label>
-        <label class="row" style="margin-top:8px;gap:12px">
-          <span style="min-width:120px">${t('settings.budget_usd')}</span>
-          <input id="settings-budget-usd" type="number" style="flex:1" min="0" step="0.1">
-        </label>
-        <label class="row" style="margin-top:8px;gap:12px">
-          <span style="min-width:120px">${t('settings.budget_day_usd')}</span>
-          <input id="settings-budget-day-usd" type="number" style="flex:1" min="0" step="0.1">
-        </label>
-      </div>
-      <div class="card">
-        <h3>${t('settings.wechat_title')}</h3>
-        <p class="muted" style="font-size:0.85em;margin-bottom:8px;color:#eab308">${t('settings.wechat_hook_warning')}</p>
-        <label class="row" style="margin-top:8px">
-          <span style="min-width:80px">微信昵称</span>
-          <input id="settings-wch-nickname" type="text" placeholder="你的微信昵称，群聊@你时才会回复" style="flex:1">
-        </label>
-        <div class="row" style="margin-top:8px">
-          <button id="settings-wch-connect" class="primary" style="white-space:nowrap">${t('settings.wechat_hook_connect')}</button>
-          <button id="settings-wch-disconnect" class="secondary" style="white-space:nowrap">${t('settings.wechat_hook_disconnect')}</button>
-          <span id="settings-wch-status" class="muted" style="margin-left:8px">${t('settings.wechat_hook_disconnected')}</span>
-        </div>
-        <p id="settings-wch-debug" class="muted" style="font-size:0.8em;margin-top:4px"></p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.qq_title')}</h3>
-        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.qq_desc')}</p>
-        <label class="row" style="margin-top:8px">
-          <span style="min-width:80px">WebSocket 地址</span>
-          <input id="settings-qq-wsurl" type="text" placeholder="ws://localhost:3001" style="flex:1">
-        </label>
-        <label class="row" style="margin-top:4px">
-          <span style="min-width:80px">Access Token</span>
-          <input id="settings-qq-token" type="password" placeholder="NapCat 配置中的 accessToken（可选）" style="flex:1">
-        </label>
-        <label class="row" style="margin-top:4px">
-          <span style="min-width:80px">QQ 昵称</span>
-          <input id="settings-qq-nickname" type="text" placeholder="你的 QQ 昵称，群聊@你时才会回复" style="flex:1">
-        </label>
-        <div class="row" style="margin-top:8px">
-          <button id="settings-qq-connect" class="primary" style="white-space:nowrap">${t('settings.qq_connect')}</button>
-          <button id="settings-qq-disconnect" class="secondary" style="white-space:nowrap">${t('settings.qq_disconnect')}</button>
-          <span id="settings-qq-status" class="muted" style="margin-left:8px">${t('settings.qq_disconnected')}</span>
-        </div>
-        <p id="settings-qq-debug" class="muted" style="font-size:0.8em;margin-top:4px"></p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.profile_title')}</h3>
-        <label class="row" style="margin-bottom:8px">
-          <input id="settings-profile-enabled" type="checkbox">
-          <span>${t('settings.profile_enable')}</span>
-        </label>
-        <div style="margin-top:8px;font-size:0.9em">
-          <span>${t('settings.profile_msg_count')}: </span><strong id="settings-profile-count">0</strong>
-        </div>
-        <div style="margin-top:4px;font-size:0.9em">
-          <span>${t('settings.profile_desc')}: </span>
-          <p id="settings-profile-desc" class="muted" style="margin-top:2px;white-space:pre-wrap">${t('settings.profile_none')}</p>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button id="settings-profile-rebuild" class="secondary" style="white-space:nowrap">${t('settings.profile_rebuild')}</button>
-          <button id="settings-profile-clear" class="secondary danger" style="white-space:nowrap">${t('settings.profile_clear')}</button>
-        </div>
-      </div>
-      <div class="card">
-        <h3>${t('settings.mcp_title')}</h3>
-        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.mcp_desc')}</p>
-        <label class="stack" style="margin-top:8px">
-          <span>${t('settings.mcd_token')}</span>
-          <div class="row" style="gap:4px">
-            <input id="settings-mcd-token" class="secured" type="text" placeholder="${t('settings.mcd_token_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
-            <button id="settings-mcd-token-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+          <div class="settings-nav-item" data-section="memory">
+            <span class="settings-nav-icon">💾</span>
+            <span>记忆系统</span>
           </div>
-        </label>
-        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.mcd_token_hint')}</p>
-        <label class="stack" style="margin-top:12px">
-          <span>${t('settings.amap_key')}</span>
-          <div class="row" style="gap:4px">
-            <input id="settings-amap-key" class="secured" type="text" placeholder="${t('settings.amap_key_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
-            <button id="settings-amap-key-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+          <div class="settings-nav-item" data-section="paths">
+            <span class="settings-nav-icon">📁</span>
+            <span>路径设置</span>
           </div>
-        </label>
-        <p class="muted" style="font-size:0.82em;margin-top:4px">${t('settings.amap_key_hint')}</p>
-      </div>
-      <div class="card">
-        <h3>${t('settings.always_rules_title')}</h3>
-        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.always_rules_desc')}</p>
-        <div id="settings-always-rules-list" style="display:flex;flex-direction:column;gap:8px"></div>
-      </div>
-      <div class="card">
-        <h3>${t('settings.skill_review_title')}</h3>
-        <p class="muted" style="font-size:0.85em;margin-bottom:8px">${t('settings.skill_review_desc')}</p>
-        <div class="row" style="margin-bottom:12px;gap:8px">
-          <button id="settings-discover-skills" class="secondary" style="white-space:nowrap">${t('settings.discover_skills')}</button>
-          <button id="settings-refresh-skills" class="secondary" style="white-space:nowrap">${t('settings.refresh_skills')}</button>
-          <span id="settings-skill-status" class="muted"></span>
         </div>
-        <div id="settings-skill-queue" style="display:flex;flex-direction:column;gap:8px"></div>
+        <div class="settings-sidebar-group">
+          <div class="settings-sidebar-group-title">安全与控制</div>
+          <div class="settings-nav-item" data-section="safety">
+            <span class="settings-nav-icon">🛡️</span>
+            <span>安全设置</span>
+          </div>
+          <div class="settings-nav-item" data-section="budget">
+            <span class="settings-nav-icon">💰</span>
+            <span>预算控制</span>
+          </div>
+        </div>
+        <div class="settings-sidebar-group">
+          <div class="settings-sidebar-group-title">连接与集成</div>
+          <div class="settings-nav-item" data-section="im">
+            <span class="settings-nav-icon">💬</span>
+            <span>即时通讯</span>
+          </div>
+          <div class="settings-nav-item" data-section="mcp">
+            <span class="settings-nav-icon">🔌</span>
+            <span>MCP 服务</span>
+          </div>
+        </div>
+        <div class="settings-sidebar-group">
+          <div class="settings-sidebar-group-title">高级功能</div>
+          <div class="settings-nav-item" data-section="profile">
+            <span class="settings-nav-icon">👤</span>
+            <span>对话画像</span>
+          </div>
+          <div class="settings-nav-item" data-section="rules">
+            <span class="settings-nav-icon">📋</span>
+            <span>规则与技能</span>
+          </div>
+        </div>
       </div>
-      <button id="settings-save" class="primary">${t('settings.save')}</button>
-      <span id="settings-status" class="muted"></span>
+      <div class="settings-content">
+        <div class="settings-section active" data-section="general">
+          <div class="settings-section-header">
+            <h2>通用设置</h2>
+            <p>语言偏好和界面显示设置</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.language')}</h3>
+            <label class="stack">
+              <select id="settings-lang">
+                <option value="zh-CN">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div class="settings-section" data-section="model">
+          <div class="settings-section-header">
+            <h2>模型配置</h2>
+            <p>选择 AI 模型提供商并配置 API 访问信息</p>
+          </div>
+          <div class="card">
+            <h3>模型设置</h3>
+            <label class="stack">
+              <span>${t('settings.provider')}</span>
+              <select id="settings-provider">
+                <option value="sglang">${t('provider.sglang')}</option>
+                <option value="openai">${t('provider.openai')}</option>
+                <option value="anthropic">${t('provider.anthropic')}</option>
+                <option value="deepseek">${t('provider.deepseek')}</option>
+                <option value="gemini">${t('provider.gemini')}</option>
+                <option value="ollama">${t('provider.ollama')}</option>
+                <option value="custom">${t('provider.custom')}</option>
+              </select>
+            </label>
+            <label class="stack" style="margin-top:8px">
+              <span>${t('settings.model_name')}</span>
+              <input id="settings-model" type="text" placeholder="${t('settings.model_placeholder')}">
+            </label>
+            <label class="stack" style="margin-top:8px">
+              <span>${t('settings.api_key')}</span>
+              <input id="settings-apikey" type="password" placeholder="sk-...">
+            </label>
+            <label class="stack" style="margin-top:8px">
+              <span>${t('settings.api_endpoint')}</span>
+              <input id="settings-endpoint" type="text" placeholder="https://api.openai.com/v1">
+            </label>
+          </div>
+        </div>
+        <div class="settings-section" data-section="memory">
+          <div class="settings-section-header">
+            <h2>记忆系统</h2>
+            <p>管理 Agent 的长期记忆和个性化设置</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.memory')}</h3>
+            <label class="row">
+              <input id="settings-memory" type="checkbox">
+              <span>${t('settings.memory_label')}</span>
+            </label>
+            <div class="row" style="margin-top:12px;gap:8px">
+              <button id="settings-goto-memory" class="secondary" style="font-size:0.82em">${t('memory.go_to')}</button>
+              <button id="settings-export-memory" class="secondary" style="font-size:0.82em">${t('memory.export')}</button>
+              <button id="settings-purge-memory" class="secondary danger" style="font-size:0.82em">${t('memory.purge')}</button>
+            </div>
+            <p class="muted" style="font-size:0.82em;margin-top:10px">${t('memory.manage_desc')}</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.storage_backend')}</h3>
+            <label class="stack">
+              <span>${t('settings.storage_backend_label')}</span>
+              <select id="settings-storage-backend">
+                <option value="jsonl">JSONL (默认，兼容旧版)</option>
+                <option value="sqlite">SQLite (更快，更低内存)</option>
+              </select>
+            </label>
+            <p class="muted" style="font-size:0.82em;margin-top:10px">${t('settings.storage_backend_desc')}</p>
+            <div id="storage-migration-status" style="display:none;margin-top:12px;padding:12px;border-radius:8px;background:var(--surface-subtle);font-size:0.85em">
+            </div>
+          </div>
+        </div>
+        <div class="settings-section" data-section="paths">
+          <div class="settings-section-header">
+            <h2>路径设置</h2>
+            <p>配置数据存储和项目工作目录</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.storage')}</h3>
+            <label class="stack">
+              <span>${t('settings.data_dir')}</span>
+              <div class="row">
+                <input id="settings-storage" type="text" placeholder="C:\Users\...\.ziner\desktop" style="flex:1">
+                <button id="settings-browse" class="primary" style="white-space:nowrap">浏览</button>
+              </div>
+            </label>
+            <p class="muted" style="font-size:0.85em;margin-top:8px">此路径在重启后生效</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.project')}</h3>
+            <label class="stack">
+              <span>${t('settings.project_dir')}</span>
+              <div class="row">
+                <input id="settings-projectdir" type="text" placeholder="F:\Z-code" style="flex:1">
+                <button id="settings-browse-project" class="primary" style="white-space:nowrap">浏览</button>
+              </div>
+            </label>
+            <p class="muted" style="font-size:0.85em;margin-top:8px">文件操作和 Shell 命令的工作目录</p>
+          </div>
+        </div>
+        <div class="settings-section" data-section="safety">
+          <div class="settings-section-header">
+            <h2>安全设置</h2>
+            <p>配置工具使用策略和安全防护选项</p>
+          </div>
+          <div class="card">
+            <h3>执行模式</h3>
+            <label class="row">
+              <input id="settings-dryrun" type="checkbox">
+              <span>Dry-run 模式（模拟执行，不产生副作用）</span>
+            </label>
+            <p class="muted" style="font-size:0.82em;margin-top:8px">启用后，Agent 的所有工具调用将被模拟执行，仅返回"将要做什么"的描述，方便预览完整计划后再正式执行。</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.tool_policy_title')}</h3>
+            <p class="muted" style="font-size:0.82em;margin-bottom:10px">${t('settings.tool_policy_desc')}</p>
+            <label class="stack">
+              <span>${t('settings.tool_policy_allow')}</span>
+              <textarea id="settings-tool-allow" rows="2" placeholder="read_file, web_search, mcp_*"></textarea>
+            </label>
+            <label class="stack" style="margin-top:10px">
+              <span>${t('settings.tool_policy_deny')}</span>
+              <textarea id="settings-tool-deny" rows="2" placeholder="run_terminal, write_file"></textarea>
+            </label>
+            <p class="muted" style="font-size:0.78em;margin-top:8px">${t('settings.tool_policy_hint')}</p>
+          </div>
+        </div>
+        <div class="settings-section" data-section="budget">
+          <div class="settings-section-header">
+            <h2>预算控制</h2>
+            <p>设置 Token 用量和费用上限，防止意外超支</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.budget_title')}</h3>
+            <p class="muted" style="font-size:0.82em;margin-bottom:10px">${t('settings.budget_desc')}</p>
+            <label class="row" style="gap:12px">
+              <span style="min-width:120px">${t('settings.budget_tokens')}</span>
+              <input id="settings-budget-tokens" type="number" style="flex:1" min="0" step="1000">
+            </label>
+            <label class="row" style="margin-top:10px;gap:12px">
+              <span style="min-width:120px">${t('settings.budget_usd')}</span>
+              <input id="settings-budget-usd" type="number" style="flex:1" min="0" step="0.1">
+            </label>
+            <label class="row" style="margin-top:10px;gap:12px">
+              <span style="min-width:120px">${t('settings.budget_day_usd')}</span>
+              <input id="settings-budget-day-usd" type="number" style="flex:1" min="0" step="0.1">
+            </label>
+          </div>
+        </div>
+        <div class="settings-section" data-section="im">
+          <div class="settings-section-header">
+            <h2>即时通讯</h2>
+            <p>连接微信和 QQ，实现 AI 自动回复</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.wechat_title')}</h3>
+            <p class="muted" style="font-size:0.85em;margin-bottom:10px;color:#eab308">${t('settings.wechat_hook_warning')}</p>
+            <label class="row">
+              <span style="min-width:80px">微信昵称</span>
+              <input id="settings-wch-nickname" type="text" placeholder="你的微信昵称，群聊@你时才会回复" style="flex:1">
+            </label>
+            <div class="row" style="margin-top:10px">
+              <button id="settings-wch-connect" class="primary" style="white-space:nowrap">${t('settings.wechat_hook_connect')}</button>
+              <button id="settings-wch-disconnect" class="secondary" style="white-space:nowrap">${t('settings.wechat_hook_disconnect')}</button>
+              <span id="settings-wch-status" class="muted" style="margin-left:8px">${t('settings.wechat_hook_disconnected')}</span>
+            </div>
+            <p id="settings-wch-debug" class="muted" style="font-size:0.8em;margin-top:8px"></p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.qq_title')}</h3>
+            <p class="muted" style="font-size:0.85em;margin-bottom:10px">${t('settings.qq_desc')}</p>
+            <label class="row">
+              <span style="min-width:80px">WebSocket 地址</span>
+              <input id="settings-qq-wsurl" type="text" placeholder="ws://localhost:3001" style="flex:1">
+            </label>
+            <label class="row" style="margin-top:8px">
+              <span style="min-width:80px">Access Token</span>
+              <input id="settings-qq-token" type="password" placeholder="NapCat 配置中的 accessToken（可选）" style="flex:1">
+            </label>
+            <label class="row" style="margin-top:8px">
+              <span style="min-width:80px">QQ 昵称</span>
+              <input id="settings-qq-nickname" type="text" placeholder="你的 QQ 昵称，群聊@你时才会回复" style="flex:1">
+            </label>
+            <div class="row" style="margin-top:10px">
+              <button id="settings-qq-connect" class="primary" style="white-space:nowrap">${t('settings.qq_connect')}</button>
+              <button id="settings-qq-disconnect" class="secondary" style="white-space:nowrap">${t('settings.qq_disconnect')}</button>
+              <span id="settings-qq-status" class="muted" style="margin-left:8px">${t('settings.qq_disconnected')}</span>
+            </div>
+            <p id="settings-qq-debug" class="muted" style="font-size:0.8em;margin-top:8px"></p>
+          </div>
+        </div>
+        <div class="settings-section" data-section="mcp">
+          <div class="settings-section-header">
+            <h2>MCP 服务</h2>
+            <p>配置外部服务连接，扩展 Agent 能力</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.mcp_title')}</h3>
+            <p class="muted" style="font-size:0.85em;margin-bottom:10px">${t('settings.mcp_desc')}</p>
+            <label class="stack">
+              <span>${t('settings.mcd_token')}</span>
+              <div class="row" style="gap:4px">
+                <input id="settings-mcd-token" class="secured" type="text" placeholder="${t('settings.mcd_token_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
+                <button id="settings-mcd-token-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+              </div>
+            </label>
+            <p class="muted" style="font-size:0.82em;margin-top:8px">${t('settings.mcd_token_hint')}</p>
+            <label class="stack" style="margin-top:14px">
+              <span>${t('settings.amap_key')}</span>
+              <div class="row" style="gap:4px">
+                <input id="settings-amap-key" class="secured" type="text" placeholder="${t('settings.amap_key_placeholder')}" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1">
+                <button id="settings-amap-key-toggle" class="secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+              </div>
+            </label>
+            <p class="muted" style="font-size:0.82em;margin-top:8px">${t('settings.amap_key_hint')}</p>
+          </div>
+        </div>
+        <div class="settings-section" data-section="profile">
+          <div class="settings-section-header">
+            <h2>对话画像</h2>
+            <p>Agent 通过对话学习你的偏好和风格</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.profile_title')}</h3>
+            <label class="row" style="margin-bottom:10px">
+              <input id="settings-profile-enabled" type="checkbox">
+              <span>${t('settings.profile_enable')}</span>
+            </label>
+            <div style="margin-top:8px;font-size:0.9em">
+              <span>${t('settings.profile_msg_count')}: </span><strong id="settings-profile-count">0</strong>
+            </div>
+            <div style="margin-top:6px;font-size:0.9em">
+              <span>${t('settings.profile_desc')}: </span>
+              <p id="settings-profile-desc" class="muted" style="margin-top:4px;white-space:pre-wrap">${t('settings.profile_none')}</p>
+            </div>
+            <div class="row" style="margin-top:12px">
+              <button id="settings-profile-rebuild" class="secondary" style="white-space:nowrap">${t('settings.profile_rebuild')}</button>
+              <button id="settings-profile-clear" class="secondary danger" style="white-space:nowrap">${t('settings.profile_clear')}</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-section" data-section="rules">
+          <div class="settings-section-header">
+            <h2>规则与技能</h2>
+            <p>管理自动执行规则和技能发现</p>
+          </div>
+          <div class="card">
+            <h3>${t('settings.always_rules_title')}</h3>
+            <p class="muted" style="font-size:0.85em;margin-bottom:10px">${t('settings.always_rules_desc')}</p>
+            <div id="settings-always-rules-list" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+          <div class="card">
+            <h3>${t('settings.skill_review_title')}</h3>
+            <p class="muted" style="font-size:0.85em;margin-bottom:10px">${t('settings.skill_review_desc')}</p>
+            <div class="row" style="margin-bottom:12px;gap:8px">
+              <button id="settings-discover-skills" class="secondary" style="white-space:nowrap">${t('settings.discover_skills')}</button>
+              <button id="settings-refresh-skills" class="secondary" style="white-space:nowrap">${t('settings.refresh_skills')}</button>
+              <span id="settings-skill-status" class="muted"></span>
+            </div>
+            <div id="settings-skill-queue" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+        </div>
+        <div class="settings-footer">
+          <button id="settings-save" class="primary">${t('settings.save')}</button>
+          <span id="settings-status" class="muted"></span>
+        </div>
+      </div>
     </div>
   `;
+
+  const navItems = container.querySelectorAll('.settings-nav-item');
+  const sections = container.querySelectorAll('.settings-section');
+  navItems.forEach((item) => {
+    item.addEventListener('click', () => {
+      const target = (item as HTMLElement).dataset.section;
+      navItems.forEach((nav) => nav.classList.remove('active'));
+      sections.forEach((sec) => sec.classList.remove('active'));
+      item.classList.add('active');
+      const targetSection = container.querySelector(`.settings-section[data-section="${target}"]`);
+      if (targetSection) targetSection.classList.add('active');
+    });
+  });
 
   const langSelect = document.getElementById('settings-lang') as HTMLSelectElement;
   const provider = document.getElementById('settings-provider') as HTMLSelectElement;
@@ -233,6 +382,7 @@ function renderSettings(container: HTMLElement): void {
   const apiKey = document.getElementById('settings-apikey') as HTMLInputElement;
   const endpoint = document.getElementById('settings-endpoint') as HTMLInputElement;
   const memory = document.getElementById('settings-memory') as HTMLInputElement;
+  const storageBackend = document.getElementById('settings-storage-backend') as HTMLSelectElement;
   const storage = document.getElementById('settings-storage') as HTMLInputElement;
   const dryRun = document.getElementById('settings-dryrun') as HTMLInputElement;
   const toolAllow = document.getElementById('settings-tool-allow') as HTMLTextAreaElement;
@@ -265,6 +415,7 @@ function renderSettings(container: HTMLElement): void {
     apiKey.value = s.apiKey || '';
     endpoint.value = s.apiEndpoint || '';
     memory.checked = s.memoryEnabled;
+    storageBackend.value = s.storageBackend || 'jsonl';
     storage.value = s.storageDir;
     projectDir.value = s.projectDir || '';
     dryRun.checked = !!s.dryRun;
@@ -715,7 +866,13 @@ function renderSettings(container: HTMLElement): void {
         mcdMcpToken: mcdToken.value.trim() || undefined,
         amapApiKey: amapKey.value.trim() || undefined,
       } as any);
-      status.textContent = t('settings.saved');
+      // Storage backend is saved separately (requires restart)
+      const needRestart = await zApi.setStorageBackend(storageBackend.value as 'jsonl' | 'sqlite');
+      if (needRestart) {
+        status.textContent = `${t('settings.saved')} (存储后端已变更，重启后生效)`;
+      } else {
+        status.textContent = t('settings.saved');
+      }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       status.textContent = `${t('chat.error')}: ${msg}`;

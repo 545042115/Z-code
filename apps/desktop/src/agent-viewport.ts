@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Agent Viewport (Marvis-like floating window)
+// @ziner/app-desktop — Agent Viewport (Marvis-like floating window)
 //
 // A dedicated floating Electron window that shows what the AI is doing:
 //   - CDP screencast when the browser is active (real-time ~10fps)

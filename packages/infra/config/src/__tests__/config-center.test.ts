@@ -6,7 +6,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { loadConfig, ConfigError, validateConfig } from '../config-center';
 import { tryLoadSecret, loadSecret, SecretNotFoundError } from '../secrets';
-import { DEFAULT_CONFIG } from '@z-assistant/contracts';
+import { DEFAULT_CONFIG } from '@ziner/contracts';
 
 test('loadConfig: returns defaults when no file exists', async () => {
   const cfg = await loadConfig({ configPath: '/nonexistent/x.yaml', skipEnv: true });

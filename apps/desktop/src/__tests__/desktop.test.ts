@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — unit tests
+// @ziner/app-desktop — unit tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';

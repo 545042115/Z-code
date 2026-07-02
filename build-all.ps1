@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Z Assistant 完整构建脚本
+    Ziner 完整构建脚本
     一键完成: Python 环境配置 + TS 编译 + Python 侧车打包 + Electron 应用打包
 #>
 

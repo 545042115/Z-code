@@ -1,4 +1,4 @@
-// @z-assistant/trace
+// @ziner/trace
 //
 // Trace runtime for the V2 Assistant. Provides:
 //   - Span / RunTracker / TraceManager: the core execution-time tracing API
@@ -10,7 +10,7 @@
 //   import {
 //     Span, RunTracker, TraceManager, Instrumenter,
 //     projectRunSummary, listRunSummaries, ...
-//   } from '@z-assistant/trace';
+//   } from '@ziner/trace';
 //
 // Pure Node; no vscode dependency. Used by:
 //   - apps/cli           (CLI agent runtime)

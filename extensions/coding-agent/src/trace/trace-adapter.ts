@@ -1,18 +1,18 @@
 // V1-specific Trace Instrumentation adapter.
 //
-// This file is the V1 Connector layer over `@z-assistant/trace`. The
+// This file is the V1 Connector layer over `@ziner/trace`. The
 // V2 `Instrumenter` is duck-typed and only knows about three method
 // shapes (generate / execute / run). The V1 LLM / Tool / Pipeline types
 // match those shapes, so the adapter is a thin typed wrapper that
 // pins the V1 type contract.
 
-import { Instrumenter } from '@z-assistant/trace';
-import type { RunTracker } from '@z-assistant/trace';
+import { Instrumenter } from '@ziner/trace';
+import type { RunTracker } from '@ziner/trace';
 import type { LLMProvider, GenerateRequest } from '../llm/llm-provider';
 import type { ToolRegistry } from '../tools/tool-registry';
 import type { AgentPipeline } from '../agent/agent-pipeline';
 import type { PipelineInput, PipelineOutput } from '../agent/pipeline-types';
-import type { ModelRef } from '@z-assistant/contracts';
+import type { ModelRef } from '@ziner/contracts';
 
 export interface TraceInstrumentationOptions {
   tracker: RunTracker;

@@ -1,11 +1,11 @@
-// @z-assistant/runtime — procedural memory
+// @ziner/runtime — procedural memory
 //
 // Skill-level "I can do X" memory. Procedural memories bridge the
 // generic Runtime memory system with the Skills framework: a learned
 // procedure can be recalled and turned into a skill candidate for
 // validation and registration.
 
-import type { MemoryRecord, MemoryHit } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryHit } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface Procedure {

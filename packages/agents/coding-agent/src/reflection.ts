@@ -11,7 +11,7 @@ import type {
   ReflectionDecision,
   TaskContext,
   VerifierOutput,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface CodingReflectionOptions {
   impl?: (

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — action
+// @ziner/runtime — action
 //
 // Agent execution actions: GUI automation (mouse/keyboard/clipboard).
 

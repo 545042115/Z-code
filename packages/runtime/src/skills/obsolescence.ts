@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Obsolescence Detector (P1-3).
+// @ziner/runtime — Skill Obsolescence Detector (P1-3).
 //
 // Heuristic detector that flags active SkillVersions which appear to
 // be no longer effective. Two signals are inspected:
@@ -22,7 +22,7 @@ import type {
   ObsolescenceReport,
   Skill,
   SkillVersion,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Options ──────────────────────────────────────────────────────────
 

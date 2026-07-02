@@ -1,4 +1,4 @@
-// @z-assistant/runtime — User Fact Extractor
+// @ziner/runtime — User Fact Extractor
 //
 // Extracts durable facts about the user from a single message.
 // Two-stage approach:

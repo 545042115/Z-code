@@ -6,7 +6,7 @@
 // this. The shape is fixed: implements V2 `IVerifier` and emits
 // `VerifierOutput` with structured diagnostics.
 
-import type { AgentResult, IVerifier, VerifierOutput } from '@z-assistant/contracts';
+import type { AgentResult, IVerifier, VerifierOutput } from '@ziner/contracts';
 
 export interface CodingVerifierOptions {
   /** Optional override; used by tests. */

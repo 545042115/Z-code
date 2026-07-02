@@ -1,4 +1,4 @@
-// @z-assistant/agent-research
+// @ziner/agent-research
 
 export {
   ResearchAgent,

@@ -5,8 +5,8 @@ import { strict as assert } from 'node:assert';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { TraceManager } from '@z-assistant/trace';
-import { createFileStore } from '@z-assistant/infra-storage';
+import { TraceManager } from '@ziner/trace';
+import { createFileStore } from '@ziner/infra-storage';
 import { AgentRegistry } from '../agent-registry';
 import { Orchestrator, NoopAgent } from '../orchestrator';
 import {
@@ -15,9 +15,9 @@ import {
   ReviewerAgent,
   registerExampleAgents,
 } from '../example-agents';
-import type { IAgent, TaskContext, AgentResult } from '@z-assistant/contracts';
-import { ok, fail } from '@z-assistant/contracts';
-import type { Store } from '@z-assistant/infra-storage';
+import type { IAgent, TaskContext, AgentResult } from '@ziner/contracts';
+import { ok, fail } from '@ziner/contracts';
+import type { Store } from '@ziner/infra-storage';
 
 const model = { provider: 'sglang', name: 'default' };
 
@@ -38,7 +38,7 @@ test('e2e: researcher → coder → reviewer share state via SharedState', async
     registerExampleAgents(reg);
     const t = await m.startRun({ task: '研究并实现', model, sessionId: 's1' });
     const o = new Orchestrator({
-      tracker: t, registry: reg, task: '研究并实现', model, sessionId: 's1', mode: 'sequential',
+      tracker: t, registry: reg, task: '研究并实现', model, sessionId: 's1', mode: 'dag',
     });
     const out = await o.run();
     await t.flush();
@@ -63,7 +63,7 @@ test('e2e: each agent gets its own Span with parent=orchestrator', async () => {
     await t.finish();
     const mgr = m as unknown as { opts: { store: Store } };
     const spans = await mgr.opts.store.spans.listByRun(t.id);
-    const orchSpan = spans.find((s) => s.name === 'orchestrator:sequential');
+    const orchSpan = spans.find((s) => s.name === 'orchestrator:dag');
     const agentSpans = spans.filter((s) => s.name.startsWith('agent:'));
     assert.ok(orchSpan);
     assert.strictEqual(agentSpans.length, 3);
@@ -73,16 +73,16 @@ test('e2e: each agent gets its own Span with parent=orchestrator', async () => {
   });
 });
 
-test('e2e: parallel mode runs all agents concurrently', async () => {
+test('e2e: dag mode runs independent agents in parallel within the same wave', async () => {
   await withTracker(async (m) => {
     const reg = new AgentRegistry();
-    // Use NoopAgent variants to avoid the coder/reviewer requiring
-    // research findings (test is about parallelism, not the pipeline).
+    // Use NoopAgent variants with no dependencies — they should all
+    // end up in the same wave and run concurrently.
     for (const n of ['a', 'b', 'c']) {
       reg.register({ ...NoopAgent, name: n, dependencies: [] });
     }
     const t = await m.startRun({ task: 'test', model, sessionId: 's1' });
-    const o = new Orchestrator({ tracker: t, registry: reg, task: 'test', model, sessionId: 's1', mode: 'parallel' });
+    const o = new Orchestrator({ tracker: t, registry: reg, task: 'test', model, sessionId: 's1', mode: 'dag' });
     const out = await o.run();
     await t.finish();
     assert.strictEqual(out.status, 'success');
@@ -126,7 +126,7 @@ test('e2e: agent that throws returns a fail result, not a crash', async () => {
   });
 });
 
-test('e2e: fail-fast in sequential mode stops after first failure', async () => {
+test('e2e: dag mode does not run dependents when their dependency fails', async () => {
   await withTracker(async (m) => {
     const reg = new AgentRegistry();
     const exec1: IAgent = {
@@ -134,7 +134,7 @@ test('e2e: fail-fast in sequential mode stops after first failure', async () => 
       execute: async (): Promise<AgentResult> => fail('9999', 'nope'),
     };
     const exec2: IAgent = {
-      name: 'b', role: 'B', capabilities: [], dependencies: [],
+      name: 'b', role: 'B', capabilities: [], dependencies: ['a'],
       execute: async (ctx: TaskContext): Promise<AgentResult> => { ctx.sharedState.set('touched', true); return ok(undefined); },
     };
     reg.register(exec1);
@@ -144,7 +144,7 @@ test('e2e: fail-fast in sequential mode stops after first failure', async () => 
     const out = await o.run();
     await t.finish();
     assert.strictEqual(out.status, 'failed');
-    assert.strictEqual(out.outputs.length, 1, 'b should not have run');
+    assert.strictEqual(out.outputs.length, 1, 'b should not have run since a failed');
     assert.strictEqual(out.sharedStateSnapshot.touched, undefined);
   });
 });

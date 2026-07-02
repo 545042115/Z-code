@@ -1,7 +1,7 @@
 // Skills module — single import surface.
 //
 // Phase 6A: this is now a thin shim over the V2 Skills framework
-// (`@z-assistant/runtime` re-exports the `skills` subpackage).
+// (`@ziner/runtime` re-exports the `skills` subpackage).
 //
 // The Coding-specific loader/selector/manager
 // (skill-loader / skill-selector / skill-manager / skill-validator)
@@ -29,7 +29,7 @@ export {
   type SkillSelectionInput,
   type SkillValidationIssue,
   type SkillValidationResult,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';
 
 export { SkillLoader } from './skill-loader';
 export { SkillSelector } from './skill-selector';

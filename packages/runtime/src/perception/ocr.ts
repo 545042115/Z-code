@@ -1,4 +1,4 @@
-// @z-assistant/runtime — OCR Service
+// @ziner/runtime — OCR Service
 //
 // Extracts text from images using the Python sidecar (EasyOCR).
 // Falls back to a simple message if Python is unavailable.

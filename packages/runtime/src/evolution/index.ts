@@ -1,4 +1,4 @@
-// @z-assistant/runtime — evolution
+// @ziner/runtime — evolution
 //
 // Universal Evolution engine framework. Phase-5 self-improvement loop
 // per V2_VISION and ADR-0004. Pure Node, no vscode.

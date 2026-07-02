@@ -1,5 +1,5 @@
 // Coding Agent Factory — wires the vscode-connector's existing chat-agent
-// and tool implementations into the V2 `@z-assistant/agent-coding` adapter
+// and tool implementations into the V2 `@ziner/agent-coding` adapter
 // layer.
 //
 // Per ADR-001 §4.5, the V2 coding-agent package (`packages/agents/coding-agent`)
@@ -19,7 +19,7 @@
 //                        │ IAgent
 //                        ▼
 //   ┌──────────────────────────────────────────────────────┐
-//   │  CodingAgentLoop (from @z-assistant/agent-coding)     │
+//   │  CodingAgentLoop (from @ziner/agent-coding)     │
 //   │  ─ agent.impl    → chatAgent (Plan+ReAct+Reflect)     │
 //   │  ─ tools.impl    → ChatToolRegistry (V2 IToolRegistry)│
 //   │  ─ planner/reflection/context/skills/verifier: stub   │
@@ -45,14 +45,14 @@ import type {
   ToolInvocation,
   ToolResult,
   ToolPolicy,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import {
   createCodingAgentLoop,
   type CodingAgentLoop,
-} from '@z-assistant/agent-coding';
-import type { DryRunExecutor } from '@z-assistant/runtime/permission';
-import type { AuditLogger } from '@z-assistant/runtime';
-import { ToolInvocationPipeline } from '@z-assistant/runtime/permission';
+} from '@ziner/agent-coding';
+import type { DryRunExecutor } from '@ziner/runtime/permission';
+import type { AuditLogger } from '@ziner/runtime';
+import { ToolInvocationPipeline } from '@ziner/runtime/permission';
 
 import {
   createChatAgent,

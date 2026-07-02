@@ -37,7 +37,7 @@ import type {
   PromptCandidate,
   RunStatus,
   SpanStatus,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import type {
   BaselineQuery,
   BaselineRepo,

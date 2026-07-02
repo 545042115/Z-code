@@ -2,7 +2,7 @@
 
 - 状态：Accepted
 - 日期：2026-06-17
-- 决策人：@Z Assistant V2 架构组
+- 决策人：@Ziner V2 架构组
 - 影响阶段：Phase 0 / Phase 5
 
 ## 背景
@@ -26,7 +26,7 @@ V2 路线图里 Phase 5（Evolution）的核心能力是**自动改 Prompt / Too
 - 所有 Prompt / Tool / Skill 描述必须从 `config-center` 加载
 - 同一资产有多个 `PromptVersion`，按 `semver` 管理
 - 配置中心支持热加载（重启进程或局部失效）
-- 资产变更写入 `~/.z-assistant/assets/` 目录，Git 友好
+- 资产变更写入 `~/.ziner/assets/` 目录，Git 友好
 - 代码内**禁止出现**完整 Prompt 文本（仅允许 placeholder）
 
 ## 后果

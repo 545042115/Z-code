@@ -7,16 +7,16 @@
 //   3. Synthesizer — reads `subtasks.*.output` and returns a final answer
 //
 // These tests use in-process mock IAgents to keep the runtime package
-// self-contained. The real `@z-assistant/agent-planner` and
-// `@z-assistant/agent-synthesizer` are exercised by their own unit tests
+// self-contained. The real `@ziner/agent-planner` and
+// `@ziner/agent-synthesizer` are exercised by their own unit tests
 // and by the connector integration test.
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { TraceManager } from '@z-assistant/trace';
-import { createFileStore } from '@z-assistant/infra-storage';
+import { TraceManager } from '@ziner/trace';
+import { createFileStore } from '@ziner/infra-storage';
 import { AgentRegistry } from '../agent-registry';
 import { Orchestrator } from '../orchestrator';
 import type {
@@ -25,8 +25,8 @@ import type {
   AgentResult,
   PlanDag,
   SubTask,
-} from '@z-assistant/contracts';
-import { ok as okResult } from '@z-assistant/contracts';
+} from '@ziner/contracts';
+import { ok as okResult } from '@ziner/contracts';
 
 const model = { provider: 'fake', name: 'fake' };
 

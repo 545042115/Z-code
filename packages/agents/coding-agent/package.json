@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/agent-coding",
+  "name": "@ziner/agent-coding",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Coding Agent adapter layer. Thin wrapper that implements V2 interfaces (IAgent, IPlanner, IReflectionEngine, IContextProvider, ISkillRegistry, IToolRegistry, IVerifier) by delegating to V1's `extensions/coding-agent/src/`. Does NOT re-implement Coding business logic.",
@@ -12,7 +12,7 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/runtime": "0.1.0"
+    "@ziner/contracts": "0.1.0",
+    "@ziner/runtime": "0.1.0"
   }
 }

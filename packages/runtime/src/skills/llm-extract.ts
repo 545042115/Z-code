@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Extractors (P1-3 Skill Auto-Discovery).
+// @ziner/runtime — Skill Extractors (P1-3 Skill Auto-Discovery).
 //
 // Two implementations of `ISkillExtractor`:
 //
@@ -25,7 +25,7 @@ import type {
   ILLMProvider,
   ModelSpec,
   LLMMessage,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Validation of an extracted draft ─────────────────────────────────
 

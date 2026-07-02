@@ -1,4 +1,4 @@
-// @z-assistant/infra-permission
+// @ziner/infra-permission
 //
 // Permission guards for filesystem paths, outbound network calls, and
 // tool invocations. Pure Node; no vscode dependency.

@@ -17,7 +17,7 @@ import {
   CodingAgentLoop,
   createCodingAgentLoop,
 } from '../src';
-import type { TaskContext, AgentResult, Plan, PlanResult, VerifierOutput, ContextChunk, SkillSpec, IPlanner, IVerifier, IContextProvider, ISkillRegistry } from '@z-assistant/contracts';
+import type { TaskContext, AgentResult, Plan, PlanResult, VerifierOutput, ContextChunk, SkillSpec, IPlanner, IVerifier, IContextProvider, ISkillRegistry } from '@ziner/contracts';
 
 function mkCtx(): TaskContext {
   return {

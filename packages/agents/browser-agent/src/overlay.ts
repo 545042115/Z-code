@@ -1,29 +1,29 @@
-// @z-assistant/agent-browser — Browser Agent element overlay
+// @ziner/agent-browser — Browser Agent element overlay
 //
 // Injects a visual overlay into the page so users can see which
 // elements the agent is interacting with. Only injected when the
 // browser is launched in headed mode.
 
 const OVERLAY_CSS = `
-#z-assistant-overlay {
+#ziner-overlay {
   position: fixed;
   top: 0; left: 0;
   width: 100%; height: 100%;
   pointer-events: none;
   z-index: 2147483647;
 }
-#z-assistant-overlay .z-highlight {
+#ziner-overlay .z-highlight {
   position: absolute;
   border: 2px solid #38bdf8;
   background: rgba(56, 189, 248, 0.1);
   pointer-events: none;
   transition: all 0.2s ease;
 }
-#z-assistant-overlay .z-highlight.active {
+#ziner-overlay .z-highlight.active {
   border-color: #f97316;
   background: rgba(249, 115, 22, 0.15);
 }
-#z-assistant-overlay .z-tooltip {
+#ziner-overlay .z-tooltip {
   position: absolute;
   background: #1e293b;
   color: #f8fafc;
@@ -42,16 +42,16 @@ const OVERLAY_CSS = `
 export function generateOverlayScript(): string {
   return `
 (function() {
-  if (document.getElementById('z-assistant-overlay')) return;
+  if (document.getElementById('ziner-overlay')) return;
   const style = document.createElement('style');
   style.textContent = ${JSON.stringify(OVERLAY_CSS)};
   document.head.appendChild(style);
   const overlay = document.createElement('div');
-  overlay.id = 'z-assistant-overlay';
+  overlay.id = 'ziner-overlay';
   document.body.appendChild(overlay);
   (window as any).__zOverlay = {
     highlight: function(x, y, w, h, label) {
-      const o = document.getElementById('z-assistant-overlay');
+      const o = document.getElementById('ziner-overlay');
       if (!o) return;
       const el = document.createElement('div');
       el.className = 'z-highlight';
@@ -71,7 +71,7 @@ export function generateOverlayScript(): string {
       setTimeout(function() { el.remove(); if (tip) tip.remove(); }, 3000);
     },
     clear: function() {
-      const o = document.getElementById('z-assistant-overlay');
+      const o = document.getElementById('ziner-overlay');
       if (o) o.innerHTML = '';
     }
   };

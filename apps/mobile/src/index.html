@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#5b7a9e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Ziner</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <script>
+    window.addEventListener('error', function(e) {
+      var errDiv = document.getElementById('fatal-error');
+      if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'fatal-error';
+        errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#fef2f2;color:#991b1b;padding:12px 16px;font-family:system-ui;font-size:13px;border-bottom:2px solid #fecaca;max-height:40vh;overflow:auto;';
+        document.body.insertBefore(errDiv, document.body.firstChild);
+      }
+      var msg = e.error && e.error.stack ? e.error.stack : (e.message || String(e));
+      errDiv.innerHTML = '<strong style="font-size:14px">⚠️ 应用错误</strong><br/>' + msg.replace(/\n/g, '<br/>').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      var errDiv = document.getElementById('fatal-error');
+      if (!errDiv) {
+        errDiv = document.createElement('div');
+        errDiv.id = 'fatal-error';
+        errDiv.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#fef2f2;color:#991b1b;padding:12px 16px;font-family:system-ui;font-size:13px;border-bottom:2px solid #fecaca;max-height:40vh;overflow:auto;';
+        document.body.insertBefore(errDiv, document.body.firstChild);
+      }
+      var reason = e.reason && e.reason.stack ? e.reason.stack : String(e.reason);
+      errDiv.innerHTML = '<strong style="font-size:14px">⚠️ Promise 错误</strong><br/>' + reason.replace(/\n/g, '<br/>').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    });
+  </script>
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部状态栏占位（安全区） -->
+    <div class="status-bar-spacer"></div>
+
+    <!-- 主内容区 -->
+    <main id="main-content" class="main-content">
+      <!-- 会话列表侧边栏 -->
+      <aside id="session-sidebar" class="session-sidebar">
+        <div class="session-sidebar-header">
+          <h2>会话</h2>
+          <button class="btn-icon" id="btn-close-sidebar" title="关闭">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <button class="new-session-btn" id="btn-new-session">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          新对话
+        </button>
+        <div id="session-list" class="session-list"></div>
+      </aside>
+      <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+      <!-- 聊天页面 -->
+      <section id="page-chat" class="page page-active">
+        <header class="page-header">
+          <div style="display:flex;align-items:center;gap:12px">
+            <button class="btn-icon" id="btn-menu" title="菜单">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+              </svg>
+            </button>
+            <h1>Ziner</h1>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="status-dot" id="status-dot"></span>
+          </div>
+        </header>
+        <div id="chat-messages" class="chat-messages">
+          <div class="message message-assistant">
+            <div class="message-avatar">Z</div>
+            <div class="message-bubble">
+              <p>你好，我是 Ziner。</p>
+            </div>
+          </div>
+        </div>
+        <div class="chat-input-container">
+          <div class="chat-input-wrapper">
+            <textarea
+              id="chat-input"
+              class="chat-input"
+              placeholder="输入你的请求…"
+              rows="1"
+            ></textarea>
+            <button id="send-btn" class="send-btn">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Trace 页面 -->
+      <section id="page-trace" class="page">
+        <header class="page-header">
+          <h1>Trace</h1>
+          <button class="btn-secondary" id="btn-clear-trace" style="font-size:0.85em;padding:6px 12px">清空</button>
+        </header>
+        <div class="trace-container">
+          <div id="trace-list" class="trace-list"></div>
+          <div id="trace-detail" class="trace-detail"></div>
+        </div>
+      </section>
+
+      <!-- 记忆页面 -->
+      <section id="page-memory" class="page">
+        <header class="page-header">
+          <h1>记忆</h1>
+        </header>
+        <div class="memory-container">
+          <div class="memory-stats">
+            <div class="stat-card">
+              <span class="stat-number" id="memory-count">0</span>
+              <span class="stat-label">条记忆</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-number">SQLite</span>
+              <span class="stat-label">存储后端</span>
+            </div>
+          </div>
+          <div id="memory-list" class="memory-list">
+            <div class="empty-state">
+              <p>还没有记忆</p>
+              <p class="muted">和我聊天，我会记住重要的信息</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 设置页面 -->
+      <section id="page-settings" class="page">
+        <header class="page-header">
+          <h1>设置</h1>
+        </header>
+        <div class="settings-container">
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>连接</h2>
+            </div>
+            <div class="settings-item">
+              <span>运行模式</span>
+              <select id="setting-bridge-mode">
+                <option value="local">本地 Runtime</option>
+                <option value="remote">远程 Runtime</option>
+              </select>
+            </div>
+            <div class="settings-item" id="setting-runtime-server-group">
+              <span>服务器地址</span>
+              <input type="text" id="setting-runtime-server-url" placeholder="http://192.168.1.100:3000" />
+            </div>
+            <div class="settings-item" id="setting-runtime-apikey-group">
+              <span>服务器密钥</span>
+              <input type="password" id="setting-runtime-apikey" placeholder="可选" />
+            </div>
+          </div>
+
+          <div class="settings-group" id="setting-model-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>模型配置</h2>
+            </div>
+            <div class="settings-item">
+              <span>提供商</span>
+              <select id="setting-provider">
+                <option value="sglang">SGLang</option>
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="deepseek">DeepSeek</option>
+                <option value="gemini">Gemini</option>
+                <option value="ollama">Ollama</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="settings-item">
+              <span>模型名称</span>
+              <input type="text" id="setting-model" placeholder="gpt-4o-mini" />
+            </div>
+            <div class="settings-item">
+              <span>API Key</span>
+              <input type="password" id="setting-apikey" placeholder="sk-..." />
+            </div>
+            <div class="settings-item">
+              <span>API 端点</span>
+              <input type="text" id="setting-endpoint" placeholder="https://api.openai.com/v1" />
+            </div>
+          </div>
+
+          <div class="settings-group" id="setting-mcp-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>MCP 服务</h2>
+            </div>
+            <p class="settings-hint" style="padding:0 16px 12px">配置外部服务连接，扩展 Agent 能力</p>
+            <div class="settings-item stack">
+              <span>麦当劳中国 MCP Token</span>
+              <div class="row" style="display:flex;gap:4px">
+                <input type="text" id="setting-mcd-token" class="secured" placeholder="MCD_MCP_TOKEN（可选）" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1;text-align:left" />
+                <button id="btn-mcd-toggle" class="btn-secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+              </div>
+            </div>
+            <div class="settings-item stack">
+              <span>高德地图 API Key</span>
+              <div class="row" style="display:flex;gap:4px">
+                <input type="text" id="setting-amap-key" class="secured" placeholder="AMAP_MAPS_API_KEY（可选）" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" style="flex:1;text-align:left" />
+                <button id="btn-amap-toggle" class="btn-secondary" type="button" style="white-space:nowrap;font-size:0.8em;padding:4px 8px">显示</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>工具策略</h2>
+            </div>
+            <p class="settings-hint" style="padding:0 16px 12px">用 glob 模式控制 Agent 可调用的工具。deny 优先于 allow。allow 留空 = 允许所有。</p>
+            <div class="settings-item stack">
+              <span>允许（allow，每行一个）</span>
+              <textarea id="setting-tool-allow" rows="3" placeholder="例如：&#10;mcp_*&#10;web_search&#10;search_memory"></textarea>
+            </div>
+            <div class="settings-item stack">
+              <span>拒绝（deny，每行一个，优先级最高）</span>
+              <textarea id="setting-tool-deny" rows="3" placeholder="例如：&#10;shell_exec:rm_rf&#10;write_file"></textarea>
+            </div>
+            <div class="settings-item stack">
+              <span>需要确认（requireConfirm，每行一个）</span>
+              <textarea id="setting-tool-confirm" rows="2" placeholder="例如：&#10;write_file&#10;web_fetch"></textarea>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>记忆</h2>
+            </div>
+            <div class="settings-item">
+              <span>启用长期记忆</span>
+              <label class="switch">
+                <input type="checkbox" id="setting-memory-enabled" checked />
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="settings-item">
+              <span>存储后端</span>
+              <select id="setting-storage-backend">
+                <option value="sqlite">SQLite</option>
+                <option value="jsonl">JSONL</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>原生能力</h2>
+            </div>
+            <div class="settings-item">
+              <span>通知权限</span>
+              <button id="btn-request-notifications" class="btn-secondary">请求权限</button>
+            </div>
+            <div class="settings-item">
+              <span>发送测试通知</span>
+              <button id="btn-test-notification" class="btn-secondary">发送</button>
+            </div>
+            <div class="settings-item">
+              <span>测试振动</span>
+              <button id="btn-vibrate" class="btn-secondary">振动一下</button>
+            </div>
+            <div class="settings-item">
+              <span>剪贴板复制测试</span>
+              <button id="btn-copy-test" class="btn-secondary">复制"Hello"</button>
+            </div>
+            <div class="settings-item">
+              <span>分享文本</span>
+              <button id="btn-share" class="btn-secondary">分享</button>
+            </div>
+            <div class="settings-item">
+              <span>平台信息</span>
+              <span id="platform-info" class="muted">检测中...</span>
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>数据同步</h2>
+            </div>
+            <div class="settings-item">
+              <span>导出配置</span>
+              <button id="btn-export-settings" class="btn-secondary">导出</button>
+            </div>
+            <div class="settings-item">
+              <span>导入配置</span>
+              <button id="btn-import-settings" class="btn-secondary">导入</button>
+            </div>
+            <input type="file" id="import-file-input" accept=".json,application/json" style="display:none" />
+            <p class="muted" style="padding:0 16px 12px;font-size:12px;line-height:1.5">
+              通过导出/导入配置文件，可在手机和电脑之间同步 API 设置、工具策略等配置。
+            </p>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>关于</h2>
+            </div>
+            <div class="settings-item">
+              <span>版本</span>
+              <span class="muted">1.8.0 (Mobile)</span>
+            </div>
+          </div>
+
+          <button id="save-settings-btn" class="save-btn">保存设置</button>
+          <p id="settings-status" class="muted" style="text-align:center;margin-top:8px;font-size:13px"></p>
+        </div>
+      </section>
+    </main>
+
+    <!-- 底部导航栏 -->
+    <nav class="bottom-nav">
+      <button class="nav-item nav-active" data-page="chat">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+        <span>聊天</span>
+      </button>
+      <button class="nav-item" data-page="memory">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+          <polyline points="22 4 12 14.01 9 11.01"/>
+        </svg>
+        <span>记忆</span>
+      </button>
+      <button class="nav-item" data-page="trace">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+        <span>Trace</span>
+      </button>
+      <button class="nav-item" data-page="settings">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span>设置</span>
+      </button>
+    </nav>
+
+    <!-- 底部安全区占位 -->
+    <div class="bottom-safe-spacer"></div>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>

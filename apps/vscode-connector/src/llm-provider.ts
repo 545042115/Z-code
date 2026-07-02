@@ -13,7 +13,7 @@ import type {
   LLMResponse,
   LLMMessage,
   ToolCallRef,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Helpers: map our LLMMessage ↔ OpenAI chat format ────────────────
 

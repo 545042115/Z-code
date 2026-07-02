@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createFileStore, type Store, type FileStoreOptions } from '../jsonl-store';
-import type { AgentRun, AgentSpan, Evaluation, Benchmark, Baseline, PromptCandidate, SpanEvent } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan, Evaluation, Benchmark, Baseline, PromptCandidate, SpanEvent } from '@ziner/contracts';
 
 // ── Per-test temp dir helper ──────────────────────────────────────────
 

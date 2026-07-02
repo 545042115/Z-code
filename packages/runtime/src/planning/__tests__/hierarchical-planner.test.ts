@@ -1,4 +1,4 @@
-// @z-assistant/runtime — hierarchical planner tests
+// @ziner/runtime — hierarchical planner tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -8,7 +8,7 @@ import {
   renderPlan,
   selectPlanningMode,
 } from '../hierarchical-planner';
-import type { ILLMProvider, TaskContext } from '@z-assistant/contracts';
+import type { ILLMProvider, TaskContext } from '@ziner/contracts';
 import { SharedState } from '../../orchestrator/shared-state';
 
 function fakeProvider(responseContent: string): ILLMProvider {

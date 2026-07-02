@@ -21,7 +21,7 @@
 // it implements `IAgent` AND exposes the sub-adapters for
 // inspector / dashboard use.
 
-import type { IAgent } from '@z-assistant/contracts';
+import type { IAgent } from '@ziner/contracts';
 import { CodingAgent, type CodingAgentOptions } from './agent-core';
 import { CodingPlanner, type CodingPlannerOptions } from './planner';
 import { CodingReflectionEngine, type CodingReflectionOptions } from './reflection';

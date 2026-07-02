@@ -1,4 +1,4 @@
-// @z-assistant/runtime
+// @ziner/runtime
 //
 // V2 Assistant Runtime platform. Provides:
 //
@@ -32,9 +32,9 @@ export const RUNTIME_VERSION = '0.1.0';
 
 // Subpackage re-exports — single import surface for V2 consumers.
 //
-// V1 shims import from the *root* (`@z-assistant/runtime`) when they
+// V1 shims import from the *root* (`@ziner/runtime`) when they
 // need framework bits. V2 Apps should prefer the subpackage paths
-// (e.g. `@z-assistant/runtime/evaluation`) for clarity.
+// (e.g. `@ziner/runtime/evaluation`) for clarity.
 
 // Mechanism layer
 export * from './orchestrator';
@@ -52,4 +52,5 @@ export * from './perception';
 export * from './planning';
 export * from './reflection';
 export * from './skills';
+export * from './api';
 

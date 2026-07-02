@@ -1,9 +1,9 @@
-// @z-assistant/runtime — DryRunExecutor tests
+// @ziner/runtime — DryRunExecutor tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { DryRunExecutor } from '../index';
-import type { ToolInvocation } from '@z-assistant/contracts';
+import type { ToolInvocation } from '@ziner/contracts';
 
 function inv(toolName: string, args: Record<string, unknown> = {}): ToolInvocation {
   return { id: `test-${toolName}`, toolName, args };

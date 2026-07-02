@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Skill Composition Engine (P1-3).
+// @ziner/runtime — Skill Composition Engine (P1-3).
 //
 // Co-occurrence based macro-skill proposer. Given recent
 // SelectedSkill traces (one array per session/turn), the engine
@@ -17,7 +17,7 @@ import type {
   SelectedSkill,
   SkillCompositionProposal,
   CandidateSkillDraft,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── CooccurrenceCompositionEngine ────────────────────────────────────
 

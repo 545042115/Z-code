@@ -71,7 +71,7 @@ async function readFileAsBase64(filePath: string): Promise<string> {
 
 export async function ocrImage(filePath: string): Promise<string> {
   try {
-    const { ocrImage: ocrFn } = await import('@z-assistant/runtime');
+    const { ocrImage: ocrFn } = await import('@ziner/runtime');
     const base64 = await readFileAsBase64(filePath);
     const result = await ocrFn(base64);
     return result || '(no text found)';
@@ -83,7 +83,7 @@ export async function ocrImage(filePath: string): Promise<string> {
 
 export async function describeImage(filePath: string): Promise<string> {
   try {
-    const { describeImage: descFn } = await import('@z-assistant/runtime');
+    const { describeImage: descFn } = await import('@ziner/runtime');
     const base64 = await readFileAsBase64(filePath);
     const result = await descFn(base64);
     return result.caption || '(no description generated)';
@@ -95,7 +95,7 @@ export async function describeImage(filePath: string): Promise<string> {
 
 export async function transcribeAudio(filePath: string): Promise<string> {
   try {
-    const { transcribeAudio: transFn } = await import('@z-assistant/runtime');
+    const { transcribeAudio: transFn } = await import('@ziner/runtime');
     const result = await transFn(filePath);
     return result || '(no transcription)';
   } catch (err: unknown) {
@@ -106,7 +106,7 @@ export async function transcribeAudio(filePath: string): Promise<string> {
 
 export async function parseDocument(filePath: string): Promise<string> {
   try {
-    const { parseDocument: parseFn } = await import('@z-assistant/runtime');
+    const { parseDocument: parseFn } = await import('@ziner/runtime');
     const result = await parseFn(filePath);
     return result || '(no content extracted)';
   } catch (err: unknown) {

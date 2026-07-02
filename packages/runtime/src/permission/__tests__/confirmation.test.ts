@@ -1,9 +1,9 @@
-// @z-assistant/runtime — ConfirmationGate tests
+// @ziner/runtime — ConfirmationGate tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { ConfirmationGate } from '../index';
-import type { AlwaysRule, ToolInvocation } from '@z-assistant/contracts';
+import type { AlwaysRule, ToolInvocation } from '@ziner/contracts';
 
 function inv(toolName: string, args: Record<string, unknown>): ToolInvocation {
   return { id: `test-${toolName}`, toolName, args };

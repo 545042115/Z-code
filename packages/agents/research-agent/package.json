@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/agent-research",
+  "name": "@ziner/agent-research",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Research Agent. Performs deep research via search, fetch, and synthesis loops.",
@@ -12,8 +12,8 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/runtime": "0.1.0",
-    "@z-assistant/trace": "0.1.0"
+    "@ziner/contracts": "0.1.0",
+    "@ziner/runtime": "0.1.0",
+    "@ziner/trace": "0.1.0"
   }
 }

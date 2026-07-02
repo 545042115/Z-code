@@ -1,4 +1,4 @@
-// Shim: V1 extension → @z-assistant/trace
+// Shim: V1 extension → @ziner/trace
 // Migration re-export. See ADR 0007 (Phase 6 Runtime decoupling).
 //
 // The V1-specific `TraceInstrumentation` lives in `trace-adapter.ts`
@@ -14,7 +14,7 @@ export {
   type RunStartOptions,
   type RunFinishOptions,
   type TraceManagerOptions,
-} from '@z-assistant/trace';
+} from '@ziner/trace';
 
 // Re-export the V1-specific adapter (a thin wrapper that uses V1 LLM
 // / Tool / Pipeline types but delegates to the V2 Instrumenter).

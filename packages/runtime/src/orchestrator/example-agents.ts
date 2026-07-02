@@ -4,10 +4,10 @@
 // how to participate in the multi-Agent system. They are intentionally
 // LLM-free (no network calls) so they run reliably in tests and demos.
 // Real agents wrap an LLMProvider; see the Connector-layer Instrumenter
-// (`@z-assistant/trace/Instrumenter`).
+// (`@ziner/trace/Instrumenter`).
 
-import type { IAgent, TaskContext, AgentResult } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
+import type { IAgent, TaskContext, AgentResult } from '@ziner/contracts';
+import { ok as okResult, fail as failResult } from '@ziner/contracts';
 import type { AgentRegistry } from './agent-registry';
 
 // ── Researcher ────────────────────────────────────────────────────────

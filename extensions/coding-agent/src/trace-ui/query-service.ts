@@ -7,10 +7,10 @@
 // Why a service and not direct Store calls:
 //   - UI needs aggregated queries (run summary, span stats) not in Store
 //   - Avoid re-reading JSONL on every keystroke
-//   - Centralize projection logic (now in V2 @z-assistant/trace/projections)
+//   - Centralize projection logic (now in V2 @ziner/trace/projections)
 //
 // Phase 6 refactor: the projection logic has been moved to
-// `@z-assistant/trace/projections`. This file is now a thin caching
+// `@ziner/trace/projections`. This file is now a thin caching
 // + invalidation wrapper over those V2 functions.
 
 import type { Store, RunQuery, SpanQuery } from '../infra/storage';
@@ -38,7 +38,7 @@ import {
   type RunSummary,
   type SpanNode,
   type SpanEventLite,
-} from '@z-assistant/trace';
+} from '@ziner/trace';
 
 export type { RunSummary, SpanNode, SpanEventLite };
 

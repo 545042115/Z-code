@@ -13,7 +13,7 @@
 // Phase 6A: moved from V1 `extensions/coding-agent/src/harness/candidate-adapter.ts`
 // to V2 `packages/runtime/src/evaluation/candidate-adapter.ts`. Pure Node, no vscode.
 
-import type { IAgent, TaskContext } from '@z-assistant/contracts';
+import type { IAgent, TaskContext } from '@ziner/contracts';
 import type { SandboxExecutor, SandboxSpec } from './sandbox';
 import type { RubricSpec } from './rubric';
 import { scoreSandboxResult, makeEvaluation, type Evaluation } from './rubric';

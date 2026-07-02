@@ -1,4 +1,4 @@
-# 图像全景拼接代码生成对比：Trae vs Z Code
+# 图像全景拼接代码生成对比：Trae vs Ziner
 
 ## 测试任务
 
@@ -48,7 +48,7 @@ corners2_transformed = cv2.perspectiveTransform(corners2.reshape(-1, 1, 2), H)
 # ❌ H 是 left→right，不应该用来变换 right 图的角点
 ```
 
-**正确逻辑**（参考 Z Code）：
+**正确逻辑**（参考 Ziner）：
 ```python
 # H 将 LEFT 映射到 RIGHT，因此应该对 LEFT 图做透视变换
 warped_left = cv2.warpPerspective(img_left, H_translation @ H, ...)
@@ -59,7 +59,7 @@ warped_left = cv2.warpPerspective(img_left, H_translation @ H, ...)
 
 ---
 
-## 2. Z Code 生成代码分析
+## 2. Ziner 生成代码分析
 
 ### 文件
 `coding-test/Z-Code/image_stitcher.py`
@@ -78,7 +78,7 @@ warped_left = cv2.warpPerspective(img_left, H_translation @ H, ...)
 
 **关键正确点**：
 ```python
-# Z Code 明确知道 H 从 left→right
+# Ziner 明确知道 H 从 left→right
 src_pts = np.float32([kp_left[m.queryIdx].pt for m in good_matches])
 dst_pts = np.float32([kp_right[m.trainIdx].pt for m in good_matches])
 H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
@@ -96,15 +96,15 @@ canvas[-y_min:-y_min + h_right, -x_min:-x_min + w_right] = img_right
 
 ## 3. 横向对比
 
-| 维度 | Trae | Z Code | 胜者 |
+| 维度 | Trae | Ziner | 胜者 |
 |------|------|--------|------|
-| **代码正确性** | ❌ H 矩阵方向错误导致完全失败 | ✅ 核心逻辑正确，能跑通 | Z Code |
+| **代码正确性** | ❌ H 矩阵方向错误导致完全失败 | ✅ 核心逻辑正确，能跑通 | Ziner |
 | **工程化/可维护性** | ✅ 高度模块化，6 个独立函数 | ❌ 一体化 spaghetti code | Trae |
 | **文档完整性** | ✅ 每个函数都有详细中文 docstring | ⚠️ 仅 2 处大段注释 | Trae |
 | **RANSAC 实现** | ✅ 手写迭代 + 提前终止 + 内点重拟合 | ❌ 直接调 OpenCV 封装 | Trae |
 | **融合算法质量** | ✅ distanceTransform 距离加权，理论更优 | ⚠️ 简单线性渐变，有瑕疵 | Trae |
 | **算法理解深度** | ✅ 深入解释了数学原理 | ⚠️ 只有基础注释 | Trae |
-| **执行结果** | ❌ 失败 | ✅ 成功 | Z Code |
+| **执行结果** | ❌ 失败 | ✅ 成功 | Ziner |
 
 ---
 
@@ -119,9 +119,9 @@ Trae 的代码虽然工程化更好，但**复杂度更高**：
 
 **复杂度越高，状态传递出错的可能性越大。** Trae 的致命错误正是 H 矩阵在 `compute_homography_ransac` → `compute_canvas_size` → `stitch_images` 传递过程中方向搞反了。
 
-### 4.2 Z Code 的"糙但正确"哲学
+### 4.2 Ziner 的"糙但正确"哲学
 
-Z Code 的代码虽然不够优雅，但**关键路径短**：
+Ziner 的代码虽然不够优雅，但**关键路径短**：
 1. `findHomography` 直接返回 H
 2. 立刻在同一个函数内对 `img_left` 应用 H
 3. 没有跨函数传递变换矩阵
@@ -133,7 +133,7 @@ Z Code 的代码虽然不够优雅，但**关键路径短**：
 1. **正确性优先于优雅性**：Agent 生成代码时，应首先确保核心算法路径正确，再考虑模块化和工程化。
 2. **状态传递是 Bug 重灾区**：当变量（尤其是变换矩阵、坐标系）在多个函数间传递时，Agent 必须显式标注方向（如 `H_left_to_right` 而不是 `H`）。
 3. **过度工程化的风险**：手写 RANSAC、distanceTransform 融合等"高级"特性虽然展示了能力，但也增加了出错面。如果 Agent 不能 100% 保证正确性，应该优先使用经过充分测试的标准库封装（如 `cv2.findHomography(..., cv2.RANSAC)`）。
-4. **验证的重要性**：Trae 代码失败的根本原因是缺乏运行验证。Z Code 的 ReAct 循环中如果包含"运行脚本并检查输出"这一步，就能发现 Trae 代码的问题。
+4. **验证的重要性**：Trae 代码失败的根本原因是缺乏运行验证。Ziner 的 ReAct 循环中如果包含"运行脚本并检查输出"这一步，就能发现 Trae 代码的问题。
 
 ---
 
@@ -142,7 +142,7 @@ Z Code 的代码虽然不够优雅，但**关键路径短**：
 | 方面 | 结论 |
 |------|------|
 | **代码质量** | Trae 胜：工程化、文档、算法深度都明显更好 |
-| **可运行性** | Z Code 胜：核心逻辑正确，能直接跑出结果 |
+| **可运行性** | Ziner 胜：核心逻辑正确，能直接跑出结果 |
 | **根本原因** | Trae 在 H 矩阵方向这一关键细节上出错，导致所有高级特性都无法弥补 |
 | **对 Agent 的启示** | 生成复杂代码时，必须对"跨函数传递的变换矩阵/坐标系"进行方向校验；正确性 > 优雅性 |
 

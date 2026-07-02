@@ -1,9 +1,9 @@
-// @z-assistant/runtime — PromptInjectionDetector tests
+// @ziner/runtime — PromptInjectionDetector tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 import { PromptInjectionDetector, createPromptInjectionDetector, DEFAULT_RULES } from '../prompt-injection';
-import type { PromptInjectionReport } from '@z-assistant/contracts';
+import type { PromptInjectionReport } from '@ziner/contracts';
 
 describe('PromptInjectionDetector', () => {
   it('detects "ignore previous instructions" payload', () => {

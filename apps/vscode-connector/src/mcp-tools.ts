@@ -10,7 +10,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { isToolAllowed, type ITool, type ToolInvocation, type ToolPolicy, type ToolResult } from '@z-assistant/contracts';
+import { isToolAllowed, type ITool, type ToolInvocation, type ToolPolicy, type ToolResult } from '@ziner/contracts';
 
 /** Configuration for a single MCP server connection. */
 export interface McpServerConfig {
@@ -121,7 +121,7 @@ export async function connectMcpServer(cfg: McpServerConfig): Promise<ConnectedM
           const result = await client.callTool(
             { name: mcpTool.name, arguments: inv.args },
             undefined,
-            cfg.timeoutMs !== undefined ? { timeout: cfg.timeoutMs } : undefined,
+            { timeout: cfg.timeoutMs ?? 15_000 },
           );
           const durationMs = Date.now() - start;
           const content = Array.isArray(result.content)

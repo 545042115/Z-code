@@ -1,7 +1,7 @@
 // Evolution module — single import surface.
 //
 // Phase 6A: this is now a thin shim over the V2 Evolution framework
-// (`@z-assistant/runtime` re-exports the `evolution` subpackage).
+// (`@ziner/runtime` re-exports the `evolution` subpackage).
 // Only the V1 `EvolutionPanel` (VSCode Webview) stays in V1.
 //
 // V1 callers that previously did:
@@ -23,6 +23,6 @@ export {
   type ToolSuggestion,
   type ConfigSuggestion,
   type SuggestionKind,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';
 
 export { EvolutionPanel } from './evolution-panel';

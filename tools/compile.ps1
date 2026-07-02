@@ -1,5 +1,5 @@
 # PowerShell script to compile VS Code extension
-$nodePath = "D:\mycode\Z Code\tools\node-v20.14.0-win-x64"
+$nodePath = "D:\mycode\Ziner\tools\node-v20.14.0-win-x64"
 
 # Detect Node.js
 $globalNode = Get-Command "node" -ErrorAction SilentlyContinue
@@ -15,7 +15,7 @@ if (-not $globalNode) {
     Write-Host "Using system Node.js: $($globalNode.Source)" -ForegroundColor Cyan
 }
 
-Set-Location "D:\mycode\Z Code\extensions\coding-agent"
+Set-Location "D:\mycode\Ziner\extensions\coding-agent"
 
 # Install TypeScript locally if not exists
 if (-not (Test-Path "node_modules\typescript")) {

@@ -268,8 +268,8 @@ export class QQBotService {
         shard: [0, 1],
         properties: {
           $os: process.platform,
-          $browser: 'z-assistant',
-          $device: 'z-assistant',
+          $browser: 'ziner',
+          $device: 'ziner',
         },
       },
     };

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Local Community Skill Store (P1-3).
+// @ziner/runtime — Local Community Skill Store (P1-3).
 //
 // Filesystem-backed implementation of `ICommunitySkillStore`. Each
 // published skill is written as a JSON file under
@@ -14,7 +14,7 @@ import type {
   CommunitySkillEntry,
   ICommunitySkillStore,
   Skill,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Options ──────────────────────────────────────────────────────────
 

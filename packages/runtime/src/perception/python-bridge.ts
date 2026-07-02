@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Python Bridge
+// @ziner/runtime — Python Bridge
 //
 // Manages a Python sidecar process for perception tasks (OCR, captioning,
 // transcription, document parsing). Communicates via stdin/stdout JSON-lines.

@@ -11,7 +11,7 @@ import {
   ToolErrorCode,
   UnknownErrorCode,
 } from './error-codes';
-import type { ErrorRef } from '@z-assistant/contracts';
+import type { ErrorRef } from '@ziner/contracts';
 
 /** Classification of an error. */
 export type ErrorCategory =

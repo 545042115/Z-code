@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — system tray
+// @ziner/app-desktop — system tray
 
 import { Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';

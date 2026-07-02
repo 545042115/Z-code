@@ -14,7 +14,7 @@
 //
 // V2's runtime is the host; V1's loop is the engine.
 
-import type { AgentResult, IAgent, ModelSpec, TaskContext } from '@z-assistant/contracts';
+import type { AgentResult, IAgent, ModelSpec, TaskContext } from '@ziner/contracts';
 
 export interface CodingAgentOptions {
   /**

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — path guard tests
+// @ziner/runtime — path guard tests
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';

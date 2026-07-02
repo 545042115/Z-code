@@ -29,9 +29,9 @@ function clearIdleTimer(): void {
 
 function loadBrowserBackend(): any {
   // Use computed require string to prevent TypeScript from resolving
-  // @z-assistant/agent-browser through the tsconfig path mapping (which
+  // @ziner/agent-browser through the tsconfig path mapping (which
   // would pull in DOM types incompatible with Node.js tsconfig).
-  const pkgName = '@z-assistant/agent-browser';
+  const pkgName = '@ziner/agent-browser';
   // eslint-disable-next-line @typescript-eslint/no-var-requires
   const mod = require(pkgName);
   return mod.createPlaywrightBackend();

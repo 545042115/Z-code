@@ -1,4 +1,4 @@
-// @z-assistant/runtime — shared memory
+// @ziner/runtime — shared memory
 //
 // Cross-agent shared memory. Agents reading/writing `project` or `global`
 // scope memories use the same underlying provider, so shared context is
@@ -6,7 +6,7 @@
 // conflict-resolution rule: newer memories win, and higher-importance
 // memories win on ties.
 
-import type { MemoryRecord, MemoryScope } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryScope } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface SharedMemoryOptions {

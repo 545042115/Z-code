@@ -1,4 +1,4 @@
-// @z-assistant/agent-browser — DOM parsing / element selection
+// @ziner/agent-browser — DOM parsing / element selection
 //
 // Utilities for converting a PageSnapshot's flat element array into a
 // structured tree and for building CSS/XPath selectors from element info.

@@ -1,4 +1,4 @@
-// @z-assistant/agent-planner — Task Planner (P2 Multi-Agent).
+// @ziner/agent-planner — Task Planner (P2 Multi-Agent).
 //
 // Decomposes a user task into a DAG of sub-tasks (SubTask[]) so the
 // Orchestrator's `plan` mode can dispatch them in waves.
@@ -13,8 +13,8 @@
 //   - `canHandle` returns a high score for non-trivial tasks so the
 //     router prefers this agent when a plan is wanted.
 
-import type { ILLMProvider, IAgent, ModelSpec, TaskContext, AgentResult, PlanDag, SubTask } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
+import type { ILLMProvider, IAgent, ModelSpec, TaskContext, AgentResult, PlanDag, SubTask } from '@ziner/contracts';
+import { ok as okResult, fail as failResult, parseJsonObject, getPath, callWithMetrics } from '@ziner/contracts';
 
 export interface PlannerAgentConfig {
   /** LLM provider used to call the model for decomposition. */
@@ -42,7 +42,7 @@ export interface PlannerAgentConfig {
 // fallback. That way the prompt stays readable, while the runtime
 // still uses the name that's wired into the agent-registry.
 const AGENT_ROLE_HINTS: Record<string, string> = {
-  chat: 'general reasoning, writing, math, summarisation, comparison, follow-up Q&A',
+  chat: 'general reasoning, writing, math, summarisation, comparison, follow-up Q&A. Also preferred for tasks that benefit from MCP-backed tools (maps, hotels, restaurants, navigation, weather, real-time prices) since the chat agent has the full ReAct tool loop wired with MCP tools.',
   browser: 'interactive web pages (login walls, JS-heavy sites, screenshots, clicks, form fills, pricing tables)',
   research: 'web search + multi-page synthesis, produces a report with citations',
   coding: 'write / edit / refactor code, run tests, fix bugs, package changes',
@@ -81,6 +81,8 @@ function renderAvailableList(available: string[]): string {
 
 const DEFAULT_SYSTEM_PROMPT = `You are a task-planning agent. Your job is to decompose a user's request into a DAG of sub-tasks so that specialised worker agents can execute them.
 
+**YOU ARE FREE TO CHOOSE ANY AGENT FOR EACH SUB-TASK.** The router's seed selection is a soft hint, not a hard cap — feel free to overrule it when the sub-task (especially one informed by recent conversation) clearly belongs to a different agent. The agent roster is dynamic; trust your own judgement about which role best fits each sub-task.
+
 Available agents (use exactly these names in \`assignedTo\`):
 - {available}
 
@@ -98,13 +100,17 @@ that doesn't exist on this machine).
 
 3. **Decompose further when complex.** If a sub-task is too complex for one worker (e.g. "build a website with login, payments, and an admin panel"), split it into smaller sub-tasks that EACH fit a single agent. Keep splitting until each leaf sub-task is small enough to be done in one worker pass.
 
-4. **Pick the BEST agent per sub-task.** Choose the agent that is most specialised for the sub-task. For "visit X and read the price table" → browser (because pricing pages are JS-rendered). For "summarise what we found" → chat or research. For "write a Python function" → coding.
+4. **Pick the BEST agent per sub-task.** Choose the agent that is most specialised for the sub-task. For "visit X and read the price table" → browser (because pricing pages are JS-rendered). For "summarise what we found" → chat or research. For "write a Python function" → coding. For tasks involving maps, hotels, restaurants, navigation, weather, real-time prices, ordering food, delivery, takeout, or any other interaction with a configured MCP service (e.g. AMap/Gaode maps, McDonald's ordering) → prefer the \`chat\` agent because it has the full ReAct tool loop wired with MCP tools and can call \`mcp_<server>_<tool>\` directly.
 
-5. **Prefer fewer sub-tasks.** Aim for {max} or fewer. Over-decomposition wastes budget. An atomic task is ONE sub-task with empty \`dependsOn\`.
+5. **Read the recent-conversation block at the top of the task.** When the user has been having a multi-turn dialogue, the Orchestrator prepends a "同一会话的最近对话" block to the task. Use it as the primary signal for which sub-tasks make sense. A short follow-up like "我在上海虹桥阿里中心" only makes sense in the context of the prior turn ("帮我点个麦当劳"); the sub-task should preserve the prior intent (e.g. "search for McDonald's stores near 虹桥阿里中心, Shanghai") not just answer "我听到了".
 
-6. **Use \`dependsOn\` for ordering.** If sub-task B needs A's output, B.dependsOn must include A.id. Independent sub-tasks get empty dependsOn and run in parallel.
+6. **Pick the agent based on the SUB-TASK, not the surface intent.** Even if the user says a few short words, the underlying sub-task (informed by recent context) might be a search, a tool call, a code change or a report. Always pick the agent whose role description best matches the actual sub-task. If two agents could do the job, prefer the more specific one.
 
-7. **NEVER assign a sub-task to yourself.** Never invent agent names not in the list above. If a sub-task truly cannot be done by any listed agent, assign it to the most general agent in the list ({fallback_agent}) and describe the work in \`prompt\`.
+7. **Prefer fewer sub-tasks.** Aim for {max} or fewer. Over-decomposition wastes budget. An atomic task is ONE sub-task with empty \`dependsOn\`.
+
+8. **Use \`dependsOn\` for ordering.** If sub-task B needs A's output, B.dependsOn must include A.id. Independent sub-tasks get empty dependsOn and run in parallel.
+
+9. **NEVER assign a sub-task to yourself.** Never invent agent names not in the list above. If a sub-task truly cannot be done by any listed agent, assign it to the most general agent in the list ({fallback_agent}) and describe the work in \`prompt\`.
 
 === OUTPUT FORMAT ===
 
@@ -201,10 +207,10 @@ export function createPlannerAgent(config: PlannerAgentConfig): IAgent {
       return ctx.task.length > 30 ? 0.9 : 0.4;
     },
     async execute(ctx: TaskContext): Promise<AgentResult> {
-      const t0 = performance.now();
-      let response;
+      let callResult;
       try {
-        response = await config.llmProvider.generate({
+        callResult = await callWithMetrics({
+          llmProvider: config.llmProvider,
           model: config.model,
           messages: [
             { role: 'system', content: systemPrompt },
@@ -218,7 +224,7 @@ export function createPlannerAgent(config: PlannerAgentConfig): IAgent {
         return failResult('4001', `Planner LLM call failed: ${(e as Error).message}`);
       }
 
-      const plan = parsePlan(response.message.content ?? '', ctx.task, availableWithFallback);
+      const plan = parsePlan(callResult.content, ctx.task, availableWithFallback);
       if (!plan) {
         return failResult('4001', 'Planner could not produce a valid plan DAG');
       }
@@ -229,14 +235,7 @@ export function createPlannerAgent(config: PlannerAgentConfig): IAgent {
 
       return okResult(plan, {
         artifacts: { 'plan.dag': plan },
-        metrics: {
-          tokensIn: response.usage.tokensIn,
-          tokensOut: response.usage.tokensOut,
-          costUsd: response.costUsd ?? 0,
-          durationMs: Math.round(performance.now() - t0),
-          llmCalls: 1,
-          toolCalls: 0,
-        },
+        metrics: callResult.metrics,
       });
     },
   };
@@ -259,17 +258,17 @@ interface RawPlan {
  *  the response doesn't contain a usable plan; the caller should then
  *  fail rather than dispatching a bogus DAG. */
 function parsePlan(content: string, originalTask: string, availableAgents: string[]): PlanDag | null {
-  const raw = extractJson(content) as RawPlan | null;
-  if (!raw || !Array.isArray(raw.subtasks) || raw.subtasks.length === 0) {
-    return null;
-  }
+  const parsed = parseJsonObject<RawPlan>(content);
+  if (!parsed.ok) return null;
+  const rawSubtasks = parsed.value.subtasks;
+  if (!Array.isArray(rawSubtasks) || rawSubtasks.length === 0) return null;
 
   const allowed = new Set(availableAgents);
   const subtasks: SubTask[] = [];
   const seenIds = new Set<string>();
 
-  for (let i = 0; i < raw.subtasks.length; i++) {
-    const s = raw.subtasks[i];
+  for (let i = 0; i < rawSubtasks.length; i++) {
+    const s = rawSubtasks[i];
     if (typeof s?.prompt !== 'string' || s.prompt.trim().length === 0) continue;
 
     // Normalise the id: keep the model's choice if it's a valid
@@ -312,32 +311,9 @@ function parsePlan(content: string, originalTask: string, availableAgents: strin
   return {
     task: originalTask,
     subtasks,
-    rationale: typeof raw.rationale === 'string' ? raw.rationale : undefined,
+    rationale: typeof parsed.value.rationale === 'string' ? parsed.value.rationale : undefined,
     // Note: `allowed` is consulted for awareness; we do not mutate
     // the model output beyond the safety checks above.
     ...(allowed.size > 0 ? {} : {}),
   };
-}
-
-/** Extract a JSON object from a (possibly markdown-wrapped) string. */
-function extractJson(text: string): unknown {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-
-  // 1. Direct parse
-  try { return JSON.parse(trimmed); } catch { /* fall through */ }
-
-  // 2. Strip ```json ... ``` or ``` ... ``` fences
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]+?)\s*```/i);
-  if (fenced) {
-    try { return JSON.parse(fenced[1]); } catch { /* fall through */ }
-  }
-
-  // 3. First balanced { ... } block
-  const first = trimmed.indexOf('{');
-  const last = trimmed.lastIndexOf('}');
-  if (first >= 0 && last > first) {
-    try { return JSON.parse(trimmed.slice(first, last + 1)); } catch { /* fall through */ }
-  }
-  return null;
 }

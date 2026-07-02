@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Computer Use security policy
+// @ziner/runtime — Computer Use security policy
 //
 // Action safety classification, risk levels, and danger operation
 // interception for both web (browser) and OS-level (GUI) actions.

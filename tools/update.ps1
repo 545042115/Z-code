@@ -1,7 +1,7 @@
 # PowerShell script to update VS Code extension
 # One-click update .vsix file
 
-$nodePath = "D:\mycode\Z Code\tools\node-v20.14.0-win-x64"
+$nodePath = "D:\mycode\Ziner\tools\node-v20.14.0-win-x64"
 
 # Function to detect or setup Node.js
 function Setup-NodeJS {
@@ -126,7 +126,7 @@ if (-not (Setup-NodeJS)) {
 }
 Write-Host "      Node.js ready" -ForegroundColor Green
 
-$extensionPath = "D:\mycode\Z Code\extensions\coding-agent"
+$extensionPath = "D:\mycode\Ziner\extensions\coding-agent"
 
 # Step 1: Clean old builds
 Write-Host ""

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Knowledge barrel export
+// @ziner/runtime — Knowledge barrel export
 
 export { ProjectKnowledgeBase } from './project';
 export type { ProjectKnowledge } from './project';

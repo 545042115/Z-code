@@ -1,3 +1,3 @@
-// Shim: V1 extension → @z-assistant/infra-config
+// Shim: V1 extension → @ziner/infra-config
 // Migration re-export. See ADR 0007 (Phase 6 Runtime decoupling).
-export * from '@z-assistant/infra-config';
+export * from '@ziner/infra-config';

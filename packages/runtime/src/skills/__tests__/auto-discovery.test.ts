@@ -1,4 +1,4 @@
-// @z-assistant/runtime — auto-discovery engine end-to-end tests
+// @ziner/runtime — auto-discovery engine end-to-end tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -12,7 +12,7 @@ import {
   TemplateSkillExtractor,
   NoopFailureCaseStore,
 } from '../index';
-import type { CandidateSkillDraft, FailureCase } from '@z-assistant/contracts';
+import type { CandidateSkillDraft, FailureCase } from '@ziner/contracts';
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `z-auto-discovery-${Date.now()}-${Math.random().toString(36).slice(2)}`);

@@ -1,11 +1,11 @@
-// @z-assistant/runtime — Background Evolution Scheduler (Phase 5)
+// @ziner/runtime — Background Evolution Scheduler (Phase 5)
 //
 // Watches audit/failure logs and automatically triggers the evolution loop
 // and skill auto-discovery when a threshold of failures is crossed. All
 // generated candidates are routed to a human review queue; nothing is applied
 // automatically.
 
-import type { AuditLogEntry, ISkillReviewQueue, AutoDiscoveryReport } from '@z-assistant/contracts';
+import type { AuditLogEntry, ISkillReviewQueue, AutoDiscoveryReport } from '@ziner/contracts';
 import type { AuditLogger } from '../audit/logger';
 import type { EvolutionEngine, EvolutionReport } from './evolution';
 import type { AutoDiscoveryEngine } from '../skills/auto-discovery';

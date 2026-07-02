@@ -1,10 +1,10 @@
 $data = @{
-  'runtime' = 'F:\Z-code\packages\runtime'
-  'trace' = 'F:\Z-code\packages\trace'
-  'infra-storage' = 'F:\Z-code\packages\infra\storage'
-  'infra-cost' = 'F:\Z-code\packages\infra\cost'
-  'infra-errors' = 'F:\Z-code\packages\infra\errors'
-  'contracts' = 'F:\Z-code\packages\contracts'
+  'runtime' = 'F:\Ziner\packages\runtime'
+  'trace' = 'F:\Ziner\packages\trace'
+  'infra-storage' = 'F:\Ziner\packages\infra\storage'
+  'infra-cost' = 'F:\Ziner\packages\infra\cost'
+  'infra-errors' = 'F:\Ziner\packages\infra\errors'
+  'contracts' = 'F:\Ziner\packages\contracts'
 }
 foreach ($key in $data.Keys) {
   $path = $data[$key]
@@ -12,12 +12,12 @@ foreach ($key in $data.Keys) {
   if ($deps) {
     $ext = @()
     foreach ($k in $deps.PSObject.Properties.Name) {
-      if (-not $k.StartsWith('@z-assistant/')) { $ext += $k }
+      if (-not $k.StartsWith('@ziner/')) { $ext += $k }
     }
     if ($ext.Count -gt 0) {
       Write-Host "$key external: $($ext -join ',')"
     } else {
-      Write-Host "$key : only @z-assistant deps"
+      Write-Host "$key : only @ziner deps"
     }
   } else {
     Write-Host "$key : no deps"

@@ -1,4 +1,4 @@
-// @z-assistant/runtime — obsolescence detector tests
+// @ziner/runtime — obsolescence detector tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
@@ -11,7 +11,7 @@ import {
   JsonlFailureCaseStore,
 } from '../index';
 import type { Skill } from '../skills';
-import type { FailureCase } from '@z-assistant/contracts';
+import type { FailureCase } from '@ziner/contracts';
 
 function makeTempDir(): string {
   const dir = join(tmpdir(), `z-obsolescence-${Date.now()}-${Math.random().toString(36).slice(2)}`);

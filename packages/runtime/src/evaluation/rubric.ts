@@ -8,9 +8,9 @@
 // Phase 6A: moved from V1 `extensions/coding-agent/src/harness/rubric.ts`
 // to V2 `packages/runtime/src/evaluation/rubric.ts`. Pure Node, no vscode.
 
-import type { Rubric, Evaluation } from '@z-assistant/contracts';
+import type { Rubric, Evaluation } from '@ziner/contracts';
 import type { SandboxResult } from './sandbox';
-export type { Evaluation } from '@z-assistant/contracts';
+export type { Evaluation } from '@ziner/contracts';
 
 export type RubricCheck = (result: SandboxResult, evalCtx: Record<string, unknown>) => Promise<number> | number;
 
@@ -102,6 +102,55 @@ export function allOf(checks: RubricCheck[], threshold = 1): RubricCheck {
     return out.every((s) => s >= threshold) ? 1 : 0;
   };
 }
+
+// ── Code-task checks (used by CodingAgentRunner) ───────────────────────
+//
+// The CodingAgentRunner (see coding-task-runner.ts) writes a `grader.json`
+// inside the workdir before tearing down the container. The grader
+// script (provided by each fixture) writes fields like:
+//
+//   { "testsPassed": 42, "testsFailed": 0, "patchApplied": true, "buildClean": true }
+//
+// We surface these via `evalCtx` (the second arg to RubricCheck). The
+// contract: a fixture can use any of these names; missing fields score 0.
+
+/**
+ * True iff the agent's diff was applied (grader detected changes in
+ * the expected files). Score 1 if applied, 0 if not, fractional
+ * (appliedFiles / expectedFiles) when the grader reports a count.
+ */
+export const patchApplied: RubricCheck = (_r, ctx) => {
+  const v = (ctx as Record<string, unknown>)['patchApplied'];
+  if (v === true) return 1;
+  if (v === false) return 0;
+  const a = (ctx as Record<string, number>)['appliedFiles'];
+  const e = (ctx as Record<string, number>)['expectedFiles'];
+  if (typeof a === 'number' && typeof e === 'number' && e > 0) {
+    return Math.max(0, Math.min(1, a / e));
+  }
+  return 0;
+};
+
+/**
+ * All test cases in the fixture's test suite passed.
+ * Score = passed / (passed + failed). 1.0 if no tests failed.
+ */
+export const testsPassed: RubricCheck = (_r, ctx) => {
+  const p = (ctx as Record<string, number>)['testsPassed'];
+  const f = (ctx as Record<string, number>)['testsFailed'];
+  if (typeof p !== 'number') return 0;
+  if (typeof f !== 'number' || f === 0) return 1;
+  return Math.max(0, p / (p + f));
+};
+
+/** Build completed cleanly (no compile errors). */
+export const buildClean: RubricCheck = (r, ctx) => {
+  if (typeof (ctx as Record<string, unknown>)['buildClean'] === 'boolean') {
+    return (ctx as Record<string, boolean>)['buildClean'] ? 1 : 0;
+  }
+  // Fallback: no compile errors mentioned in stderr
+  return /error[: ]|cannot find|undefined reference/i.test(r.stderr) ? 0 : 1;
+};
 
 // ── Result adapter ─────────────────────────────────────────────────────
 

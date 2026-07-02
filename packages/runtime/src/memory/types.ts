@@ -1,16 +1,32 @@
-// @z-assistant/runtime — memory shared types/helpers
+// @ziner/runtime — memory shared types/helpers
 //
 // Internal utilities used by the memory subsystems. These are not exported
 // from the package root; consumers use the typed managers and the provider
 // interface instead.
 
-import type { MemoryKind, MemoryScope, MemoryRecord, MemoryListFilter, MemoryPurgeFilter } from '@z-assistant/contracts';
+import type { MemoryKind, MemoryScope, MemoryRecord, MemoryListFilter, MemoryPurgeFilter } from '@ziner/contracts';
 
 /** Create a ULID-like time-sortable id without extra dependencies. */
 export function newMemoryId(): string {
   const time = Date.now().toString(36).padStart(8, '0');
   const rand = Math.random().toString(36).slice(2, 12);
   return `${time}-${rand}`;
+}
+
+/**
+ * Create a deterministic memory id from a key string.
+ * Uses a simple hash to produce a consistent id for the same input,
+ * so repeated facts get updated instead of duplicated.
+ */
+export function deterministicMemoryId(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) {
+    const char = key.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash |= 0;
+  }
+  const hashStr = Math.abs(hash).toString(36).padStart(8, '0');
+  return `det-${hashStr}`;
 }
 
 export function normalizeKinds(kind?: MemoryKind | MemoryKind[]): MemoryKind[] | undefined {

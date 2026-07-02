@@ -1,4 +1,4 @@
-// @z-assistant/agent-synthesizer — Result Synthesizer (P2 Multi-Agent).
+// @ziner/agent-synthesizer — Result Synthesizer (P2 Multi-Agent).
 //
 // Aggregates multiple sub-task outputs into a single coherent answer
 // for the user. Reads from `SharedState`:
@@ -10,8 +10,8 @@
 //   - 1 output           → return verbatim, no LLM call (saves tokens)
 //   - 2+ outputs         → one LLM call to weave them into a single response
 
-import type { ILLMProvider, IAgent, ModelSpec, TaskContext, AgentResult, PlanDag } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
+import type { ILLMProvider, IAgent, ModelSpec, TaskContext, AgentResult, PlanDag } from '@ziner/contracts';
+import { ok as okResult, fail as failResult, callWithMetrics } from '@ziner/contracts';
 
 export interface SynthesizerAgentConfig {
   /** LLM provider used to weave outputs together. */
@@ -55,7 +55,6 @@ export function createSynthesizerAgent(config: SynthesizerAgentConfig): IAgent {
       return 0.3;
     },
     async execute(ctx: TaskContext): Promise<AgentResult> {
-      const t0 = performance.now();
       const collected = collectSubTaskOutputs(ctx);
 
       if (collected.length === 0) {
@@ -71,9 +70,10 @@ export function createSynthesizerAgent(config: SynthesizerAgentConfig): IAgent {
         });
       }
 
-      let response;
+      let callResult;
       try {
-        response = await config.llmProvider.generate({
+        callResult = await callWithMetrics({
+          llmProvider: config.llmProvider,
           model: config.model,
           messages: [
             { role: 'system', content: systemPrompt },
@@ -87,19 +87,12 @@ export function createSynthesizerAgent(config: SynthesizerAgentConfig): IAgent {
         return failResult('4003', `Synthesizer LLM call failed: ${(e as Error).message}`);
       }
 
-      return okResult(response.message.content ?? '', {
+      return okResult(callResult.content, {
         artifacts: {
           synthesized: true,
           sources: collected.map((c) => c.id),
         },
-        metrics: {
-          tokensIn: response.usage.tokensIn,
-          tokensOut: response.usage.tokensOut,
-          costUsd: response.costUsd ?? 0,
-          durationMs: Math.round(performance.now() - t0),
-          llmCalls: 1,
-          toolCalls: 0,
-        },
+        metrics: callResult.metrics,
       });
     },
   };

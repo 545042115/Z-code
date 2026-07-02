@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — P1-2 HITL Confirmation Modal (renderer)
+// @ziner/app-desktop — P1-2 HITL Confirmation Modal (renderer)
 //
 // Listens for ConfirmationRequest events from the main process and shows
 // a modal with the tool name, risk badge, reason, and a preview of the
@@ -9,7 +9,7 @@
 // while one is pending, it queues (the main process holds the Promise).
 
 declare const zApi: import('../preload').ZDesktopAPI;
-import type { ConfirmationRequest, Decision, RiskLevel } from '@z-assistant/contracts';
+import type { ConfirmationRequest, Decision, RiskLevel } from '@ziner/contracts';
 
 // ── Queue state ────────────────────────────────────────────────────────
 

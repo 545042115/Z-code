@@ -1,10 +1,10 @@
-// @z-assistant/runtime — preferences memory
+// @ziner/runtime — preferences memory
 //
 // User preference learning: language style, framework choices, review
 // habits, output format, etc. Preferences are scoped to the user by
 // default and retrieved at the start of a session to personalize behavior.
 
-import type { MemoryRecord, MemoryHit } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryHit } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface UserPreference {

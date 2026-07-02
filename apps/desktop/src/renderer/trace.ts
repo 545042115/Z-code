@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Trace panel (i18n)
+// @ziner/app-desktop — Trace panel (i18n)
 //
 // Shows chat sessions with detailed run timeline (waterfall view),
 // span hierarchy, LLM/tool details, agent info, and audit logs.
@@ -104,18 +104,11 @@ async function showSessionDetail(sessionId: string): Promise<void> {
       html += `<div class="card"><p class="muted">${t('trace.no_runs')}</p></div>`;
     }
 
-    // ── Conversation ──────────────────────────────────────────────
-    html += `
-      <div class="card trace-conversation">
-        <h4>${t('trace.conversation')}</h4>
-        ${session.messages.map((m) => `
-          <div class="trace-msg ${m.role}">
-            <strong>${m.role === 'user' ? t('chat.you') : t('chat.assistant')}</strong>
-            <span class="muted">${new Date(m.timestamp).toLocaleTimeString()}</span>
-            <p>${escapeHtml(m.content)}</p>
-          </div>
-        `).join('')}
-      </div>`;
+    // Conversation history lives in the Chat view (sessions.json is the
+    // single source of truth for messages). The Trace view is for spans /
+    // runs / cost — it deliberately does not duplicate the chat history.
+    // Keeping the conversation card out of Trace prevents the user from
+    // seeing the same content in two places.
 
     detail.innerHTML = html;
 
@@ -180,33 +173,77 @@ async function showSessionDetail(sessionId: string): Promise<void> {
 
 // ── Render a single run card (waterfall header) ──────────────────────
 
+function formatDuration(ms: number | null | undefined): string {
+  if (!ms) return '—';
+  if (ms < 1000) return `${ms.toFixed(0)}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  const mins = Math.floor(ms / 60000);
+  const secs = ((ms % 60000) / 1000).toFixed(0);
+  return `${mins}m ${secs}s`;
+}
+
 function renderRunCard(run: any): string {
   const statusClass = run.status === 'success' ? 'ok' : run.status === 'failed' ? 'error' : '';
-  const duration = run.duration ? `${(run.duration / 1000).toFixed(1)}s` : '—';
+  const statusLabel = run.status === 'success' ? '✓ ' + t('trace.success') : run.status === 'failed' ? '✗ ' + t('trace.failed') : run.status;
+  const duration = formatDuration(run.duration);
   const modelInfo = run.model
     ? `${run.model.provider}/${run.model.name}`
     : '—';
   const agents = run.tags?.filter((t: string) => t.startsWith('agent:'))?.map((t: string) => t.slice(6)).join(', ') || '—';
 
+  const totalTokens = (run.totalTokensIn ?? 0) + (run.totalTokensOut ?? 0);
+  const tokenInPct = totalTokens > 0 ? ((run.totalTokensIn ?? 0) / totalTokens) * 100 : 0;
+
   return `
     <div class="card run-card">
       <div class="run-header">
-        <span class="status ${statusClass}">${run.status}</span>
-        <span class="muted">${new Date(run.startTime).toLocaleTimeString()}</span>
-        <span class="muted">${duration}</span>
-        <span class="muted" style="margin-left:auto;font-size:0.82em">${t('trace.model')}: ${escapeHtml(modelInfo)}</span>
+        <span class="status-badge status-${run.status || 'unknown'}">${statusLabel}</span>
+        <span class="run-time muted">🕐 ${new Date(run.startTime).toLocaleTimeString()}</span>
+        <span class="run-duration">⏱ ${duration}</span>
+        <span class="run-model muted" style="margin-left:auto">${t('trace.model')}: ${escapeHtml(modelInfo)}</span>
       </div>
-      <div class="run-task muted">${escapeHtml(run.task.slice(0, 200))}</div>
-      <div class="run-metrics">
-        <span>${t('trace.agents')}: ${escapeHtml(agents)}</span>
-        <span>${t('trace.tokens_in')}: ${(run.totalTokensIn ?? 0).toLocaleString()}</span>
-        <span>${t('trace.tokens_out')}: ${(run.totalTokensOut ?? 0).toLocaleString()}</span>
-        <span>${t('trace.cost')}: $${(run.totalCostUsd ?? 0).toFixed(6)}</span>
-        <span>ID: ${escapeHtml(run.id.slice(0, 8))}</span>
+      <div class="run-task">${escapeHtml(run.task.slice(0, 200))}</div>
+      
+      <div class="run-stats-grid">
+        <div class="run-stat-item">
+          <div class="run-stat-label">${t('trace.agents')}</div>
+          <div class="run-stat-value">${escapeHtml(agents)}</div>
+        </div>
+        <div class="run-stat-item">
+          <div class="run-stat-label">${t('trace.tokens_in')}</div>
+          <div class="run-stat-value token-in">${(run.totalTokensIn ?? 0).toLocaleString()}</div>
+        </div>
+        <div class="run-stat-item">
+          <div class="run-stat-label">${t('trace.tokens_out')}</div>
+          <div class="run-stat-value token-out">${(run.totalTokensOut ?? 0).toLocaleString()}</div>
+        </div>
+        <div class="run-stat-item">
+          <div class="run-stat-label">${t('trace.cost')}</div>
+          <div class="run-stat-value cost">$${(run.totalCostUsd ?? 0).toFixed(6)}</div>
+        </div>
       </div>
-      <div class="row" style="gap:6px;margin-top:6px">
-        <button class="load-spans-btn primary" data-runid="${escapeHtml(run.id)}" style="font-size:0.82em;padding:4px 10px">${t('trace.load_spans')}</button>
-        <button class="load-audit-btn secondary" data-runid="${escapeHtml(run.id)}" style="font-size:0.82em;padding:4px 10px">${t('trace.load_audit')}</button>
+      
+      ${totalTokens > 0 ? `
+      <div class="token-visual">
+        <div class="token-bar">
+          <div class="token-bar-in" style="width:${tokenInPct}%" title="${t('trace.tokens_in')}: ${(run.totalTokensIn ?? 0).toLocaleString()}"></div>
+          <div class="token-bar-out" style="width:${100 - tokenInPct}%" title="${t('trace.tokens_out')}: ${(run.totalTokensOut ?? 0).toLocaleString()}"></div>
+        </div>
+        <div class="token-legend">
+          <span class="legend-item"><span class="legend-dot legend-in"></span>${t('trace.tokens_in')} ${tokenInPct.toFixed(0)}%</span>
+          <span class="legend-item"><span class="legend-dot legend-out"></span>${t('trace.tokens_out')} ${(100 - tokenInPct).toFixed(0)}%</span>
+          <span class="legend-total">${t('trace.total')}: ${totalTokens.toLocaleString()}</span>
+        </div>
+      </div>` : ''}
+      
+      <div class="row run-actions" style="gap:6px">
+        <button class="load-spans-btn primary" data-runid="${escapeHtml(run.id)}">
+          <span class="btn-icon">📊</span>${t('trace.load_spans')}
+        </button>
+        <button class="load-audit-btn secondary" data-runid="${escapeHtml(run.id)}">
+          <span class="btn-icon">📋</span>${t('trace.load_audit')}
+        </button>
+        <span class="run-id muted">ID: ${escapeHtml(run.id.slice(0, 8))}</span>
       </div>
       <div class="spans-container" id="spans-${escapeHtml(run.id)}"></div>
       <div class="audit-container" id="audit-${escapeHtml(run.id)}" style="margin-top:8px"></div>
@@ -229,11 +266,18 @@ function renderSpans(runId: string): void {
 
   // Read filter state
   const filterType = (document.getElementById(`span-filter-type-${runId}`) as HTMLSelectElement)?.value || 'all';
+  const filterStatus = (document.getElementById(`span-filter-status-${runId}`) as HTMLSelectElement)?.value || 'all';
   const searchText = (document.getElementById(`span-search-${runId}`) as HTMLInputElement)?.value?.toLowerCase() || '';
 
   let filtered = allSpans;
   if (filterType !== 'all') {
     filtered = filtered.filter((s) => s.type === filterType);
+  }
+  if (filterStatus !== 'all') {
+    filtered = filtered.filter((s) => {
+      if (filterStatus === 'running') return s.status === 'running' || !s.status;
+      return s.status === filterStatus;
+    });
   }
   if (searchText) {
     filtered = filtered.filter((s) =>
@@ -245,7 +289,7 @@ function renderSpans(runId: string): void {
   }
 
   if (filtered.length === 0) {
-    container.innerHTML = `<p class="muted">${t('trace.no_spans')}</p>`;
+    container.querySelector('.span-list')!.innerHTML = `<p class="empty-state">${t('trace.no_spans')}</p>`;
     return;
   }
 
@@ -254,12 +298,30 @@ function renderSpans(runId: string): void {
   const maxEnd = Math.max(...filtered.map((s) => s.endTime ?? s.startTime));
   const totalDuration = maxEnd - minStart || 1;
 
-  // Build a tree from flat spans
-  const rootSpans = buildSpanTree(filtered);
+  // Summary stats
+  const llmCount = filtered.filter((s) => s.type === 'llm').length;
+  const toolCount = filtered.filter((s) => s.type === 'tool').length;
+  const totalTokens = filtered.reduce((sum, s) => {
+    if (s.type === 'llm' && s.attributes) {
+      const inTok = s.attributes['gen_ai.usage.input_tokens'] || 0;
+      const outTok = s.attributes['gen_ai.usage.output_tokens'] || 0;
+      return sum + inTok + outTok;
+    }
+    return sum;
+  }, 0);
 
-  container.innerHTML = filtered
-    .map((s) => renderSpanItem(s, minStart, totalDuration, 0))
-    .join('');
+  const listEl = container.querySelector('.span-list');
+  if (listEl) {
+    listEl.innerHTML = filtered
+      .map((s) => renderSpanItem(s, minStart, totalDuration, 0))
+      .join('');
+  }
+
+  // Update filter stats
+  const statsEl = container.querySelector('.filter-stats');
+  if (statsEl && filtered.length !== allSpans.length) {
+    statsEl.innerHTML = `<span class="muted">${filtered.length} / ${allSpans.length} ${t('trace.total')}</span>`;
+  }
 }
 
 function buildSpanTree(spans: any[]): any[] {
@@ -281,16 +343,25 @@ function buildSpanTree(spans: any[]): any[] {
 
 function renderSpanItem(s: any, minStart: number, totalDuration: number, depth: number): string {
   const dur = s.duration ? `${s.duration.toFixed(0)}ms` : '—';
-  const typeIcon = s.type === 'llm' ? '🤖' : s.type === 'tool' ? '🔧' : s.type === 'planner' ? '📋' : '•';
-  const statusBadge = s.status === 'ok' ? '✅' : s.status === 'error' ? '❌' : '⏳';
+  const typeColors: Record<string, { icon: string; bg: string; text: string }> = {
+    llm: { icon: '🤖', bg: 'var(--llm-bg, #eef2ff)', text: 'var(--llm-fg, #6366f1)' },
+    tool: { icon: '🔧', bg: 'var(--tool-bg, #ecfdf5)', text: 'var(--tool-fg, #10b981)' },
+    planner: { icon: '📋', bg: 'var(--planner-bg, #fef3c7)', text: 'var(--planner-fg, #f59e0b)' },
+    agent: { icon: '👤', bg: 'var(--agent-bg, #f3e8ff)', text: 'var(--agent-fg, #a855f7)' },
+  };
+  const typeStyle = typeColors[s.type] || { icon: '•', bg: 'var(--bg)', text: 'var(--text-secondary)' };
   const hasError = s.status === 'error';
 
   // Waterfall bar position
   const offset = ((s.startTime - minStart) / totalDuration) * 100;
   const width = s.endTime ? ((s.endTime - s.startTime) / totalDuration) * 100 : 2;
+  const barColor = hasError ? 'var(--danger)' : typeStyle.text;
   const waterfallBar = s.endTime
-    ? `<div class="waterfall-bar" style="margin-left:${offset}%;width:${Math.max(width, 1)}%"></div>`
+    ? `<div class="waterfall-bar" style="margin-left:${offset}%;width:${Math.max(width, 1)}%;background:${barColor}"></div>`
     : '';
+
+  // Duration percentage
+  const durPct = s.duration ? ((s.duration / totalDuration) * 100).toFixed(1) : null;
 
   // LLM-specific details
   let llmDetails = '';
@@ -301,17 +372,17 @@ function renderSpanItem(s: any, minStart: number, totalDuration: number, depth: 
     const inputCost = s.attributes['gen_ai.usage.input_cost'];
     const outputCost = s.attributes['gen_ai.usage.output_cost'];
     if (model) {
-      llmDetails += `<span class="attr">Model: ${escapeHtml(String(model))}</span>`;
+      llmDetails += `<span class="attr">${escapeHtml(String(model))}</span>`;
     }
     if (inputTokens !== undefined) {
-      llmDetails += `<span class="attr">↑${inputTokens} tokens</span>`;
+      llmDetails += `<span class="attr attr-in">↑ ${inputTokens.toLocaleString()}</span>`;
     }
     if (outputTokens !== undefined) {
-      llmDetails += `<span class="attr">↓${outputTokens} tokens</span>`;
+      llmDetails += `<span class="attr attr-out">↓ ${outputTokens.toLocaleString()}</span>`;
     }
     if (inputCost !== undefined || outputCost !== undefined) {
       const cost = (Number(inputCost || 0) + Number(outputCost || 0)).toFixed(6);
-      llmDetails += `<span class="attr">$${cost}</span>`;
+      llmDetails += `<span class="attr attr-cost">$${cost}</span>`;
     }
   }
 
@@ -332,6 +403,9 @@ function renderSpanItem(s: any, minStart: number, totalDuration: number, depth: 
     ? `<span class="agent-badge">${escapeHtml(s.agent)}</span>`
     : '';
 
+  // Type badge
+  const typeBadge = `<span class="span-type-badge span-type-${s.type || 'default'}">${typeStyle.icon} ${s.type || 'span'}</span>`;
+
   // Input/Output details (collapsible)
   const inputStr = s.input ? JSON.stringify(s.input, null, 2) : '';
   const outputStr = s.output ? JSON.stringify(s.output, null, 2) : '';
@@ -339,31 +413,35 @@ function renderSpanItem(s: any, minStart: number, totalDuration: number, depth: 
 
   // Error details (auto-expanded)
   const errorHtml = s.error
-    ? `<details open class="span-error-details"><summary>${t('trace.error')}</summary><pre class="span-error">${escapeHtml(JSON.stringify(s.error, null, 2))}</pre></details>`
+    ? `<details open class="span-error-details"><summary>❌ ${t('trace.error')}</summary><pre class="span-error">${escapeHtml(JSON.stringify(s.error, null, 2))}</pre></details>`
     : '';
 
   // Events
   const eventsHtml = s.events && s.events.length > 0
-    ? `<details class="span-events-details"><summary>${s.events.length} events</summary><div class="span-events">${s.events.map((e: any) => `<span class="event">${escapeHtml(e.name)} @ ${new Date(e.ts).toLocaleTimeString()}</span>`).join('')}</div></details>`
+    ? `<details class="span-events-details"><summary>📌 ${s.events.length} events</summary><div class="span-events">${s.events.map((e: any) => `<span class="event">${escapeHtml(e.name)} @ ${new Date(e.ts).toLocaleTimeString()}</span>`).join('')}</div></details>`
     : '';
 
   // Input/Output collapsible sections
   const ioDetails = hasDetails
     ? `<div class="span-io">
-        ${inputStr ? `<details ${hasError ? 'open' : ''}><summary>${t('trace.input')}</summary><pre class="span-output">${escapeHtml(inputStr.slice(0, 2000))}${inputStr.length > 2000 ? '...' : ''}</pre></details>` : ''}
-        ${outputStr ? `<details ${hasError ? 'open' : ''}><summary>${t('trace.output')}</summary><pre class="span-output">${escapeHtml(outputStr.slice(0, 2000))}${outputStr.length > 2000 ? '...' : ''}</pre></details>` : ''}
+        ${inputStr ? `<details ${hasError ? 'open' : ''}><summary>📥 ${t('trace.input')}</summary><pre class="span-output">${escapeHtml(inputStr.slice(0, 2000))}${inputStr.length > 2000 ? '...' : ''}</pre></details>` : ''}
+        ${outputStr ? `<details ${hasError ? 'open' : ''}><summary>📤 ${t('trace.output')}</summary><pre class="span-output">${escapeHtml(outputStr.slice(0, 2000))}${outputStr.length > 2000 ? '...' : ''}</pre></details>` : ''}
       </div>`
     : '';
 
   // Waterfall row
   return `
-    <div class="span-item" style="margin-left:${depth * 20}px">
+    <div class="span-item span-type-${s.type || 'default'} ${hasError ? 'has-error' : ''}" style="margin-left:${depth * 20}px">
       <div class="span-header">
-        <span class="span-type-icon">${typeIcon}</span>
-        <strong>${escapeHtml(s.name)}</strong>
-        ${agentBadge}
-        <span class="muted">${dur}</span>
-        <span class="span-status ${s.status}">${statusBadge}</span>
+        <div class="span-header-left">
+          ${typeBadge}
+          <strong class="span-name">${escapeHtml(s.name)}</strong>
+          ${agentBadge}
+        </div>
+        <div class="span-header-right">
+          <span class="span-duration">${dur}${durPct ? ` <span class="span-duration-pct">(${durPct}%)</span>` : ''}</span>
+          <span class="span-status ${s.status || ''}">${hasError ? '❌' : s.status === 'ok' ? '✓' : '⏳'}</span>
+        </div>
       </div>
       ${waterfallBar ? `<div class="waterfall-track">${waterfallBar}</div>` : ''}
       ${llmDetails ? `<div class="span-attrs">${llmDetails}</div>` : ''}
@@ -388,17 +466,32 @@ async function loadSpans(runId: string): Promise<void> {
 
     // Add filter controls above spans
     const filterHtml = spans.length > 0
-      ? `<div class="span-filters" style="display:flex;gap:6px;margin-bottom:6px;align-items:center;font-size:0.82em;flex-wrap:wrap">
-          <label class="muted">${t('trace.filter')}:</label>
-          <select id="span-filter-type-${runId}" style="width:auto;font-size:0.85em">
-            <option value="all">${t('trace.all')}</option>
-            <option value="llm">LLM</option>
-            <option value="tool">${t('trace.tools')}</option>
-            <option value="planner">Planner</option>
-            <option value="agent">Agent</option>
-          </select>
-          <input id="span-search-${runId}" type="text" placeholder="${t('trace.search_spans')}" style="flex:1;max-width:200px;font-size:0.85em">
-          <span class="muted" style="font-size:0.82em">${spans.length} ${t('trace.total')}</span>
+      ? `<div class="span-filters">
+          <div class="filter-group">
+            <label class="filter-label">${t('trace.filter')}:</label>
+            <select id="span-filter-type-${runId}" class="filter-select">
+              <option value="all">${t('trace.all')} (${spans.length})</option>
+              <option value="llm">🤖 LLM (${spans.filter((s: any) => s.type === 'llm').length})</option>
+              <option value="tool">🔧 ${t('trace.tools')} (${spans.filter((s: any) => s.type === 'tool').length})</option>
+              <option value="planner">📋 Planner (${spans.filter((s: any) => s.type === 'planner').length})</option>
+              <option value="agent">👤 Agent (${spans.filter((s: any) => s.type === 'agent').length})</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <select id="span-filter-status-${runId}" class="filter-select">
+              <option value="all">${t('trace.all_status')}</option>
+              <option value="ok">✓ ${t('trace.success')} (${spans.filter((s: any) => s.status === 'ok').length})</option>
+              <option value="error">❌ ${t('trace.failed')} (${spans.filter((s: any) => s.status === 'error').length})</option>
+              <option value="running">⏳ Running (${spans.filter((s: any) => s.status === 'running' || !s.status).length})</option>
+            </select>
+          </div>
+          <div class="filter-group filter-search">
+            <span class="search-icon">🔍</span>
+            <input id="span-search-${runId}" type="text" placeholder="${t('trace.search_spans')}" class="filter-search-input">
+          </div>
+          <div class="filter-stats">
+            <span class="muted">${spans.length} ${t('trace.total')}</span>
+          </div>
         </div>`
       : '';
 
@@ -414,12 +507,20 @@ async function loadSpans(runId: string): Promise<void> {
 
     // Bind filter/search events
     const filterSelect = document.getElementById(`span-filter-type-${runId}`) as HTMLSelectElement;
+    const statusSelect = document.getElementById(`span-filter-status-${runId}`) as HTMLSelectElement;
     const searchInput = document.getElementById(`span-search-${runId}`) as HTMLInputElement;
     if (filterSelect) {
       filterSelect.addEventListener('change', () => renderSpans(runId));
     }
+    if (statusSelect) {
+      statusSelect.addEventListener('change', () => renderSpans(runId));
+    }
     if (searchInput) {
-      searchInput.addEventListener('input', () => renderSpans(runId));
+      let searchTimer: ReturnType<typeof setTimeout> | null = null;
+      searchInput.addEventListener('input', () => {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(() => renderSpans(runId), 150);
+      });
     }
 
     if (btn) btn.textContent = `${t('trace.load_spans')} (${spans.length})`;
@@ -477,6 +578,13 @@ function mountTrace(container: HTMLElement): void {
       <ul id="trace-list" class="run-list"></ul>
       <div id="trace-detail"></div>
     </div>
+    <div class="stack" style="margin-top:24px">
+      <div class="row">
+        <h2>${t('trace.resumable')}</h2>
+        <button id="trace-resumable-refresh" class="secondary" style="font-size:0.78em;padding:4px 8px">${t('trace.refresh')}</button>
+      </div>
+      <ul id="trace-resumable-list" class="run-list"></ul>
+    </div>
   `;
 
   const list = document.getElementById('trace-list')!;
@@ -485,7 +593,95 @@ function mountTrace(container: HTMLElement): void {
     const li = (e.target as HTMLElement).closest('li[data-sessionid]') as HTMLLIElement;
     if (li) showSessionDetail(li.dataset.sessionid!);
   });
+  document.getElementById('trace-resumable-refresh')!.addEventListener('click', loadResumableRuns);
+  document.getElementById('trace-resumable-list')!.addEventListener('click', (e) => {
+    const li = (e.target as HTMLElement).closest('li[data-runid]') as HTMLLIElement;
+    if (!li) return;
+    const action = (e.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
+    const runId = li.dataset.runid!;
+    if (action === 'resume') {
+      void resumeCheckpoint(runId);
+    } else if (action === 'delete') {
+      void deleteCheckpoint(runId);
+    }
+  });
   loadSessions();
+  loadResumableRuns();
+}
+
+// ── P3 Resumable Runs ────────────────────────────────────────────────
+
+async function loadResumableRuns(): Promise<void> {
+  const list = document.getElementById('trace-resumable-list')!;
+  list.innerHTML = `<li class="muted">${t('trace.loading')}</li>`;
+  try {
+    const entries = await zApi.listCheckpoints({ limit: 30 });
+    if (entries.length === 0) {
+      list.innerHTML = `<li class="muted">${t('trace.no_resumable')}</li>`;
+      return;
+    }
+    list.innerHTML = entries
+      .map((e) => {
+        const statusLabel = t(`trace.checkpoint_status.${e.status}`);
+        const date = new Date(e.updatedAt).toLocaleString();
+        const preview = e.task.length > 80 ? e.task.slice(0, 80) + '…' : e.task;
+        const resumable = e.status === 'in_progress' || e.status === 'cancelled' || e.status === 'failed';
+        return `<li data-runid="${escapeHtml(e.runId)}">
+          <div class="session-info">
+            <strong>${escapeHtml(preview)}</strong>
+            <span class="muted">${date} · ${statusLabel}</span>
+          </div>
+          <div class="session-meta">
+            <span class="muted">${e.completedCount}/${e.totalCount} ${t('trace.subtasks')}</span>
+            <span style="display:flex;gap:4px">
+              ${
+                resumable
+                  ? `<button class="primary" data-action="resume" style="font-size:0.78em;padding:3px 8px">${t('trace.resume')}</button>`
+                  : ''
+              }
+              <button class="secondary" data-action="delete" style="font-size:0.78em;padding:3px 8px">${t('trace.delete')}</button>
+            </span>
+          </div>
+        </li>`;
+      })
+      .join('');
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    list.innerHTML = `<li class="muted">${t('trace.failed_load')}: ${escapeHtml(msg)}</li>`;
+  }
+}
+
+async function resumeCheckpoint(runId: string): Promise<void> {
+  try {
+    await zApi.resumeTask(runId);
+    addSystemToast(t('trace.resume_started'));
+    // Switch to chat so the user can watch progress.
+    const navBtn = document.querySelector<HTMLElement>('[data-view="chat"]');
+    navBtn?.click();
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    addSystemToast(`${t('trace.resume_failed')}: ${msg}`);
+  }
+}
+
+async function deleteCheckpoint(runId: string): Promise<void> {
+  try {
+    await zApi.deleteCheckpoint(runId);
+    void loadResumableRuns();
+  } catch {
+    /* ignore */
+  }
+}
+
+function addSystemToast(text: string): void {
+  // Reuse the chat panel's system-message styling by appending a
+  // floating toast at the bottom of the viewport.
+  const toast = document.createElement('div');
+  toast.className = 'message system';
+  toast.style.cssText = 'position:fixed;bottom:24px;right:24px;z-index:1000;box-shadow:0 4px 20px rgba(0,0,0,0.15);animation:messageIn 0.3s ease';
+  toast.textContent = text;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
 }
 
 // Auto-mount

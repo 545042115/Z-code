@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com;">
-  <title>Z Assistant</title>
+  <title>Ziner</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -15,7 +15,7 @@
       <div class="titlebar-drag-region">
         <div class="titlebar-brand">
           <div class="brand-mark">Z</div>
-          <span class="brand-name">Z Assistant</span>
+          <span class="brand-name">Ziner</span>
         </div>
       </div>
       <div class="titlebar-controls">
@@ -31,11 +31,30 @@
       </div>
     </header>
     <nav id="nav">
-      <button data-view="main"><span class="nav-dot"></span><span class="nav-label">Main</span></button>
-      <button data-view="chat"><span class="nav-dot"></span><span class="nav-label">Chat</span></button>
-      <button data-view="trace"><span class="nav-dot"></span><span class="nav-label">Trace</span></button>
-      <button data-view="memory"><span class="nav-dot"></span><span class="nav-label">Memory</span></button>
-      <button data-view="settings"><span class="nav-dot"></span><span class="nav-label">Settings</span></button>
+      <button data-view="main" data-tooltip="nav.main">
+        <span class="nav-icon">🏠</span>
+        <span class="nav-label">Main</span>
+      </button>
+      <button data-view="chat" data-tooltip="nav.chat">
+        <span class="nav-icon">💬</span>
+        <span class="nav-label">Chat</span>
+      </button>
+      <button data-view="trace" data-tooltip="nav.trace">
+        <span class="nav-icon">📊</span>
+        <span class="nav-label">Trace</span>
+      </button>
+      <button data-view="memory" data-tooltip="nav.memory">
+        <span class="nav-icon">🧠</span>
+        <span class="nav-label">Memory</span>
+      </button>
+      <button data-view="benchmarks" data-tooltip="nav.benchmarks">
+        <span class="nav-icon">🧪</span>
+        <span class="nav-label">Benchmarks</span>
+      </button>
+      <button data-view="settings" data-tooltip="nav.settings">
+        <span class="nav-icon">⚙️</span>
+        <span class="nav-label">Settings</span>
+      </button>
     </nav>
     <main id="main"></main>
   </div>

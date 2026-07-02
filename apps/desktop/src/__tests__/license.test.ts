@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — License service tests
+// @ziner/app-desktop — License service tests
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';

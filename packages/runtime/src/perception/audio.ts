@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Audio Transcription Service
+// @ziner/runtime — Audio Transcription Service
 //
 // Transcribes audio files to text using the Python sidecar
 // (faster-whisper). Falls back gracefully if Python is unavailable.

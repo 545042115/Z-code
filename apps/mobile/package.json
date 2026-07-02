@@ -1,0 +1,34 @@
+{
+  "name": "@ziner/mobile",
+  "version": "0.1.0",
+  "description": "Z Code Mobile - Android app powered by Capacitor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "cap:sync": "cap sync android",
+    "cap:open": "cap open android",
+    "cap:build": "npm run build && npm run cap:sync",
+    "android:build": "npm run cap:build && cd android && ./gradlew assembleDebug",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@capacitor/android": "^5.7.0",
+    "@capacitor/clipboard": "^5.0.0",
+    "@capacitor/core": "^5.7.0",
+    "@capacitor/filesystem": "^5.2.1",
+    "@capacitor/haptics": "^5.0.0",
+    "@capacitor/local-notifications": "^5.0.0",
+    "@capacitor/share": "^5.0.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@ziner/contracts": "0.1.0",
+    "@ziner/runtime": "*"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.3.0"
+  }
+}

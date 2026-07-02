@@ -1,4 +1,4 @@
-// @z-assistant/runtime — memory provider
+// @ziner/runtime — memory provider
 //
 // Default `IMemoryProvider` implementation backed by:
 //   - append-only JSONL file for durability
@@ -20,7 +20,7 @@ import type {
   MemoryHitReason,
   MemoryListFilter,
   MemoryPurgeFilter,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 import type { IVectorStore, VectorRecord } from '../storage/vector-store';
 import { createInMemoryVectorStore } from '../storage/vector-store';
 import { createLocalEmbeddingProvider } from '../embedding';
@@ -48,10 +48,13 @@ async function ensureDir(p: string): Promise<void> {
   if (!existsSync(p)) await fsp.mkdir(p, { recursive: true });
 }
 
-/** Tiny TTL cache for query embeddings to avoid recomputing the same query. */
+/** TTL + LRU cache for query embeddings to avoid recomputing the same query. */
 class QueryEmbeddingCache {
   private readonly store = new Map<string, { vector: number[]; expires: number }>();
-  constructor(private readonly ttlMs: number) {}
+  constructor(
+    private readonly ttlMs: number,
+    private readonly maxSize = 500,
+  ) {}
   get(query: string): number[] | undefined {
     const key = query.toLowerCase().trim().slice(0, 200);
     const entry = this.store.get(key);
@@ -60,11 +63,25 @@ class QueryEmbeddingCache {
       this.store.delete(key);
       return undefined;
     }
+    // LRU: re-insert to move to end (most recently used)
+    this.store.delete(key);
+    this.store.set(key, entry);
     return entry.vector;
   }
   set(query: string, vector: number[]): void {
     const key = query.toLowerCase().trim().slice(0, 200);
+    // Enforce max size: evict oldest (first inserted) entries
+    if (this.store.size >= this.maxSize) {
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) this.store.delete(oldest);
+    }
     this.store.set(key, { vector, expires: Date.now() + this.ttlMs });
+  }
+  clear(): void {
+    this.store.clear();
+  }
+  get size(): number {
+    return this.store.size;
   }
 }
 
@@ -187,6 +204,34 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     if (!rec.vector && rec.content) {
       rec.vector = await this.embedding.embed(rec.content);
     }
+
+    // Deduplication: check for near-duplicate memories of the same kind/scope
+    // If a highly similar memory exists (>0.88), update it instead of inserting a new one.
+    // Short memories (<= 20 chars) use exact-match deduplication for speed and accuracy.
+    if (rec.content) {
+      const shortContent = rec.content.length <= 20;
+      const threshold = shortContent ? 0.98 : 0.88;
+      const similar = await this._findSimilar(rec, threshold);
+      if (similar) {
+        const existing = this.records.get(similar.id);
+        if (existing) {
+          const merged: MemoryRecord = {
+            ...existing,
+            content: rec.content.length >= existing.content.length ? rec.content : existing.content,
+            importance: Math.max(this._effectiveImportance(existing), rec.importance ?? 0.5),
+            accessedAt: Date.now(),
+            vector: rec.vector,
+            payload: { ...existing.payload, ...rec.payload, duplicateCount: ((existing.payload as Record<string, unknown>)?.duplicateCount as number ?? 0) + 1 },
+          };
+          this.records.set(existing.id, merged);
+          this.contentTokens.set(existing.id, tokenSet(merged.content));
+          await this.vectors.upsert(vectorRecordFromMemory(merged));
+          await this.persist(merged);
+          return merged;
+        }
+      }
+    }
+
     this.records.set(rec.id, rec);
     this.contentTokens.set(rec.id, tokenSet(rec.content));
     await this.vectors.upsert(vectorRecordFromMemory(rec));
@@ -194,10 +239,75 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     return rec;
   }
 
+  /**
+   * Calculate effective importance considering decay over time.
+   * Memories that haven't been accessed in a long time gradually lose importance.
+   * Uses a 30-day half-life for importance decay.
+   */
+  private _effectiveImportance(rec: MemoryRecord): number {
+    const baseImportance = rec.importance ?? 0.5;
+    const lastActive = rec.accessedAt ?? rec.createdAt;
+    const ageMs = Date.now() - lastActive;
+    const IMPORTANCE_HALF_LIFE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const decayFactor = Math.pow(0.5, ageMs / IMPORTANCE_HALF_LIFE_MS);
+    // Decay at most 60% of the original importance (floor at 40%)
+    const decayed = baseImportance * (0.4 + 0.6 * decayFactor);
+    return Math.max(0.1, Math.min(1.0, decayed));
+  }
+
+  /**
+   * Find a memory record that is highly similar to the given one.
+   * Uses both vector similarity and keyword overlap for accuracy.
+   * Returns the id and score of the best match, or null if none above threshold.
+   */
+  private async _findSimilar(rec: MemoryRecord, threshold: number): Promise<{ id: string; score: number } | null> {
+    if (!rec.vector) return null;
+
+    const vectorHits = await this.vectors.query({
+      vector: rec.vector,
+      topK: 5,
+      minScore: threshold * 0.85,
+      kind: rec.kind ? [rec.kind] : undefined,
+      scope: rec.scope ? [rec.scope] : undefined,
+      userId: rec.userId,
+    });
+
+    if (vectorHits.length === 0) return null;
+
+    const recTokens = tokenSet(rec.content);
+    let best: { id: string; score: number } | null = null;
+
+    for (const vh of vectorHits) {
+      if (vh.id === rec.id) continue;
+      const existing = this.records.get(vh.id);
+      if (!existing || existing.deleted) continue;
+      if (existing.kind !== rec.kind) continue;
+      if (existing.scope !== rec.scope) continue;
+
+      // Keyword overlap check (cheap second opinion)
+      const existingTokens = this.contentTokens.get(vh.id) ?? tokenSet(existing.content);
+      let overlap = 0;
+      for (const t of recTokens) {
+        if (existingTokens.has(t)) overlap++;
+      }
+      const totalUnique = recTokens.size + existingTokens.size - overlap;
+      const jaccard = totalUnique > 0 ? overlap / totalUnique : 0;
+
+      // Hybrid score: weighted average of vector similarity and Jaccard
+      const hybridScore = vh.score * 0.7 + jaccard * 0.3;
+      if (hybridScore >= threshold && (!best || hybridScore > best.score)) {
+        best = { id: vh.id, score: hybridScore };
+      }
+    }
+
+    return best;
+  }
+
   async recall(q: MemoryQuery): Promise<MemoryHit[]> {
     await this.load();
     const limit = q.limit ?? 10;
     const minScore = q.minScore ?? 0.55;
+    const now = Date.now();
 
     // 1) Vector candidates
     let queryVector = this.queryEmbeddingCache.get(q.query);
@@ -208,7 +318,7 @@ export class JsonlMemoryProvider implements IMemoryProvider {
     const vectorHits = await this.vectors.query({
       vector: queryVector,
       topK: limit * 4,
-      minScore,
+      minScore: minScore * 0.8,
       kind: q.kind,
       scope: q.scope,
       userId: q.userId,
@@ -247,12 +357,46 @@ export class JsonlMemoryProvider implements IMemoryProvider {
       }
     }
 
-    // 3) Sort and trim
-    const sorted = [...hits.values()].sort((a, b) => b.score - a.score).slice(0, limit);
+    // 3) Hybrid re-ranking: combine relevance + recency + importance
+    // Recency uses exponential decay with a 7-day half-life.
+    // Importance boosts high-value memories.
+    const HALF_LIFE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const ranked: MemoryHit[] = [];
 
-    // 4) Update accessedAt (best-effort)
+    for (const hit of hits.values()) {
+      const rec = hit.memory;
+
+      // Recency score: 1.0 for brand-new, decays to 0.5 at half-life
+      const lastActive = rec.accessedAt ?? rec.createdAt;
+      const ageMs = now - lastActive;
+      const recencyScore = Math.pow(0.5, ageMs / HALF_LIFE_MS);
+      // Scale recency to [0.85, 1.0] range as a multiplier (subtle but meaningful)
+      const recencyMultiplier = 0.85 + recencyScore * 0.15;
+
+      // Importance score: boost high-importance memories (with time decay)
+      const importance = this._effectiveImportance(rec);
+      const importanceMultiplier = 0.9 + importance * 0.2; // 0.9 ~ 1.1
+
+      // Combined final score
+      const finalScore = hit.score * recencyMultiplier * importanceMultiplier;
+
+      const reasons = [...hit.reasons];
+      reasons.push({ type: 'time', score: recencyScore, detail: `recency boost ${(recencyMultiplier - 1).toFixed(3)}` });
+      reasons.push({ type: 'kind', score: importance, detail: `importance boost ${(importanceMultiplier - 1).toFixed(3)}` });
+
+      ranked.push({
+        memory: rec,
+        score: finalScore,
+        reasons,
+      });
+    }
+
+    // 4) Sort by final score and trim
+    const sorted = ranked.sort((a, b) => b.score - a.score).slice(0, limit);
+
+    // 5) Update accessedAt (best-effort, async without awaiting)
     for (const h of sorted) {
-      h.memory.accessedAt = Date.now();
+      h.memory.accessedAt = now;
     }
     return sorted;
   }

@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/infra-config",
+  "name": "@ziner/infra-config",
   "version": "0.1.0",
   "private": true,
   "description": "V2 infra — config center (YAML load + env override + validate) and secrets loader. Pure Node (no vscode).",
@@ -12,8 +12,8 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/infra-errors": "0.1.0",
+    "@ziner/contracts": "0.1.0",
+    "@ziner/infra-errors": "0.1.0",
     "js-yaml": "^4.1.0"
   },
   "devDependencies": {

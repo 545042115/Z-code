@@ -6,7 +6,7 @@ import { readFileSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { TraceManager } from '../run-tracker';
-import { createFileStore, type Store } from '@z-assistant/infra-storage';
+import { createFileStore, type Store } from '@ziner/infra-storage';
 
 async function withManager<T>(fn: (m: TraceManager, store: Store, root: string) => Promise<T>): Promise<T> {
   const root = await mkdtemp(join(tmpdir(), 'z-trace-'));

@@ -1,12 +1,12 @@
-// @z-assistant/app-desktop — Browser Agent IAgent bridge (P1-1).
+// @ziner/app-desktop — Browser Agent IAgent bridge (P1-1).
 //
-// Lives in the desktop app because it depends on @z-assistant/agent-browser,
+// Lives in the desktop app because it depends on @ziner/agent-browser,
 // which requires DOM types for its page-evaluation code. Keeping it here
 // avoids forcing those dependencies into the VSCode connector.
 
-import type { IAgent, ILLMProvider, ModelSpec, TaskContext, AgentResult } from '@z-assistant/contracts';
-import { ok as okResult, fail as failResult } from '@z-assistant/contracts';
-import { BrowserAgent, createPlaywrightBackend, type IBrowserBackend } from '@z-assistant/agent-browser';
+import type { IAgent, ILLMProvider, ITool, ModelSpec, TaskContext, AgentResult } from '@ziner/contracts';
+import { ok as okResult, fail as failResult } from '@ziner/contracts';
+import { BrowserAgent, createPlaywrightBackend, type IBrowserBackend } from '@ziner/agent-browser';
 import { emitAgentActivity } from './agent-activity-bus';
 
 export interface CreateBrowserAgentOptions {
@@ -14,6 +14,14 @@ export interface CreateBrowserAgentOptions {
   model: ModelSpec;
   maxSteps?: number;
   headless?: boolean;
+  /**
+   * Optional MCP tools. The browser agent does not invoke MCP tools
+   * directly today — it drives the real browser — but we accept them so
+   * the factory signature stays consistent with the V2 connector and
+   * future iterations (e.g. extracting structured data via MCP after a
+   * page load) can use them.
+   */
+  mcpTools?: ITool[];
 }
 
 // Singleton browser backend so we don't pay Chromium launch cost for every task.

@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Agent Activity Event Bus
+// @ziner/app-desktop — Agent Activity Event Bus
 //
 // A simple global event bus that bridges use to report agent activities
 // (e.g. "Research Agent is searching for X", "Browser Agent clicked button Y").

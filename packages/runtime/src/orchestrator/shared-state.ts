@@ -11,7 +11,7 @@
 //   - Values are deep-cloned on write to prevent aliasing bugs
 //   - An `incr` helper supports counter use cases (e.g. retry budget)
 
-import type { SharedState as ISharedState } from '@z-assistant/contracts';
+import type { SharedState as ISharedState } from '@ziner/contracts';
 
 type Listener<T = unknown> = (value: T, version: number) => void;
 

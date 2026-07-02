@@ -1,6 +1,6 @@
 # Security Policy（安全策略）
 
-> 本文档定义 Z Assistant V2 的安全模型、威胁面、缓解措施与披露流程。
+> 本文档定义 Ziner V2 的安全模型、威胁面、缓解措施与披露流程。
 > 适用于**所有阶段**（Phase 0 ~ 5），与 `docs/ADRS/` 互为补充。
 
 ---
@@ -199,7 +199,7 @@ LLM 输出不可信。所有"把 LLM 输出当命令执行"的路径必须有：
 
 如发现安全漏洞，请**不要**公开 issue，请联系：
 
-- 邮箱：`security@z-assistant.local`（占位，需替换为真实地址）
+- 邮箱：`security@ziner.local`（占位，需替换为真实地址）
 - 加密：PGP key 见 `docs/SECURITY_PGP.asc`（占位，未生成）
 
 响应承诺：

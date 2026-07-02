@@ -1,7 +1,7 @@
 // Harness module — single import surface.
 //
 // Phase 6A: this is now a thin shim over the V2 Evaluation framework
-// (`@z-assistant/runtime` re-exports the `evaluation` subpackage).
+// (`@ziner/runtime` re-exports the `evaluation` subpackage).
 // All public symbols live there.
 //
 // V1 callers that previously did:
@@ -37,4 +37,4 @@ export {
   CandidateAdapter,
   type CandidateOptions,
   type EvaluateOptions,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';

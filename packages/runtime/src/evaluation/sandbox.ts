@@ -14,7 +14,7 @@
 // Phase 6A: moved from V1 `extensions/coding-agent/src/harness/sandbox.ts`
 // to V2 `packages/runtime/src/evaluation/sandbox.ts`. Pure Node, no vscode.
 
-import type { Rubric } from '@z-assistant/contracts';
+import type { Rubric } from '@ziner/contracts';
 
 /** Where the candidate agent's process can read/write. */
 export interface SandboxMount {
@@ -53,6 +53,21 @@ export interface SandboxResult {
   artifacts: string[];
 }
 
+export interface SandboxCapabilities {
+  /** Whether the sandbox provides real isolation (Docker) vs in-process (local). */
+  isolated: boolean;
+  /** Whether network restrictions are enforced. */
+  networkControl: boolean;
+  /** Whether memory limits are enforced. */
+  memoryLimit: boolean;
+  /** Whether per-command timeout is enforced by the kernel/container, not just Node. */
+  kernelTimeout: boolean;
+  /** Supported CPU architectures. */
+  architectures: string[];
+  /** Estimated relative performance (1.0 = native). */
+  performanceFactor: number;
+}
+
 /** Pluggable sandbox implementations. */
 export interface SandboxExecutor {
   readonly name: string;
@@ -61,6 +76,16 @@ export interface SandboxExecutor {
    * MUST clean up the sandbox (rm -rf) after the run.
    */
   run(spec: SandboxSpec, cmd: string, args?: string[]): Promise<SandboxResult>;
+  /**
+   * Soft healthcheck — verify the sandbox backend is available.
+   * Default implementations may just return `{ ok: true }`.
+   */
+  ping?(): Promise<{ ok: true; version?: string } | { ok: false; reason: string }>;
+  /**
+   * Report what this sandbox backend can and can't do.
+   * Used for capability-based fallback and user-facing diagnostics.
+   */
+  capabilities?(): SandboxCapabilities;
 }
 
 // ── LocalSandbox ──────────────────────────────────────────────────────
@@ -78,6 +103,23 @@ export interface SandboxExecutor {
  */
 export class LocalSandbox implements SandboxExecutor {
   readonly name = 'local';
+
+  async ping(): Promise<{ ok: true; version: string }> {
+    const { version, arch, platform } = await import('process');
+    return { ok: true, version: `${platform}-${arch} node/${version}` };
+  }
+
+  capabilities(): SandboxCapabilities {
+    const arch = process.arch;
+    return {
+      isolated: false,
+      networkControl: false,
+      memoryLimit: false,
+      kernelTimeout: false,
+      architectures: [arch],
+      performanceFactor: 1.0,
+    };
+  }
 
   async run(spec: SandboxSpec, cmd: string, args: string[] = []): Promise<SandboxResult> {
     const { mkdtemp, cp, rm, readdir, stat } = await import('fs/promises');
@@ -176,7 +218,96 @@ export class LocalSandbox implements SandboxExecutor {
   }
 }
 
-// ── StubSandbox (for tests) ───────────────────────────────────────────
+// ── Sandbox Factory ───────────────────────────────────────────────────
+
+export interface SandboxFactoryOptions {
+  /** Preferred backend. 'auto' = probe and pick the best available. */
+  preferred?: 'auto' | 'docker' | 'local';
+  /** Options passed to DockerSandbox when used. */
+  dockerOptions?: { defaultImage?: string; socketPath?: string; autoPull?: boolean };
+}
+
+export interface SandboxDetectionResult {
+  backend: 'docker' | 'local';
+  ok: boolean;
+  version?: string;
+  reason?: string;
+  capabilities?: SandboxCapabilities;
+}
+
+/**
+ * Probe available sandbox backends and return info about each.
+ * Used for diagnostics and automatic backend selection.
+ */
+export async function detectSandboxBackends(
+  opts: { dockerOptions?: SandboxFactoryOptions['dockerOptions'] } = {},
+): Promise<SandboxDetectionResult[]> {
+  const results: SandboxDetectionResult[] = [];
+
+  // Probe Docker
+  try {
+    const { DockerSandbox } = await import('./docker-sandbox');
+    const docker = new DockerSandbox(opts.dockerOptions ?? {});
+    const ping = await docker.ping();
+    results.push({
+      backend: 'docker',
+      ok: true,
+      version: ping.version,
+      capabilities: docker.capabilities?.(),
+    });
+  } catch (e) {
+    results.push({
+      backend: 'docker',
+      ok: false,
+      reason: e instanceof Error ? e.message : String(e),
+    });
+  }
+
+  // Local sandbox is always available
+  const local = new LocalSandbox();
+  results.push({
+    backend: 'local',
+    ok: true,
+    version: (await local.ping()).version,
+    capabilities: local.capabilities(),
+  });
+
+  return results;
+}
+
+/**
+ * Create the best available sandbox executor.
+ *
+ * - If `preferred` is set, try that backend first, fall back to local.
+ * - If 'auto', try Docker first, fall back to local.
+ * - LocalSandbox is always available as the last resort.
+ */
+export async function createSandboxExecutor(
+  opts: SandboxFactoryOptions = {},
+): Promise<SandboxExecutor> {
+  const preferred = opts.preferred ?? 'auto';
+
+  if (preferred === 'local') {
+    return new LocalSandbox();
+  }
+
+  if (preferred === 'docker' || preferred === 'auto') {
+    try {
+      const { DockerSandbox } = await import('./docker-sandbox');
+      const docker = new DockerSandbox(opts.dockerOptions ?? {});
+      await docker.ping();
+      return docker;
+    } catch {
+      // Docker not available — fall through to local
+      if (preferred === 'docker') {
+        // eslint-disable-next-line no-console
+        console.warn('[sandbox] Docker not available, falling back to LocalSandbox');
+      }
+    }
+  }
+
+  return new LocalSandbox();
+}
 
 /**
  * Configurable stub for unit tests. Returns a pre-set SandboxResult.
@@ -194,6 +325,21 @@ export class StubSandbox implements SandboxExecutor {
   }
 
   setNext(r: SandboxResult): void { this._next = r; }
+
+  async ping(): Promise<{ ok: true; version: string }> {
+    return { ok: true, version: 'stub' };
+  }
+
+  capabilities(): SandboxCapabilities {
+    return {
+      isolated: false,
+      networkControl: false,
+      memoryLimit: false,
+      kernelTimeout: false,
+      architectures: [process.arch],
+      performanceFactor: 1.0,
+    };
+  }
 
   async run(spec: SandboxSpec, cmd: string, args: string[] = []): Promise<SandboxResult> {
     this.lastSpec = spec;

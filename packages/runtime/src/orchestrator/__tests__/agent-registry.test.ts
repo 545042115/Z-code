@@ -8,7 +8,7 @@ import {
   DependencyCycleError,
 } from '../agent-registry';
 import { NoopAgent } from '../orchestrator';
-import type { IAgent, TaskContext } from '@z-assistant/contracts';
+import type { IAgent, TaskContext } from '@ziner/contracts';
 
 function mkAgent(name: string, caps: string[] = [], deps: string[] = []): IAgent {
   return {

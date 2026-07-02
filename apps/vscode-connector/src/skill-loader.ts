@@ -10,7 +10,7 @@ import {
   parseSkillFile,
   type Skill,
   type SkillIndex,
-} from '@z-assistant/runtime/skills';
+} from '@ziner/runtime/skills';
 
 export interface ChatSkillLoaderOptions {
   /** Root directory to scan for skill files under the .skills folder. */
@@ -20,14 +20,14 @@ export interface ChatSkillLoaderOptions {
 const SKILL_DIR = '.skills';
 const SKILL_FILE = 'SKILL.md';
 
-function listSkillFiles(dir: string): string[] {
+async function listSkillFiles(dir: string): Promise<string[]> {
   const results: string[] = [];
   try {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        results.push(...listSkillFiles(fullPath));
+        results.push(...await listSkillFiles(fullPath));
       } else if (entry.isFile() && entry.name === SKILL_FILE) {
         results.push(fullPath);
       }
@@ -38,20 +38,34 @@ function listSkillFiles(dir: string): string[] {
   return results;
 }
 
+// ── In-memory cache ────────────────────────────────────────────────
+const skillCache = new Map<string, { index: SkillIndex; cachedAt: number }>();
+const SKILL_CACHE_TTL_MS = 60_000; // 1 minute
+
 /**
  * Discover all skills under the .skills folder inside rootDir.
  * Returns an empty index if the .skills directory does not exist.
+ * Results are cached for SKILL_CACHE_TTL_MS to avoid repeated I/O.
  */
-export function discoverChatSkills(opts: ChatSkillLoaderOptions): SkillIndex {
+export async function discoverChatSkills(opts: ChatSkillLoaderOptions): Promise<SkillIndex> {
+  const cacheKey = path.resolve(opts.rootDir);
+  const cached = skillCache.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < SKILL_CACHE_TTL_MS) {
+    return cached.index;
+  }
+
   const skillDir = path.join(opts.rootDir, SKILL_DIR);
   if (!fs.existsSync(skillDir)) {
-    return { skills: [], lastUpdated: Date.now() };
+    const empty: SkillIndex = { skills: [], lastUpdated: Date.now() };
+    skillCache.set(cacheKey, { index: empty, cachedAt: Date.now() });
+    return empty;
   }
 
   const skills: Skill[] = [];
-  for (const filePath of listSkillFiles(skillDir)) {
+  const files = await listSkillFiles(skillDir);
+  for (const filePath of files) {
     try {
-      const raw = fs.readFileSync(filePath, 'utf-8');
+      const raw = await fs.promises.readFile(filePath, 'utf-8');
       const skill = parseSkillFile(raw, filePath, path.dirname(filePath));
       if (skill) {
         skills.push(skill);
@@ -61,8 +75,18 @@ export function discoverChatSkills(opts: ChatSkillLoaderOptions): SkillIndex {
     }
   }
 
-  return {
-    skills,
-    lastUpdated: Date.now(),
-  };
+  const index: SkillIndex = { skills, lastUpdated: Date.now() };
+  skillCache.set(cacheKey, { index, cachedAt: Date.now() });
+  return index;
+}
+
+/**
+ * Clear the in-memory skill cache. Useful when skills are modified at runtime.
+ */
+export function clearSkillCache(rootDir?: string): void {
+  if (rootDir) {
+    skillCache.delete(path.resolve(rootDir));
+  } else {
+    skillCache.clear();
+  }
 }

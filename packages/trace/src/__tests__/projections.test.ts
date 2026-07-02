@@ -4,8 +4,8 @@ import { strict as assert } from 'node:assert';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createFileStore, type Store } from '@z-assistant/infra-storage';
-import type { AgentRun, AgentSpan, Evaluation } from '@z-assistant/contracts';
+import { createFileStore, type Store } from '@ziner/infra-storage';
+import type { AgentRun, AgentSpan, Evaluation } from '@ziner/contracts';
 import {
   projectRunSummary,
   buildChildCountMap,

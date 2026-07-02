@@ -1,4 +1,4 @@
-// @z-assistant/infra-config
+// @ziner/infra-config
 //
 // Config center (YAML load + env override + validate) and secrets
 // loader. Pure Node; no vscode dependency.

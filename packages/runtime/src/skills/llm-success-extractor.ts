@@ -1,4 +1,4 @@
-// @z-assistant/runtime — LLM-backed Success Skill Extractor (F-1).
+// @ziner/runtime — LLM-backed Success Skill Extractor (F-1).
 //
 // Asks an LLM to read a group of winding-but-successful conversations
 // and produce a reusable workflow skill plus durable user facts.
@@ -10,7 +10,7 @@ import type {
   ModelSpec,
   SuccessExtractionResult,
   SuccessGroup,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 export interface LlmSuccessExtractorOptions {
   llmProvider: ILLMProvider;

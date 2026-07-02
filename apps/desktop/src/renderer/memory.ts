@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Memory panel
+// @ziner/app-desktop — Memory panel
 //
 // Displays stored memories from the V2 memory system.
 // Allows filtering by kind, searching, viewing details,
@@ -58,31 +58,40 @@ async function loadMemories(): Promise<void> {
           ? m.content.slice(0, 200) + '…'
           : m.content;
         const importance = m.importance !== undefined
-          ? `[${(m.importance * 100).toFixed(0)}%]`
-          : '';
-        return `<div class="memory-item" data-id="${escapeHtml(m.id)}">
-          <div class="memory-header">
-            <span class="memory-kind">${escapeHtml(kindLabel)}</span>
-            <span class="memory-date muted">${escapeHtml(date)}</span>
-            <span class="memory-importance">${importance}</span>
-            <button class="memory-delete-btn" title="${t('memory.delete')}" data-id="${escapeHtml(m.id)}">×</button>
+          ? Math.round(m.importance * 100)
+          : null;
+        return `
+          <div class="memory-card" data-id="${escapeHtml(m.id)}">
+            <div class="memory-card-header">
+              <div class="memory-card-tags">
+                <span class="memory-kind-badge memory-kind-${m.kind}">${escapeHtml(kindLabel)}</span>
+                ${importance !== null ? `<span class="memory-importance-badge" title="重要度">⭐ ${importance}%</span>` : ''}
+              </div>
+              <div class="memory-card-actions">
+                <button class="memory-delete-btn" title="${t('memory.delete')}" data-id="${escapeHtml(m.id)}">🗑️</button>
+              </div>
+            </div>
+            <div class="memory-card-content">${escapeHtml(content)}</div>
+            <div class="memory-card-footer">
+              <span class="memory-date muted">📅 ${escapeHtml(date)}</span>
+              ${m.scope ? `<span class="memory-scope muted">📍 ${escapeHtml(m.scope)}</span>` : ''}
+            </div>
+            <details class="memory-card-detail">
+              <summary>${t('trace.attributes')}</summary>
+              <pre class="memory-meta">${escapeHtml(JSON.stringify({
+                id: m.id,
+                kind: m.kind,
+                scope: m.scope,
+                userId: m.userId,
+                sessionId: m.sessionId,
+                agentName: m.agentName,
+                importance: m.importance,
+                createdAt: new Date(m.createdAt).toISOString(),
+                accessedAt: m.accessedAt ? new Date(m.accessedAt).toISOString() : undefined,
+              }, null, 2))}</pre>
+            </details>
           </div>
-          <div class="memory-content">${escapeHtml(content)}</div>
-          <details class="memory-detail">
-            <summary>${t('trace.attributes')}</summary>
-            <pre class="memory-meta">${escapeHtml(JSON.stringify({
-              id: m.id,
-              kind: m.kind,
-              scope: m.scope,
-              userId: m.userId,
-              sessionId: m.sessionId,
-              agentName: m.agentName,
-              importance: m.importance,
-              createdAt: new Date(m.createdAt).toISOString(),
-              accessedAt: m.accessedAt ? new Date(m.accessedAt).toISOString() : undefined,
-            }, null, 2))}</pre>
-          </details>
-        </div>`;
+        `;
       })
       .join('');
 
@@ -141,50 +150,87 @@ function downloadJson(data: string, filename: string): void {
 
 function mountMemory(container: HTMLElement): void {
   container.innerHTML = `
-    <div class="stack">
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <h3>${t('memory.title')}</h3>
-          <div class="row" style="gap:6px">
-            <button id="memory-export-btn" class="secondary" style="font-size:0.82em">${t('memory.export')}</button>
-            <button id="memory-purge-btn" class="secondary danger" style="font-size:0.82em">${t('memory.purge')}</button>
-            <button id="memory-refresh" class="primary" style="font-size:0.82em">${t('memory.refresh')}</button>
+    <div class="memory-page">
+      <div class="memory-header-card">
+        <div class="memory-header-top">
+          <div class="memory-header-title">
+            <span class="memory-header-icon">🧠</span>
+            <div>
+              <h3>${t('memory.title')}</h3>
+              <p class="muted">${t('memory.manage_desc')}</p>
+            </div>
+          </div>
+          <div class="memory-header-actions">
+            <button id="memory-export-btn" class="secondary" title="${t('memory.export')}">
+              <span>📤</span> ${t('memory.export')}
+            </button>
+            <button id="memory-purge-btn" class="secondary danger" title="${t('memory.purge')}">
+              <span>🗑️</span> ${t('memory.purge')}
+            </button>
+            <button id="memory-refresh" class="primary" title="${t('memory.refresh')}">
+              <span>↻</span> ${t('memory.refresh')}
+            </button>
           </div>
         </div>
-        <div class="trace-stats" style="margin-top:8px">
-          <div class="stat"><span class="muted">${t('memory.total')}</span><strong id="memory-total-count">—</strong></div>
+        <div class="memory-stats-grid">
+          <div class="memory-stat-card memory-stat-total">
+            <span class="memory-stat-label">${t('memory.total')}</span>
+            <span class="memory-stat-value" id="memory-total-count">—</span>
+            <span class="memory-stat-unit">${t('memory.count')}</span>
+          </div>
           ${ALL_KINDS.map((k) => `
-            <div class="stat"><span class="muted">${t(KIND_LABELS[k])}</span><strong id="memory-count-${k}">—</strong></div>
+            <div class="memory-stat-card" data-kind="${k}">
+              <span class="memory-stat-label">${t(KIND_LABELS[k])}</span>
+              <span class="memory-stat-value" id="memory-count-${k}">—</span>
+            </div>
           `).join('')}
         </div>
       </div>
-      <div class="row">
-        <label for="memory-kind-filter" class="muted" style="font-size:0.85em">${t('memory.kind')}:</label>
-        <select id="memory-kind-filter" style="width:auto">
-          <option value="all">${t('memory.all')}</option>
-          ${ALL_KINDS.map((k) => `<option value="${k}">${t(KIND_LABELS[k])}</option>`).join('')}
-        </select>
-        <input id="memory-search-input" type="text" placeholder="${t('memory.search_placeholder')}" style="flex:1;max-width:300px">
+
+      <div class="memory-toolbar">
+        <div class="memory-filter-tabs">
+          <button class="memory-filter-tab active" data-kind="all">${t('memory.all')}</button>
+          ${ALL_KINDS.map((k) => `
+            <button class="memory-filter-tab" data-kind="${k}">${t(KIND_LABELS[k])}</button>
+          `).join('')}
+        </div>
+        <div class="memory-search-wrapper">
+          <span class="memory-search-icon">🔍</span>
+          <input id="memory-search-input" type="text" placeholder="${t('memory.search_placeholder')}">
+        </div>
       </div>
-      <div id="memory-list"></div>
+
+      <div id="memory-list" class="memory-list"></div>
     </div>
   `;
 
-  const filter = document.getElementById('memory-kind-filter') as HTMLSelectElement;
+  const filterTabs = container.querySelectorAll('.memory-filter-tab');
   const refreshBtn = document.getElementById('memory-refresh') as HTMLButtonElement;
   const searchInput = document.getElementById('memory-search-input') as HTMLInputElement;
   const purgeBtn = document.getElementById('memory-purge-btn') as HTMLButtonElement;
   const exportBtn = document.getElementById('memory-export-btn') as HTMLButtonElement;
 
   async function reload(): Promise<void> {
-    currentKindFilter = filter.value;
     currentSearchQuery = searchInput.value;
     await Promise.all([loadMemories(), updateStats()]);
   }
 
-  filter.addEventListener('change', reload);
+  filterTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      filterTabs.forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      currentKindFilter = (tab as HTMLElement).dataset.kind || 'all';
+      reload();
+    });
+  });
+
   refreshBtn.addEventListener('click', reload);
-  searchInput.addEventListener('input', reload);
+
+  let searchTimeout: ReturnType<typeof setTimeout> | null = null;
+  searchInput.addEventListener('input', () => {
+    if (searchTimeout) clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(reload, 200);
+  });
 
   purgeBtn.addEventListener('click', async () => {
     if (!confirm(t('memory.purge_confirm'))) return;

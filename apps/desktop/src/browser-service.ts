@@ -1,9 +1,9 @@
-// @z-assistant/app-desktop — Browser Automation Service
+// @ziner/app-desktop — Browser Automation Service
 //
-// Wraps the @z-assistant/agent-browser package for desktop use.
+// Wraps the @ziner/agent-browser package for desktop use.
 // Provides browser navigation, actions, screenshots, and status.
 
-import type { BrowserAction, PageSnapshot } from '@z-assistant/agent-browser';
+import type { BrowserAction, PageSnapshot } from '@ziner/agent-browser';
 
 export interface BrowserStatus {
   running: boolean;
@@ -18,7 +18,7 @@ export class BrowserService {
 
   async start(): Promise<BrowserStatus> {
     try {
-      const { createPlaywrightBackend } = await import('@z-assistant/agent-browser');
+      const { createPlaywrightBackend } = await import('@ziner/agent-browser');
       this.backend = createPlaywrightBackend();
       await this.backend.start(false);
       this.status = { running: true, url: 'about:blank', title: '', error: '' };

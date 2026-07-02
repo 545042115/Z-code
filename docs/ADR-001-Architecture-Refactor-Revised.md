@@ -1,4 +1,4 @@
-# ADR-001: Phase 6A - Architecture First (Revised v2)
+﻿# ADR-001: Phase 6A - Architecture First (Revised v2)
 
 > **当前实现状态 (2026-06-18)**: 本 ADR 描述的目标结构已在仓库中落地。具体进度见末尾的 [§十一、当前实现状态与已落地项](#十一当前实现状态与已落地项)。配套的更细节设计见 [ADR-0007: Runtime 解耦](./ADRS/0007-runtime-decoupling.md)。
 
@@ -141,7 +141,7 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 │
 ├── extensions/
 │   └── coding-agent/                        # V1 VSCode 扩展（保留 + 维护）
-│       ├── package.json                     # v1.2.0+，依赖 @z-assistant/* 🆕
+│       ├── package.json                     # v1.2.0+，依赖 @ziner/* 🆕
 │       ├── tsconfig.json                    # 含 path alias + project references 🆕
 │       └── src/
 │           ├── extension.ts                 # V1 VSCode 入口
@@ -160,7 +160,7 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 │           ├── harness/                     # V1 harness
 │           ├── debug/                       # V1 debug
 │           ├── trace-ui/                    # V1 trace UI
-│           ├── trace/                       # V1 trace 入口（shim → @z-assistant/trace）🆕
+│           ├── trace/                       # V1 trace 入口（shim → @ziner/trace）🆕
 │           │   ├── index.ts                 # 兼容 shim 文件
 │           │   └── trace-adapter.ts         # V1 类型适配（LLMProvider/ToolRegistry/Pipeline）
 │           ├── planner/                     # V1 Coding Planner 模板
@@ -172,10 +172,10 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 │           ├── evolution/                   # V1 Coding 特有策略
 │           ├── multi-agent/                 # 迁移期间保留（V1 内部使用）🆕
 │           ├── infra/                       # V1 内部基础设施（迁移后变空 shim）🆕
-│           └── contracts/                   # V1 contracts shim → @z-assistant/contracts 🆕
+│           └── contracts/                   # V1 contracts shim → @ziner/contracts 🆕
 │
 ├── packages/                                # V2 通用功能
-│   ├── contracts/                           # 跨包类型 (@z-assistant/contracts) 🆕独立包
+│   ├── contracts/                           # 跨包类型 (@ziner/contracts) 🆕独立包
 │   │   └── src/
 │   │       ├── index.ts
 │   │       ├── run.ts                       # AgentRun / Span / Metric
@@ -193,13 +193,13 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 │   │       └── ...
 │   │
 │   ├── infra/                               # 跨包工具（独立子包族）🆕
-│   │   ├── errors/                          # @z-assistant/infra-errors
-│   │   ├── cost/                            # @z-assistant/infra-cost
-│   │   ├── storage/                         # @z-assistant/infra-storage
-│   │   ├── permission/                      # @z-assistant/infra-permission
-│   │   └── config/                          # @z-assistant/infra-config
+│   │   ├── errors/                          # @ziner/infra-errors
+│   │   ├── cost/                            # @ziner/infra-cost
+│   │   ├── storage/                         # @ziner/infra-storage
+│   │   ├── permission/                      # @ziner/infra-permission
+│   │   └── config/                          # @ziner/infra-config
 │   │
-│   ├── trace/                               # V2 Trace 独立包 (@z-assistant/trace) 🆕独立
+│   ├── trace/                               # V2 Trace 独立包 (@ziner/trace) 🆕独立
 │   │   └── src/
 │   │       ├── span.ts                      # Span 生命周期
 │   │       ├── run-tracker.ts               # RunTracker + TraceManager
@@ -258,7 +258,7 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 **与原计划的关键差异**：
 
 1. 🆕 **`packages/contracts` / `packages/infra/*` / `packages/trace`** 拆为独立 package（每个有独立的 `package.json` + `tsconfig.json` + `index.ts`），便于独立发布和复用。原计划把它们都放在 `packages/runtime/src/` 下，实际拆开后依赖关系更清晰。
-2. 🆕 **`packages/runtime` 内部子包**（trace / storage / cost / errors / permission / config / budget）现为 re-export shim，真实实现在 `packages/infra/*` 和 `packages/trace`。这样既保留旧的 `@z-assistant/runtime/{trace,storage,...}` 入口，又确保单一实现来源。
+2. 🆕 **`packages/runtime` 内部子包**（trace / storage / cost / errors / permission / config / budget）现为 re-export shim，真实实现在 `packages/infra/*` 和 `packages/trace`。这样既保留旧的 `@ziner/runtime/{trace,storage,...}` 入口，又确保单一实现来源。
 3. 🆕 **V1 保留 shim 文件**（`src/contracts/index.ts`、`src/trace/index.ts`、`src/infra/*/index.ts`），迁移期间不破坏 V1 现有 import 路径。
 4. 🆕 **`apps/vscode-connector` 与 `apps/cli` 已建立**，含真实可启动的入口（CLI 已有 argv 解析和子命令）。
 
@@ -282,15 +282,15 @@ F:\Z-code\                                  # 仓库主目录（V2 Assistant Run
 ## 4.1 物理迁到 V2 `packages/infra/*`（机制层）✅ 已完成
 
 ```text
-src/infra/storage/          → packages/infra/storage/        ✅ (@z-assistant/infra-storage)
-src/infra/cost/             → packages/infra/cost/           ✅ (@z-assistant/infra-cost)
-src/infra/errors/           → packages/infra/errors/         ✅ (@z-assistant/infra-errors)
-src/infra/permission/       → packages/infra/permission/     ✅ (@z-assistant/infra-permission)
-src/infra/config/           → packages/infra/config/         ✅ (@z-assistant/infra-config)
+src/infra/storage/          → packages/infra/storage/        ✅ (@ziner/infra-storage)
+src/infra/cost/             → packages/infra/cost/           ✅ (@ziner/infra-cost)
+src/infra/errors/           → packages/infra/errors/         ✅ (@ziner/infra-errors)
+src/infra/permission/       → packages/infra/permission/     ✅ (@ziner/infra-permission)
+src/infra/config/           → packages/infra/config/         ✅ (@ziner/infra-config)
 src/infra/budget/           → packages/infra/cost/budget.ts  ✅ (并入 cost 子包)
 ```
 
-V1 端配套：在 `src/infra/*/index.ts` 留下 shim 文件 `export * from '@z-assistant/infra-*'`，确保 V1 旧 import 路径全部继续工作。
+V1 端配套：在 `src/infra/*/index.ts` 留下 shim 文件 `export * from '@ziner/infra-*'`，确保 V1 旧 import 路径全部继续工作。
 
 ## 4.2 物理迁到 V2 `packages/runtime/`（框架层）✅ 已完成
 
@@ -332,7 +332,7 @@ src/multi-agent/                 → packages/runtime/src/orchestrator/     ✅ 
 src/contracts/           → packages/contracts/src/     ✅
 ```
 
-V1 端：在 `src/contracts/index.ts` 留下 shim 文件 `export * from '@z-assistant/contracts'`。
+V1 端：在 `src/contracts/index.ts` 留下 shim 文件 `export * from '@ziner/contracts'`。
 
 ## 4.5 物理迁到 V2 `packages/agents/coding-agent/`（V2 接口适配）✅ 已完成
 
@@ -544,7 +544,7 @@ Coding Agent (V1 src/agent/ 通过 packages/agents/coding-agent/ 接入)
 ## Step 3：迁出 contracts ✅
 
 - 物理移动 `src/contracts/` → `packages/contracts/src/` ✅
-- V1 端 shim：`extensions/coding-agent/src/contracts/index.ts` = `export * from '@z-assistant/contracts'` ✅
+- V1 端 shim：`extensions/coding-agent/src/contracts/index.ts` = `export * from '@ziner/contracts'` ✅
 - 验证：V1 `extensions/coding-agent/src/contracts/README.md` 标注迁移说明 ✅
 
 ## Step 4：迁出 infra（机制层）✅
@@ -555,7 +555,7 @@ Coding Agent (V1 src/agent/ 通过 packages/agents/coding-agent/ 接入)
 - 物理移动 `src/infra/permission/` → `packages/infra/permission/` ✅
 - 物理移动 `src/infra/config/` → `packages/infra/config/` ✅
 - 物理移动 `src/infra/budget/` → `packages/infra/cost/budget.ts`（并入 cost 子包）✅
-- V1 端 shim：5 个 `src/infra/*/index.ts` 全部 `export * from '@z-assistant/infra-*'` ✅
+- V1 端 shim：5 个 `src/infra/*/index.ts` 全部 `export * from '@ziner/infra-*'` ✅
 
 ## Step 5：迁出 trace + multi-agent（机制层）✅
 
@@ -622,7 +622,7 @@ Coding Agent (V1 src/agent/ 通过 packages/agents/coding-agent/ 接入)
 - [x] V1 编译 0 错误 ✅
 - [x] V2 编译 0 错误 ✅
 - [x] V1 既有 infra/multi-agent 测试通过 ✅
-- [x] V2 包测试通过（`@z-assistant/contracts` / `@z-assistant/trace` / `@z-assistant/runtime`）✅
+- [x] V2 包测试通过（`@ziner/contracts` / `@ziner/trace` / `@ziner/runtime`）✅
 - [ ] V1 `npm run package` 产出 `.vsix` 🟡（需在 CI 上跑 `vsce package` 验证）
 
 ## 10.3 依赖关系标准
@@ -654,10 +654,10 @@ src/trace/eval/evolution/                  (V1 内部的 Runtime —— 反了)
 ```
 
 **V1 ↔ V2 桥接方向**（已落地）：
-- V1 旧 import 路径（如 `from '../trace'`）通过 `extensions/coding-agent/src/trace/index.ts` shim → `@z-assistant/trace`
-- V1 旧 import 路径（如 `from '../contracts'`）通过 `extensions/coding-agent/src/contracts/index.ts` shim → `@z-assistant/contracts`
-- V1 旧 import 路径（如 `from '../infra/storage'`）通过 `extensions/coding-agent/src/infra/storage/index.ts` shim → `@z-assistant/infra-storage`
-- V1 不直接 import `@z-assistant/runtime` 做副作用；通过 `apps/vscode-connector` 桥接（如未来需要）
+- V1 旧 import 路径（如 `from '../trace'`）通过 `extensions/coding-agent/src/trace/index.ts` shim → `@ziner/trace`
+- V1 旧 import 路径（如 `from '../contracts'`）通过 `extensions/coding-agent/src/contracts/index.ts` shim → `@ziner/contracts`
+- V1 旧 import 路径（如 `from '../infra/storage'`）通过 `extensions/coding-agent/src/infra/storage/index.ts` shim → `@ziner/infra-storage`
+- V1 不直接 import `@ziner/runtime` 做副作用；通过 `apps/vscode-connector` 桥接（如未来需要）
 
 ## 10.4 未来扩展准备
 
@@ -696,21 +696,21 @@ extensions/coding-agent/（V1）
 
 | 包名 | 路径 | 版本 | 职责 | 状态 |
 |------|------|------|------|------|
-| `@z-assistant/contracts` | `packages/contracts/` | 0.1.0 | 跨包类型 / 接口 | ✅ |
-| `@z-assistant/infra-errors` | `packages/infra/errors/` | 0.1.0 | 错误码 + 分类器 | ✅ |
-| `@z-assistant/infra-cost` | `packages/infra/cost/` | 0.1.0 | 价格 + budget | ✅ |
-| `@z-assistant/infra-storage` | `packages/infra/storage/` | 0.1.0 | JSONL Store | ✅ |
-| `@z-assistant/infra-permission` | `packages/infra/permission/` | 0.1.0 | fs / net / tool 守卫 | ✅ |
-| `@z-assistant/infra-config` | `packages/infra/config/` | 0.1.0 | 配置中心 + secrets | ✅ |
-| `@z-assistant/trace` | `packages/trace/` | 0.1.0 | Run / Span / Projection / Instrumenter | ✅ |
-| `@z-assistant/runtime` | `packages/runtime/` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution + 占位 workflow / memory | ✅ |
-| `@z-assistant/agent-coding` | `packages/agents/coding-agent/` | 0.1.0 | Coding Agent V2 适配层 | ✅ |
-| `@z-assistant/agent-research` | `packages/agents/research-agent/` | 0.1.0 | 占位 | ✅ |
-| `@z-assistant/agent-office` | `packages/agents/office-agent/` | 0.1.0 | 占位 | ✅ |
-| `@z-assistant/agent-browser` | `packages/agents/browser-agent/` | 0.1.0 | 占位 | ✅ |
-| `@z-assistant/app-cli` | `apps/cli/` | 0.1.0 | V2 CLI 入口 | ✅ |
-| `@z-assistant/app-vscode-connector` | `apps/vscode-connector/` | 0.1.0 | V2 VSCode 桥接 | ✅ |
-| `@z-assistant/app-desktop` | `apps/desktop/` | 0.1.0 | 占位 | ✅ |
+| `@ziner/contracts` | `packages/contracts/` | 0.1.0 | 跨包类型 / 接口 | ✅ |
+| `@ziner/infra-errors` | `packages/infra/errors/` | 0.1.0 | 错误码 + 分类器 | ✅ |
+| `@ziner/infra-cost` | `packages/infra/cost/` | 0.1.0 | 价格 + budget | ✅ |
+| `@ziner/infra-storage` | `packages/infra/storage/` | 0.1.0 | JSONL Store | ✅ |
+| `@ziner/infra-permission` | `packages/infra/permission/` | 0.1.0 | fs / net / tool 守卫 | ✅ |
+| `@ziner/infra-config` | `packages/infra/config/` | 0.1.0 | 配置中心 + secrets | ✅ |
+| `@ziner/trace` | `packages/trace/` | 0.1.0 | Run / Span / Projection / Instrumenter | ✅ |
+| `@ziner/runtime` | `packages/runtime/` | 0.1.0 | orchestrator / planning / reflection / context / skills / evaluation / evolution + 占位 workflow / memory | ✅ |
+| `@ziner/agent-coding` | `packages/agents/coding-agent/` | 0.1.0 | Coding Agent V2 适配层 | ✅ |
+| `@ziner/agent-research` | `packages/agents/research-agent/` | 0.1.0 | 占位 | ✅ |
+| `@ziner/agent-office` | `packages/agents/office-agent/` | 0.1.0 | 占位 | ✅ |
+| `@ziner/agent-browser` | `packages/agents/browser-agent/` | 0.1.0 | 占位 | ✅ |
+| `@ziner/app-cli` | `apps/cli/` | 0.1.0 | V2 CLI 入口 | ✅ |
+| `@ziner/app-vscode-connector` | `apps/vscode-connector/` | 0.1.0 | V2 VSCode 桥接 | ✅ |
+| `@ziner/app-desktop` | `apps/desktop/` | 0.1.0 | 占位 | ✅ |
 
 ## 2. Shim 兼容机制（已落地）
 
@@ -718,31 +718,31 @@ extensions/coding-agent/（V1）
 
 ```typescript
 // extensions/coding-agent/src/contracts/index.ts
-// V1 contracts shim — re-exports from V2 @z-assistant/contracts.
-export * from '@z-assistant/contracts';
+// V1 contracts shim — re-exports from V2 @ziner/contracts.
+export * from '@ziner/contracts';
 
 // extensions/coding-agent/src/trace/index.ts
-// Shim: V1 extension → @z-assistant/trace
+// Shim: V1 extension → @ziner/trace
 export {
   Span, TraceManager, RunTracker,
   type SpanOptions, type RunStartOptions, type RunFinishOptions, type TraceManagerOptions,
-} from '@z-assistant/trace';
+} from '@ziner/trace';
 export { TraceInstrumentation, type TraceInstrumentationOptions } from './trace-adapter';
 
 // extensions/coding-agent/src/infra/storage/index.ts
-export * from '@z-assistant/infra-storage';
+export * from '@ziner/infra-storage';
 
 // extensions/coding-agent/src/infra/errors/index.ts
-export * from '@z-assistant/infra-errors';
+export * from '@ziner/infra-errors';
 
 // extensions/coding-agent/src/infra/cost/index.ts
-export * from '@z-assistant/infra-cost';
+export * from '@ziner/infra-cost';
 
 // extensions/coding-agent/src/infra/permission/index.ts
-export * from '@z-assistant/infra-permission';
+export * from '@ziner/infra-permission';
 
 // extensions/coding-agent/src/infra/config/index.ts
-export * from '@z-assistant/infra-config';
+export * from '@ziner/infra-config';
 ```
 
 **TypeScript Project References**：
@@ -772,14 +772,14 @@ V1 扩展的 `tsconfig.json` 通过 `references` 字段声明对 V2 包的依赖
 // extensions/coding-agent/package.json（节选）
 {
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0",
-    "@z-assistant/infra-errors": "0.1.0",
-    "@z-assistant/infra-cost": "0.1.0",
-    "@z-assistant/infra-storage": "0.1.0",
-    "@z-assistant/infra-permission": "0.1.0",
-    "@z-assistant/infra-config": "0.1.0",
-    "@z-assistant/trace": "0.1.0",
-    "@z-assistant/runtime": "0.1.0"
+    "@ziner/contracts": "0.1.0",
+    "@ziner/infra-errors": "0.1.0",
+    "@ziner/infra-cost": "0.1.0",
+    "@ziner/infra-storage": "0.1.0",
+    "@ziner/infra-permission": "0.1.0",
+    "@ziner/infra-config": "0.1.0",
+    "@ziner/trace": "0.1.0",
+    "@ziner/runtime": "0.1.0"
   }
 }
 ```
@@ -817,7 +817,7 @@ V1 `extensions/coding-agent/src/trace-ui/query-service.ts` 在迁移期按以下
                           │
         ┌─────────────────┼─────────────────┐
         ▼                 ▼                 ▼
-   @z-assistant     @z-assistant       @z-assistant
+   @ziner           @ziner            @ziner
      /runtime        /agents/coding    /agents/{research,office,browser}
         │                                  │
         │   ┌─────────┐  ┌─────────┐      │
@@ -837,10 +837,10 @@ V1 `extensions/coding-agent/src/trace-ui/query-service.ts` 在迁移期按以下
                  │            │            │
                  ▼            ▼            ▼
           ┌──────────────────────────────┐
-          │  @z-assistant/infra/*         │
+          │  @ziner/infra/*         │
           │  (errors/cost/storage/perm/   │
           │   config)                     │
-          │  + @z-assistant/contracts     │
+          │  + @ziner/contracts     │
           │     (叶子，零依赖)             │
           └──────────────────────────────┘
 ```
@@ -864,7 +864,7 @@ V1 `extensions/coding-agent/src/trace-ui/query-service.ts` 在迁移期按以下
 | V1 `extensions/coding-agent` 内 `multi-agent/` 仍含 prompt-agent 等文件 | ⏳ R10 | 应最终全部迁出到 `packages/agents/`，但当前通过 shim 仍可用 |
 | `apps/vscode-connector` 的 `AssistantRuntime.boot` 是 stub | ⏳ R7 | 当前返回 no-op runtime + 错误码 3001；R7 替换为真实实现 |
 | 仓库根 `pnpm-workspace.yaml` 未启用 | ❌ 决策 | 当前使用 npm workspaces（决策见 ADR-0007 §十.1）；暂不切 pnpm |
-| V1 旧 import 路径（`from '../trace'` 等）仍被允许 | 🟡 临时 | 为保证迁移期不破坏；CI lint 待加 `禁止 import 'extensions/coding-agent/src/infra' / 'src/contracts' / 'src/trace'`，必须走 `@z-assistant/*` |
+| V1 旧 import 路径（`from '../trace'` 等）仍被允许 | 🟡 临时 | 为保证迁移期不破坏；CI lint 待加 `禁止 import 'extensions/coding-agent/src/infra' / 'src/contracts' / 'src/trace'`，必须走 `@ziner/*` |
 
 ## 6. 后续衔接（Phase 7~）
 
@@ -873,7 +873,7 @@ V1 `extensions/coding-agent/src/trace-ui/query-service.ts` 在迁移期按以下
 | **Phase 7 Unified Memory** | `packages/runtime/src/memory/`（占位）已就位；需重做 V1 `src/memory/` → `packages/memory/`（独立顶级包，详见 ADR-0007 §一） |
 | **Phase 8 Workflow Engine** | `packages/runtime/src/workflow/`（占位）已就位；`Workflow` / `WorkflowStep` 类型已在 `contracts` 中预留 |
 | **Phase 9 Knowledge Hub** | `packages/connectors/filesystem/` 待建；`IConnector` interface 待加 |
-| **Phase 10 Agent Ecosystem** | `packages/agents/coding/` 已完整；`@z-assistant/agents` 主包与 `IAgent` interface 已就位 |
+| **Phase 10 Agent Ecosystem** | `packages/agents/coding/` 已完整；`@ziner/agents` 主包与 `IAgent` interface 已就位 |
 | **Phase 11 Connectors** | `apps/vscode-connector` 是首个 connector；更多 connector（terminal / browser / git / filesystem）需独立建包 |
 | **Phase 12 Full Observability** | `packages/trace` 已就位；`SpanType` 需扩 `'memory' / 'skill' / 'workflow' / 'connector'` |
 | **Phase 13 Evaluation 2.0** | `packages/runtime/src/evaluation/` 已就位 |
@@ -892,6 +892,6 @@ V1 `extensions/coding-agent/src/trace-ui/query-service.ts` 在迁移期按以下
 
 | 日期 | 版本 | 变更人 | 内容 |
 |------|------|--------|------|
-| 2026-06-17 | v1 | @Z Assistant V2 架构组 | 初稿，定义 Phase 6A 重构目标与原则 |
-| 2026-06-18 | v2 | @Z Assistant V2 架构组 | 添加 [§十一 当前实现状态](#十一当前实现状态与已落地项)；更新 §3.1 目录结构、§四 迁移清单、§九 执行步骤、§十 成功标准，反映实际落地；新增 ADR-0007 引用 |
+| 2026-06-17 | v1 | @Ziner V2 架构组 | 初稿，定义 Phase 6A 重构目标与原则 |
+| 2026-06-18 | v2 | @Ziner V2 架构组 | 添加 [§十一 当前实现状态](#十一当前实现状态与已落地项)；更新 §3.1 目录结构、§四 迁移清单、§九 执行步骤、§十 成功标准，反映实际落地；新增 ADR-0007 引用 |
 

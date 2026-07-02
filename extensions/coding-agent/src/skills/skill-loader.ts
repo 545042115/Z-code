@@ -1,14 +1,14 @@
 // Skill Loader - Discovers SKILL.md files from .skills/ directory.
 //
 // Phase 6A: the YAML frontmatter parser + markdown section splitter
-// have moved to V2 (`@z-assistant/runtime/skills/skill-parser`).
+// have moved to V2 (`@ziner/runtime/skills/skill-parser`).
 // This file keeps only the filesystem scan (which is Coding-specific
 // because it uses the V1 workspace root convention).
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { Skill, SkillIndex } from './skill-types';
-import { parseSkillFile } from '@z-assistant/runtime';
+import { parseSkillFile } from '@ziner/runtime';
 
 export class SkillLoader {
   private readonly SKILL_DIR = '.skills';

@@ -3,7 +3,7 @@
     "displayName": "Coding Agent",
     "description": "AI-powered coding assistant with SGLang/OpenAI backend",
     "version": "1.2.0",
-    "publisher": "z-code-local",
+    "publisher": "ziner-local",
     "repository": {
         "type": "git",
         "url": "https://github.com/545042115/coding-agent"
@@ -254,15 +254,15 @@
         "test:multi-agent": "tsc -p ./ && node --test out/multi-agent/__tests__/*.test.js"
     },
     "dependencies": {
-        "@z-assistant/contracts": "0.1.0",
-        "@z-assistant/infra-errors": "0.1.0",
-        "@z-assistant/infra-cost": "0.1.0",
-        "@z-assistant/infra-storage": "0.1.0",
-        "@z-assistant/infra-permission": "0.1.0",
-        "@z-assistant/infra-config": "0.1.0",
-        "@z-assistant/trace": "0.1.0",
-        "@z-assistant/runtime": "0.1.0",
-        "@z-assistant/app-vscode-connector": "0.1.0"
+        "@ziner/contracts": "0.1.0",
+        "@ziner/infra-errors": "0.1.0",
+        "@ziner/infra-cost": "0.1.0",
+        "@ziner/infra-storage": "0.1.0",
+        "@ziner/infra-permission": "0.1.0",
+        "@ziner/infra-config": "0.1.0",
+        "@ziner/trace": "0.1.0",
+        "@ziner/runtime": "0.1.0",
+        "@ziner/app-vscode-connector": "0.1.0"
     },
     "devDependencies": {
         "@types/node": "18.x",

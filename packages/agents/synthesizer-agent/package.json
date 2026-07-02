@@ -1,5 +1,5 @@
 {
-  "name": "@z-assistant/agent-synthesizer",
+  "name": "@ziner/agent-synthesizer",
   "version": "0.1.0",
   "private": true,
   "description": "V2 Synthesizer Agent — aggregates multi-agent / sub-task outputs into a coherent user-facing answer (P2 multi-agent).",
@@ -11,6 +11,6 @@
     "clean": "rm -rf out dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@z-assistant/contracts": "0.1.0"
+    "@ziner/contracts": "0.1.0"
   }
 }

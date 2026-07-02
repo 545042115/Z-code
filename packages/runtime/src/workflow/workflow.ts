@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Workflow Engine
+// @ziner/runtime — Workflow Engine
 //
 // Declarative multi-step workflow execution. Supports:
 //   - sequential and dependency-driven step ordering

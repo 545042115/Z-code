@@ -1,6 +1,6 @@
 // errors/ — Universal error classification.
 //
-// Re-export shim: the real implementation lives in `@z-assistant/infra-errors`.
-// Consumers can import from either `@z-assistant/infra-errors` (preferred) or
-// `@z-assistant/runtime/errors` (convenience).
-export * from '@z-assistant/infra-errors';
+// Re-export shim: the real implementation lives in `@ziner/infra-errors`.
+// Consumers can import from either `@ziner/infra-errors` (preferred) or
+// `@ziner/runtime/errors` (convenience).
+export * from '@ziner/infra-errors';

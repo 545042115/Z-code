@@ -1,4 +1,4 @@
-# @z-assistant/runtime — Python Perception Server
+# @ziner/runtime — Python Perception Server
 #
 # Sidecar process providing OCR, image captioning, audio transcription,
 # and document parsing. Uses ONNX Runtime for ML inference (no PyTorch).

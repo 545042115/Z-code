@@ -14,7 +14,7 @@
 // Phase 6A: moved from V1 `extensions/coding-agent/src/harness/benchmark-runner.ts`
 // to V2 `packages/runtime/src/evaluation/benchmark-runner.ts`. Pure Node, no vscode.
 
-import type { Evaluation } from '@z-assistant/contracts';
+import type { Evaluation } from '@ziner/contracts';
 import type { SandboxExecutor, SandboxSpec } from './sandbox';
 import { scoreSandboxResult, makeEvaluation, type RubricSpec } from './rubric';
 

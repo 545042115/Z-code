@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Tool Invocation Pipeline (P1-2 HITL)
+// @ziner/runtime — Tool Invocation Pipeline (P1-2 HITL)
 //
 // Centralises the full tool-call lifecycle so every invocation follows the
 // same path regardless of whether it originates from the chat-agent's native
@@ -7,7 +7,7 @@
 //   classify risk → scan for prompt injection → confirmation gate →
 //   dry-run or execute → audit outcome → return tool result
 
-import type { IConfirmationGate, ToolInvocation, ToolResult, RiskLevel } from '@z-assistant/contracts';
+import type { IConfirmationGate, ToolInvocation, ToolResult, RiskLevel } from '@ziner/contracts';
 import type { AuditLogger } from '../audit/logger';
 import { DryRunExecutor } from './dry-run';
 import { PromptInjectionDetector } from './prompt-injection';

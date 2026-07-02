@@ -1,7 +1,7 @@
 // V1 skill-types.ts — Phase 6A shim.
 //
 // The framework types are now owned by V2
-// (`@z-assistant/runtime/skills`). V1 re-exports the same types so
+// (`@ziner/runtime/skills`). V1 re-exports the same types so
 // any code importing from `'../skills/skill-types'` keeps working.
 
 export {
@@ -17,4 +17,4 @@ export {
   type SkillSelectionInput,
   type SkillValidationIssue,
   type SkillValidationResult,
-} from '@z-assistant/runtime';
+} from '@ziner/runtime';

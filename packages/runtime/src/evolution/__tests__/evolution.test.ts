@@ -12,7 +12,7 @@ import {
   fingerprintRun,
   type FailureFingerprint,
 } from '../evolution';
-import type { AgentRun, AgentSpan } from '@z-assistant/contracts';
+import type { AgentRun, AgentSpan } from '@ziner/contracts';
 
 function mkRun(over: Partial<AgentRun> = {}): AgentRun {
   return {

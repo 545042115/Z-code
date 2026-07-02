@@ -1,12 +1,12 @@
-// @z-assistant/app-vscode-connector — Multi-Agent router helpers (P1-1).
+// @ziner/app-vscode-connector — Multi-Agent router helpers (P1-1).
 //
 // Provides lightweight intent-based routing so the Orchestrator can
 // dispatch a task to the most appropriate registered agent instead of
 // always using the generic chat agent.
 
-import type { IAgent, IEmbeddingProvider, ModelSpec, TaskContext } from '@z-assistant/contracts';
-import { SharedState } from '@z-assistant/runtime';
-import type { AgentRegistry } from '@z-assistant/runtime';
+import type { IAgent, IEmbeddingProvider, ModelSpec, TaskContext } from '@ziner/contracts';
+import { SharedState } from '@ziner/runtime';
+import type { AgentRegistry } from '@ziner/runtime';
 
 export interface SelectAgentsOptions {
   /** Max agents to include in the dispatch list. Default 2. */
@@ -37,6 +37,17 @@ function normalizeTaskForCache(task: string): string {
   return task.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200);
 }
 
+function resolveFallbackName(
+  registry: AgentRegistry,
+  explicitFallback?: string,
+): string | null {
+  if (explicitFallback && registry.has(explicitFallback)) return explicitFallback;
+  if (registry.has('chat')) return 'chat';
+  if (registry.has('coding')) return 'coding';
+  const names = registry.list().map((a) => a.name).sort();
+  return names[0] ?? null;
+}
+
 function getCachedRoute(task: string, ttlMs: number): string[] | undefined {
   if (ttlMs <= 0) return undefined;
   const key = normalizeTaskForCache(task);
@@ -46,16 +57,21 @@ function getCachedRoute(task: string, ttlMs: number): string[] | undefined {
     routeCache.delete(key);
     return undefined;
   }
+  // LRU: refresh by deleting and re-inserting (moves to most-recent end)
+  routeCache.delete(key);
+  routeCache.set(key, entry);
   return entry.selected;
 }
 
 function setCachedRoute(task: string, selected: string[], ttlMs: number): void {
   if (ttlMs <= 0) return;
+  const key = normalizeTaskForCache(task);
+  // LRU eviction: remove the oldest entry (first in insertion order)
   if (routeCache.size >= MAX_ROUTE_CACHE_SIZE) {
     const first = routeCache.keys().next().value;
     if (first) routeCache.delete(first);
   }
-  routeCache.set(normalizeTaskForCache(task), { selected, expires: Date.now() + ttlMs });
+  routeCache.set(key, { selected, expires: Date.now() + ttlMs });
 }
 
 /**
@@ -83,7 +99,7 @@ export async function selectAgentsForTask(
 ): Promise<string[]> {
   const {
     maxAgents = 2,
-    fallback,        // optional; auto-picked from registry when not provided
+    fallback,
     threshold = 0.2,
     cacheTtlMs = 60_000,
     embeddingProvider,
@@ -103,85 +119,54 @@ export async function selectAgentsForTask(
     budget: { tokensLeft: Infinity, costLeftUsd: Infinity },
   };
 
-  // Pick a fallback name that actually exists in the registry. The
-  // historical default was the hardcoded string "chat", but the
-  // chat agent is now wrapped and registered as "coding" in
-  // apps/vscode-connector/src/index.ts (see createCodingAgentFromChat
-  // → asIAgent), so the literal "chat" no longer exists and would
-  // make the connector throw AgentNotFoundError downstream.
-  //
-  // Resolution order: explicit `options.fallback` → 'chat' (if
-  // present) → 'coding' (if present) → first agent sorted by name.
-  // Returns null if the registry is empty, in which case the caller
-  // should fall back to using the full registry for dispatch.
-  const resolveFallbackName = (): string | null => {
-    if (fallback && registry.has(fallback)) return fallback;
-    if (registry.has('chat')) return 'chat';
-    if (registry.has('coding')) return 'coding';
-    const names = registry.list().map((a) => a.name).sort();
-    return names[0] ?? null;
-  };
-
+  let result: string[];
   let ranked = await registry.rank(ctx);
+
   if (ranked.length === 0) {
-    const fb = resolveFallbackName();
-    if (fb == null) {
-      setCachedRoute(task, [], cacheTtlMs);
-      return [];
+    const fb = resolveFallbackName(registry, fallback);
+    result = fb ? [fb] : [];
+  } else {
+    if (embeddingProvider) {
+      const taskEmbedding = await embeddingProvider.embed(task);
+      const blended = await Promise.all(
+        ranked.map(async (item) => {
+          const capabilityText = `${item.agent.role} ${item.agent.capabilities.join(' ')}`;
+          const agentEmbedding = await embeddingProvider.embed(capabilityText);
+          const embeddingScore = cosineSimilarity(taskEmbedding, agentEmbedding);
+          const keywordScore = item.score;
+          const score = keywordScore * 0.5 + embeddingScore * 0.5;
+          return { agent: item.agent, score, _debug: { keywordScore, embeddingScore } };
+        }),
+      );
+      blended.sort((a, b) => b.score - a.score);
+      if (process.env.Z_ROUTER_DEBUG !== '0') {
+        const breakdown = blended
+          .map((b) =>
+            `${b.agent.name}=${b.score.toFixed(2)}` +
+            `(kw:${b._debug.keywordScore.toFixed(2)}+emb:${b._debug.embeddingScore.toFixed(2)})`,
+          )
+          .join(' | ');
+        // eslint-disable-next-line no-console
+        console.log(`[router] task="${task.slice(0, 60)}${task.length > 60 ? '…' : ''}" → ${breakdown}`);
+      }
+      ranked = blended;
     }
-    setCachedRoute(task, [fb], cacheTtlMs);
-    return [fb];
+
+    const top = ranked[0];
+    if (top.score < threshold) {
+      const fb = resolveFallbackName(registry, fallback);
+      result = fb ? [fb] : [];
+    } else {
+      const selected = [top.agent.name];
+      for (let i = 1; i < ranked.length && selected.length < maxAgents; i++) {
+        if (ranked[i].score >= threshold && ranked[i].score >= top.score * 0.7) {
+          selected.push(ranked[i].agent.name);
+        }
+      }
+      result = selected;
+    }
   }
 
-  if (embeddingProvider) {
-    const taskEmbedding = await embeddingProvider.embed(task);
-    const blended = await Promise.all(
-      ranked.map(async (item) => {
-        const capabilityText = `${item.agent.role} ${item.agent.capabilities.join(' ')}`;
-        const agentEmbedding = await embeddingProvider.embed(capabilityText);
-        const embeddingScore = cosineSimilarity(taskEmbedding, agentEmbedding);
-        // Blend keyword score with embedding similarity so either signal can win.
-        const keywordScore = item.score;
-        const score = keywordScore * 0.5 + embeddingScore * 0.5;
-        return { agent: item.agent, score, _debug: { keywordScore, embeddingScore } };
-      }),
-    );
-    blended.sort((a, b) => b.score - a.score);
-    // P1-1 debug log — show per-agent scores so mis-routing can be diagnosed
-    // from a single log line. Off by default in production but always emitted
-    // here so the trace panel can capture it.
-    if (process.env.Z_ROUTER_DEBUG !== '0') {
-      const breakdown = blended
-        .map((b) =>
-          `${b.agent.name}=${b.score.toFixed(2)}` +
-          `(kw:${b._debug.keywordScore.toFixed(2)}+emb:${b._debug.embeddingScore.toFixed(2)})`,
-        )
-        .join(' | ');
-      // eslint-disable-next-line no-console
-      console.log(`[router] task="${task.slice(0, 60)}${task.length > 60 ? '…' : ''}" → ${breakdown}`);
-    }
-    ranked = blended;
-  }
-
-  const top = ranked[0];
-  if (top.score < threshold) {
-    const fb = resolveFallbackName();
-    if (fb == null) {
-      setCachedRoute(task, [], cacheTtlMs);
-      return [];
-    }
-    setCachedRoute(task, [fb], cacheTtlMs);
-    return [fb];
-  }
-
-  // Include additional agents only if their score is within a reasonable
-  // margin of the top agent (multi-modal tasks like "搜索并总结网页").
-  const selected = [top.agent.name];
-  for (let i = 1; i < ranked.length && selected.length < maxAgents; i++) {
-    if (ranked[i].score >= threshold && ranked[i].score >= top.score * 0.7) {
-      selected.push(ranked[i].agent.name);
-    }
-  }
-  setCachedRoute(task, selected, cacheTtlMs);
-  return selected;
+  setCachedRoute(task, result, cacheTtlMs);
+  return result;
 }

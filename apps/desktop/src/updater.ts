@@ -1,4 +1,4 @@
-// @z-assistant/app-desktop — Auto Update
+// @ziner/app-desktop — Auto Update
 //
 // Uses electron-updater to check for updates and apply them.
 // Configured with a static update server URL that can be replaced
@@ -7,7 +7,7 @@
 import { autoUpdater, type UpdateInfo } from 'electron-updater';
 import { BrowserWindow, dialog } from 'electron';
 
-export const UPDATE_SERVER = 'https://update.z-assistant.app';
+export const UPDATE_SERVER = 'https://update.ziner.app';
 
 export interface UpdateState {
   checking: boolean;

@@ -1,6 +1,6 @@
 # Architecture Decision Records（ADR）
 
-本目录记录 Z Assistant V2 的关键架构决策。
+本目录记录 Ziner V2 的关键架构决策。
 每条 ADR 描述**一个**决策、其上下文、备选方案与后果。
 **ADR 一旦确定不再修改**；如需推翻，请新增一条 ADR 并引用旧 ID（不要修改历史）。
 

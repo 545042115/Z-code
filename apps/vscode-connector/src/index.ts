@@ -1,8 +1,8 @@
-// @z-assistant/app-vscode-connector
+// @ziner/app-vscode-connector
 //
 // V2 VSCode Connector — the only file in the V2 tree that bridges
 // the V1 VSCode extension (`extensions/coding-agent`) to the V2
-// Assistant Runtime (`@z-assistant/runtime`).
+// Assistant Runtime (`@ziner/runtime`).
 
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -12,36 +12,53 @@ import {
   Orchestrator,
   registerExampleAgents,
   MemoryManager,
-  JsonlMemoryProvider,
   EvolutionEngine,
   BackgroundScheduler,
   AuditLogger,
   HistoryMarkdownSuccessCaseStore,
   LlmSuccessSkillExtractor,
   createLocalEmbeddingProvider,
+  CheckpointManager,
+  BenchmarksService,
+  createMemoryProvider,
+  type StorageBackend,
+  type Checkpoint,
+  type CheckpointIndexEntry,
+  type SubTaskResult,
+  type CheckpointStatus,
   type OrchestratorMode,
   type OrchestratorResult,
   type EvolutionReport,
-} from '@z-assistant/runtime';
+  type BenchmarkSuiteSummary,
+  type BenchmarkSuiteSpec,
+  type BenchmarkEvent,
+} from '@ziner/runtime';
 
 import {
   AutoDiscoveryEngine,
   JsonlFailureCaseStore,
   TemplateSkillExtractor,
   JsonFileSkillReviewQueue,
-} from '@z-assistant/runtime/skills';
-import { TraceManager, type RunTracker } from '@z-assistant/trace';
-import { createFileStore } from '@z-assistant/infra-storage';
+} from '@ziner/runtime/skills';
+import { TraceManager, type RunTracker } from '@ziner/trace';
+import { createFileStore } from '@ziner/infra-storage';
 
 
-import type { Store } from '@z-assistant/infra-storage';
-import type { AgentResult, IAgent, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill, ModelSpec, ILLMProvider } from '@z-assistant/contracts';
+import type { Store } from '@ziner/infra-storage';
+import type { AgentResult, IAgent, IConfirmationGate, AutoDiscoveryReport, ITool, CandidateSkill, ModelSpec, ILLMProvider } from '@ziner/contracts';
 
 /** Factory supplied by the host (e.g. desktop app) to inject additional IAgents (P1-1). */
-export type AgentFactory = (deps: { llmProvider: ILLMProvider; model: ModelSpec; config: VSCodeConnectorConfig }) => IAgent;
+export type AgentFactory = (deps: {
+  llmProvider: ILLMProvider;
+  model: ModelSpec;
+  config: VSCodeConnectorConfig;
+  /** MCP tools connected for this run. Pass them to your agent so map/food
+   *  tasks can call structured MCP services instead of doing raw web search. */
+  mcpTools?: ITool[];
+}) => IAgent;
 
 import { OpenAIProvider } from './llm-provider';
-import { DryRunExecutor } from '@z-assistant/runtime/permission';
+import { DryRunExecutor } from '@ziner/runtime/permission';
 import { createChatAgent, CHAT_HISTORY_KEY } from './chat-agent';
 import { discoverChatSkills } from './skill-loader';
 import { selectAgentsForTask } from './agent-router';
@@ -49,8 +66,9 @@ import { ResultCache, shouldCacheTask } from './result-cache';
 import { ChatProfile, StyleProfile } from './chat-profile';
 import { WeChatHookService, type WeChatHookConfig, type WeChatHookStatus } from './wechat-hook-service';
 import { QQOneBotService, type QQOneBotConfig, type QQOneBotStatus } from './qq-onebot-service';
-import { createPlannerAgent } from '@z-assistant/agent-planner';
-import { createSynthesizerAgent } from '@z-assistant/agent-synthesizer';
+export type { WeChatHookStatus, QQOneBotStatus };
+import { createPlannerAgent } from '@ziner/agent-planner';
+import { createSynthesizerAgent } from '@ziner/agent-synthesizer';
 import {
   createCodingAgentFromChat,
   ChatToolRegistry,
@@ -119,6 +137,20 @@ export interface VSCodeConnectorConfig {
    * depending on their packages.
    */
   agentFactories?: AgentFactory[];
+  /**
+   * Storage backend for memory. Default 'jsonl' for backward compatibility.
+   * Set to 'sqlite' for better performance and lower memory usage.
+   */
+  storageBackend?: StorageBackend;
+  /**
+   * When switching to SQLite, automatically migrate existing JSONL data.
+   * Default: true.
+   */
+  autoMigrateStorage?: boolean;
+  /**
+   * Called during storage migration with progress updates.
+   */
+  onStorageMigrationProgress?: (processed: number, total: number) => void;
 }
 
 // ── Lifecycle event types ──────────────────────────────────────────────
@@ -171,6 +203,28 @@ export interface RunMultiAgentTaskOptions {
    * 'synthesizer'. Set to '' to disable.
    */
   synthesizerAgent?: string;
+  /**
+   * Optional loader for the session's recent messages. The Orchestrator
+   * uses this to inject prior turns of the same session into every
+   * dispatched agent's task — so multi-turn follow-ups ("我想要1+1，
+   * 双层吉士汉堡，不要番茄酱") carry the user's earlier intent
+   * ("帮我点个麦当劳") into the downstream sub-task context.
+   */
+  loadRecentMessages?: (sessionId: string, limit: number) => Promise<Array<{ role: 'user' | 'assistant'; content: string }>>;
+  /** Max recent messages to inject. Default 10. */
+  recentMessagesLimit?: number;
+  /**
+   * Optional list of agent names the router seeded for this task.
+   * Surfaced to the Planner as a soft hint so it can overrule the
+   * router when the actual sub-task belongs to a different agent.
+   */
+  routerSeed?: string[];
+  /** P3: CheckpointManager for per-sub-task persistence. */
+  checkpointManager?: CheckpointManager;
+  /** P3: pre-loaded checkpoint to resume from. */
+  resumeFrom?: Checkpoint;
+  /** P3: original runId to reuse (so the resumed run overwrites the same checkpoint file). */
+  resumeFromRunId?: string;
 }
 
 export interface RunMultiAgentTaskResult {
@@ -283,6 +337,9 @@ export class VSCodeConnector {
       auditLogger: this.config.auditLogger,
       successStore,
       successExtractor,
+      storageBackend: this.config.storageBackend,
+      autoMigrateStorage: this.config.autoMigrateStorage,
+      onStorageMigrationProgress: this.config.onStorageMigrationProgress,
     });
   }
 
@@ -444,10 +501,26 @@ export class VSCodeConnector {
     // P2 `plan` mode we also keep the Synthesizer in the registry (if
     // it was registered) so the Orchestrator can invoke it; the filter
     // only affects the user-facing `agents` list, not internal agents.
+    //
+    // EXCEPTION (plan mode): the router's seed is a *suggestion*, not
+    // a hard cap. In `plan` mode the Planner LLM should be free to pick
+    // ANY worker agent for each sub-task (it has more context than the
+    // router's keyword/embedding scoring). Restricting the registry to
+    // the router's seed would silently drop the best worker (e.g.
+    // "research" for a follow-up clarification that needs the same
+    // sub-task as the previous turn) and force the Planner to send
+    // everything to the seed agent. So in `plan` mode we keep ALL
+    // workers reachable; the router's seed is still used to set the
+    // initial Planner prompt context (see `availableAgents` below) but
+    // dispatch is unconstrained.
     let effectiveRegistry = registry;
-    if (opts.agents && opts.agents.length > 0 && opts.agents.length < registry.list().length) {
+    const restrictToSeed = opts.mode !== 'plan'
+      && opts.agents
+      && opts.agents.length > 0
+      && opts.agents.length < registry.list().length;
+    if (restrictToSeed) {
       effectiveRegistry = new AgentRegistry();
-      for (const name of opts.agents) {
+      for (const name of opts.agents!) {
         effectiveRegistry.register(registry.get(name));
       }
       // Always keep Planner and Synthesizer reachable in `plan` mode
@@ -474,6 +547,19 @@ export class VSCodeConnector {
       signal: abortController.signal,
       plannerAgent: opts.plannerAgent,
       synthesizerAgent: opts.synthesizerAgent,
+      // Forward the recent-messages loader so the Orchestrator can
+      // inject prior turns of the same session into every agent's task.
+      loadRecentMessages: opts.loadRecentMessages,
+      recentMessagesLimit: opts.recentMessagesLimit,
+      // Surface the router's seed to the Planner as a soft hint.
+      routerSeed: opts.routerSeed,
+      // P3 checkpoint: pass through the CheckpointManager and (if
+      // present) the pre-loaded checkpoint for resume. `resumeFromRunId`
+      // keeps the new run under the original id so the same
+      // `<storageDir>/checkpoints/<runId>.json` file is overwritten.
+      checkpointManager: opts.checkpointManager,
+      resumeFrom: opts.resumeFrom,
+      resumeFromRunId: opts.resumeFromRunId,
       // Forward plan.* events from the Orchestrator to the Connector
       // event bus so the desktop UI can render a live To-do list.
       // The runId is captured here (closure) because it's not known
@@ -590,7 +676,18 @@ export class VSCodeConnector {
     return this._runtime !== null;
   }
 
-  async runTask(task: string, _projectKey?: string, sessionId?: string, planningMode?: 'simple' | 'hierarchical' | 'auto'): Promise<{ runId: string; result?: string }> {
+  async runTask(
+    task: string,
+    _projectKey?: string,
+    sessionId?: string,
+    planningMode?: 'simple' | 'hierarchical' | 'auto',
+    loadRecentMessages?: (sessionId: string, limit: number) => Promise<Array<{ role: 'user' | 'assistant'; content: string }>>,
+    /** P3: optional pre-loaded checkpoint to resume from. */
+    resumeFrom?: Checkpoint,
+    /** P3: original runId to reuse (so the resumed run overwrites the same checkpoint file). */
+    resumeFromRunId?: string,
+  ): Promise<{ runId: string; result?: string }> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
     const model = this.config.defaultModel ?? { provider: 'openai', name: 'gpt-4o' };
     const apiKey = this.config.apiKey;
     const apiEndpoint = this.config.apiEndpoint;
@@ -618,7 +715,7 @@ export class VSCodeConnector {
     });
 
     // P1-3: wrap provider with BudgetGuard so per-run and per-day caps are enforced.
-    const budget: import('@z-assistant/contracts').BudgetPolicy = {
+    const budget: import('@ziner/contracts').BudgetPolicy = {
       perRunTokens: this.config.budget?.perRunTokens ?? 0,
       perRunUsd: this.config.budget?.perRunUsd ?? 0,
       perDayUsd: this.config.budget?.perDayUsd ?? 0,
@@ -636,22 +733,43 @@ export class VSCodeConnector {
     // G6 wiring: connect optional MCP servers and expose their tools
     // alongside built-in tools. The active tool policy is passed through
     // so MCP tools honour the same allow/deny lists as built-in tools.
-    let mcpCleanup: (() => Promise<void>) | undefined;
-    let mcpTools: ITool[] = [];
-    if (this.config.mcpServers && this.config.mcpServers.length > 0) {
+    // Run MCP connect + skill discovery + (optional) local embedding model
+    // load in parallel — they are independent and the embedding model
+    // load is the slowest of the three on a cold start.
+    const skillRoot = this.config.projectDir || this.config.storageDir;
+    const skillsPromise = discoverChatSkills({ rootDir: skillRoot });
+    const mcpPromise = (async (): Promise<{ tools: ITool[]; close: () => Promise<void> }> => {
+      if (!this.config.mcpServers || this.config.mcpServers.length === 0) {
+        return { tools: [], close: async () => {} };
+      }
       try {
         this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: 'Connecting MCP servers...' });
         const mcp = await connectMcpServers(this.config.mcpServers, {
           toolPolicy: this.config.toolPolicy,
         });
-        mcpTools = mcp.tools;
-        mcpCleanup = mcp.close;
         this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: `Loaded ${mcp.tools.length} MCP tool(s)` });
+        return { tools: mcp.tools, close: mcp.close };
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         this.emit({ type: 'progress', runId: '', phase: 'mcp', detail: `MCP connection failed: ${msg}` });
+        return { tools: [], close: async () => {} };
       }
-    }
+    })();
+    const embeddingPromise = (async () => {
+      try {
+        return await createLocalEmbeddingProvider();
+      } catch {
+        return undefined;
+      }
+    })();
+
+    const [mcpResult, skillIndex, localEmbedding] = await Promise.all([
+      mcpPromise,
+      skillsPromise,
+      embeddingPromise,
+    ]);
+    const mcpTools = mcpResult.tools;
+    const mcpCleanup = mcpResult.close;
 
     const registerAgents = (reg: AgentRegistry) => {
       const tracker = this._runtime?.trace.active();
@@ -667,9 +785,6 @@ export class VSCodeConnector {
       // confirmation gate / dry-run mode / audit trail.
       // G6 wiring: pass MCP tools into the agent loop and V2 registry.
       const dryRunExecutor = this.config.dryRun ? new DryRunExecutor() : undefined;
-      // Load OpenClaw / Claude Code compatible skills from <projectDir>/.skills
-      const skillRoot = this.config.projectDir || this.config.storageDir;
-      const skillIndex = discoverChatSkills({ rootDir: skillRoot });
       const loop = createCodingAgentFromChat({
         extraTools: mcpTools,
         toolPolicy: this.config.toolPolicy,
@@ -723,8 +838,10 @@ export class VSCodeConnector {
       // P1-1: register any additional agents supplied by the host
       // (e.g. Browser agent from the desktop app) so they can participate
       // in task routing without adding heavy/optional deps to this package.
+      // G6 wiring: forward MCP tools to factory-built agents so they can
+      // answer structured map/food/route queries directly.
       const extraAgents = (this.config.agentFactories ?? []).map((factory) =>
-        factory({ llmProvider: guardedLlmProvider, model, config: this.config }),
+        factory({ llmProvider: guardedLlmProvider, model, config: this.config, mcpTools }),
       );
       for (const agent of extraAgents) {
         reg.register(agent);
@@ -756,18 +873,28 @@ export class VSCodeConnector {
     for (const name of ['planner', 'synthesizer']) {
       if (routingRegistry.has(name)) routingRegistry.unregister(name);
     }
-    const localEmbedding = createLocalEmbeddingProvider();
+    const localEmbeddingProvider = localEmbedding;
     const selectedAgents = await selectAgentsForTask(routingRegistry, task, model, {
-      embeddingProvider: localEmbedding,
+      ...(localEmbeddingProvider ? { embeddingProvider: localEmbeddingProvider } : {}),
+      // Short TTL: transactional / MCP routing can change as soon as
+      // a user re-words the request, and we don't want a stale route
+      // (e.g. "research" for "点麦当劳") to stick for 60s.
+      cacheTtlMs: 10_000,
     });
     this.emit({ type: 'progress', runId: '', phase: 'routing', detail: `Dispatching to: ${selectedAgents.join(', ')}` });
 
-    const cacheKey = `${model.provider}:${model.name}|${selectedAgents.join(',')}|${task}`;
-    if (shouldCacheTask(task)) {
-      const cached = this._resultCache.get(cacheKey);
-      if (cached) {
-        this.emit({ type: 'progress', runId: cached.runId, phase: 'cache', detail: 'Returning cached result' });
-        return { runId: cached.runId, result: cached.outputText };
+    // P3 checkpoint: never serve a resume from the result cache. A
+    // resumed run is intentionally re-executing the in-flight plan
+    // and the cached snapshot may be stale relative to the latest
+    // shared state.
+    if (!resumeFrom) {
+      const cacheKey = `${model.provider}:${model.name}|${selectedAgents.join(',')}|${task}`;
+      if (shouldCacheTask(task)) {
+        const cached = this._resultCache.get(cacheKey);
+        if (cached) {
+          this.emit({ type: 'progress', runId: cached.runId, phase: 'cache', detail: 'Returning cached result' });
+          return { runId: cached.runId, result: cached.outputText };
+        }
       }
     }
 
@@ -784,7 +911,7 @@ export class VSCodeConnector {
     // sub-task is assigned to the best-matching worker agent. Users
     // who want the old single-agent behaviour can opt in with
     // `/simple` (sets `planningMode === 'simple'`).
-    let effectiveMode: OrchestratorMode = selectedAgents.length > 1 ? 'dag' : 'sequential';
+    let effectiveMode: OrchestratorMode = 'dag';
     let plannerAgent: string | undefined;
     if (planningMode === 'hierarchical' || planningMode === 'auto' || planningMode === undefined) {
       // Default: always go through the Planner. The Planner decides
@@ -810,9 +937,26 @@ export class VSCodeConnector {
         initialState: this._conversationHistoryBySession.get(sessionId ?? '') ?? {},
         sessionId,
         plannerAgent,
+        // Inject prior turns of the same session so multi-turn follow-ups
+        // (e.g. "我想要1+1, 不要番茄酱" after "帮我点个麦当劳") carry the
+        // user's earlier intent into the downstream sub-task context.
+        ...(loadRecentMessages ? { loadRecentMessages, recentMessagesLimit: 10 } : {}),
+        // Surface the router's seed to the Planner so it knows what the
+        // keyword/embedding router suggested. In plan mode the Planner
+        // is free to overrule it for any sub-task.
+        routerSeed: selectedAgents,
+        // P3 checkpoint: when resuming, the connector owns the
+        // CheckpointManager (always present after start()), and the
+        // caller-supplied `resumeFrom` / `resumeFromRunId` flow through
+        // to the Orchestrator. For fresh runs the manager still
+        // persists the per-sub-task state, allowing a later resume.
+        checkpointManager: this._runtime.checkpoints,
+        ...(resumeFrom ? { resumeFrom } : {}),
+        ...(resumeFromRunId ? { resumeFromRunId } : {}),
       });
 
-      if (shouldCacheTask(task) && fullResult.result.status === 'success') {
+      if (!resumeFrom && shouldCacheTask(task) && fullResult.result.status === 'success') {
+        const cacheKey = `${model.provider}:${model.name}|${selectedAgents.join(',')}|${task}`;
         this._resultCache.set(cacheKey, fullResult);
       }
 
@@ -838,8 +982,111 @@ export class VSCodeConnector {
     return this._runtime?.memory ?? null;
   }
 
+  /** Get the current storage backend ('jsonl' or 'sqlite'). */
+  getStorageBackend(): StorageBackend {
+    return this._runtime?.storageBackend ?? 'jsonl';
+  }
+
   auditLogger(): AuditLogger | null {
     return this._runtime?.auditLogger ?? null;
+  }
+
+  /**
+   * P3 Harness: BenchmarksService for running code task benchmarks
+   * in Docker sandboxes. Null before start().
+   */
+  benchmarks(): BenchmarksService | null {
+    return this._runtime?.benchmarks ?? null;
+  }
+
+  /** Check if Docker is available for benchmark runs. */
+  async checkDocker(): Promise<{ ok: boolean; version?: string; reason?: string }> {
+    if (!this._runtime) return { ok: false, reason: 'runtime not started' };
+    const result = await this._runtime.benchmarks.checkDocker();
+    if (result.ok) {
+      return { ok: true, version: result.version };
+    }
+    return { ok: false, reason: result.reason };
+  }
+
+  /** List all built-in benchmark suites. */
+  listBenchmarkSuites(): BenchmarkSuiteSpec[] {
+    if (!this._runtime) return [];
+    return this._runtime.benchmarks.listBuiltinSuites();
+  }
+
+  /**
+   * Run a benchmark suite by id. Emits benchmark.caseStarted /
+   * benchmark.caseCompleted / benchmark.suiteCompleted events on the
+   * connector event bus so the UI can track progress.
+   */
+  async runBenchmarkSuite(suiteId: string): Promise<BenchmarkSuiteSummary> {
+    if (!this._runtime) throw new Error('VSCodeConnector not started');
+    const svc = this._runtime.benchmarks;
+    return svc.runSuite(suiteId, {
+      // No custom cases — use the built-in suite's default case list.
+    });
+  }
+
+  /**
+   * Cancel the currently running task, if any. Idempotent: safe to
+   * call when no run is in flight (returns false). The cancellation
+   * propagates through the Orchestrator's AbortSignal to the active
+   * agent, the active LLM call (if the provider supports abort), and
+   * any in-flight MCP tool invocations.
+   *
+   * @returns true if a run was cancelled, false if nothing was running
+   */
+  cancelRun(): boolean {
+    if (this._currentRunAbort && !this._currentRunAbort.signal.aborted) {
+      this._currentRunAbort.abort('cancelled by user');
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * P3 Checkpoint APIs. The connector owns the storage path (under
+   * `storageDir/checkpoints/`) and lazily constructs a single
+   * CheckpointManager per process. Callers can:
+   *   - list resumable runs
+   *   - load a checkpoint by runId
+   *   - resume a run from a checkpoint (creates a new RunTracker but
+   *     reuses the original `runId` so the same checkpoint file is
+   *     overwritten on the next save)
+   */
+  async listCheckpoints(
+    opts?: { sessionId?: string; limit?: number },
+  ): Promise<CheckpointIndexEntry[]> {
+    if (!this._runtime) return [];
+    return this._runtime.checkpoints.list(opts);
+  }
+
+  async loadCheckpoint(runId: string): Promise<Checkpoint | null> {
+    if (!this._runtime) return null;
+    return this._runtime.checkpoints.load(runId);
+  }
+
+  /** Delete a checkpoint by runId. No-op if absent. */
+  async deleteCheckpoint(runId: string): Promise<boolean> {
+    if (!this._runtime) return false;
+    await this._runtime.checkpoints.delete(runId);
+    return true;
+  }
+
+  /**
+   * Resume a previously-saved run. Returns the same shape as
+   * `runTask` (runId + optional result). The run is executed in
+   * `plan` mode with `resumeFrom` populated so the Orchestrator
+   * skips the planner + completed sub-tasks.
+   */
+  async resumeTask(
+    runId: string,
+    planningMode?: 'simple' | 'hierarchical' | 'auto',
+  ): Promise<{ runId: string; result?: string }> {
+    const ck = await this.loadCheckpoint(runId);
+    if (!ck) throw new Error(`No checkpoint found for runId=${runId}`);
+    return this.runTask(ck.task, undefined, ck.sessionId, planningMode ?? 'auto', undefined, ck, runId);
   }
 
   /**
@@ -903,7 +1150,7 @@ export class VSCodeConnector {
 
 // ── AssistantRuntime façade ──────────────────────────────────────────
 
-import { RUNTIME_VERSION } from '@z-assistant/runtime';
+import { RUNTIME_VERSION } from '@ziner/runtime';
 
 export interface AssistantRuntimeBootOptions {
   storageDir: string;
@@ -915,9 +1162,23 @@ export interface AssistantRuntimeBootOptions {
   /** Optional shared audit logger. If omitted, one is created automatically. */
   auditLogger?: AuditLogger;
   /** Optional success case store for F-1 success-driven skill discovery. */
-  successStore?: import('@z-assistant/contracts').ISuccessCaseStore;
+  successStore?: import('@ziner/contracts').ISuccessCaseStore;
   /** Optional success skill extractor for F-1. */
-  successExtractor?: import('@z-assistant/contracts').ISuccessSkillExtractor;
+  successExtractor?: import('@ziner/contracts').ISuccessSkillExtractor;
+  /**
+   * Storage backend for memory. Default 'jsonl' for backward compatibility.
+   * Set to 'sqlite' for better performance and lower memory usage.
+   */
+  storageBackend?: StorageBackend;
+  /**
+   * When switching to SQLite, automatically migrate existing JSONL data.
+   * Default: true.
+   */
+  autoMigrateStorage?: boolean;
+  /**
+   * Called during storage migration with progress updates.
+   */
+  onStorageMigrationProgress?: (processed: number, total: number) => void;
 }
 
 /**
@@ -938,6 +1199,10 @@ export class AssistantRuntime {
   readonly skillDiscovery: AutoDiscoveryEngine;
   readonly skillReviewQueue: JsonFileSkillReviewQueue;
   readonly auditLogger: AuditLogger;
+  readonly checkpoints: CheckpointManager;
+  readonly benchmarks: BenchmarksService;
+  /** Current storage backend in use. */
+  readonly storageBackend: StorageBackend;
   private scheduler?: BackgroundScheduler;
 
   private constructor(
@@ -949,6 +1214,9 @@ export class AssistantRuntime {
     skillDiscovery: AutoDiscoveryEngine,
     skillReviewQueue: JsonFileSkillReviewQueue,
     auditLogger: AuditLogger,
+    checkpoints: CheckpointManager,
+    benchmarks: BenchmarksService,
+    storageBackend: StorageBackend,
   ) {
     this.memory = memory;
     this.registry = registry;
@@ -956,6 +1224,9 @@ export class AssistantRuntime {
     this.skillDiscovery = skillDiscovery;
     this.skillReviewQueue = skillReviewQueue;
     this.auditLogger = auditLogger;
+    this.checkpoints = checkpoints;
+    this.benchmarks = benchmarks;
+    this.storageBackend = storageBackend;
   }
 
   static async boot(opts: AssistantRuntimeBootOptions): Promise<AssistantRuntime> {
@@ -967,12 +1238,17 @@ export class AssistantRuntime {
     const store = await createFileStore({ rootDir: dataDir });
     const trace = new TraceManager({ store, tracesDir });
 
-    // Framework layer: memory (JsonlMemoryProvider over the storage dir).
+    // Framework layer: memory (configurable backend: jsonl or sqlite).
     // userId 'desktop-user' matches the existing chat-agent + runtime-bridge
     // convention so all memory access paths share the same user scope.
-    const memoryProvider = new JsonlMemoryProvider({ rootDir: dataDir });
+    const memoryResult = await createMemoryProvider({
+      backend: opts.storageBackend ?? 'jsonl',
+      rootDir: dataDir,
+      autoMigrate: opts.autoMigrateStorage,
+      onMigrationProgress: opts.onStorageMigrationProgress,
+    });
     const memory = new MemoryManager({
-      provider: memoryProvider,
+      provider: memoryResult.provider,
       userId: opts.userId ?? 'desktop-user',
       agentName: 'runtime',
     });
@@ -1001,7 +1277,19 @@ export class AssistantRuntime {
     // use this instance so the background scheduler can observe failures.
     const auditLogger = opts.auditLogger ?? new AuditLogger({ rootDir: dataDir });
 
-    const runtime = new AssistantRuntime(trace, store, memory, registry, evolution, skillDiscovery, reviewQueue, auditLogger);
+    // P3 CheckpointManager — persists per-sub-task state for plan-mode
+    // runs so they can be resumed after a crash or user-cancel.
+    const checkpoints = new CheckpointManager({ rootDir: dataDir });
+
+    // P3 Harness: BenchmarksService for running code task benchmarks
+    // in Docker sandboxes. Wired to the store for Evaluation persistence.
+    // Evolution engine reads failures directly from the store.
+    const benchmarks = new BenchmarksService({
+      store,
+      trace,
+    });
+
+    const runtime = new AssistantRuntime(trace, store, memory, registry, evolution, skillDiscovery, reviewQueue, auditLogger, checkpoints, benchmarks, memoryResult.backend);
 
     // Phase 5: background evolution scheduler observes audit failures and
     // automatically triggers evolution + skill discovery when thresholds are met.
@@ -1052,6 +1340,28 @@ export class AssistantRuntime {
      * `planSubtaskCompleted` / `planSubtaskFallback` ConnectorEvents.
      */
     onPlanEvent?: (event: { name: 'plan.dag' | 'plan.subtask.started' | 'plan.subtask.completed' | 'plan.subtask.fallback'; data: Record<string, unknown> }) => void;
+    /**
+     * Optional loader for the session's recent messages. The
+     * Orchestrator uses this to inject prior turns of the same session
+     * into every dispatched agent's task — so multi-turn follow-ups
+     * carry the user's earlier intent into the downstream sub-task
+     * context.
+     */
+    loadRecentMessages?: (sessionId: string, limit: number) => Promise<Array<{ role: 'user' | 'assistant'; content: string }>>;
+    /** Max recent messages to inject. Default 10. */
+    recentMessagesLimit?: number;
+    /**
+     * Optional list of agent names the router seeded for this task.
+     * The Orchestrator surfaces it to the Planner so it can overrule
+     * the router when the actual sub-task belongs to a different agent.
+     */
+    routerSeed?: string[];
+    /** P3: CheckpointManager for per-sub-task persistence. */
+    checkpointManager?: CheckpointManager;
+    /** P3: pre-loaded checkpoint to resume from. */
+    resumeFrom?: Checkpoint;
+    /** P3: original runId to reuse (so the resumed run overwrites the same checkpoint file). */
+    resumeFromRunId?: string;
   }): Promise<{ tracker: RunTracker; orchestrator: Orchestrator }> {
     const sessionId = opts.sessionId ?? `run-${Date.now()}`;
     const tracker = await this.trace.startRun({
@@ -1073,6 +1383,13 @@ export class AssistantRuntime {
       plannerAgent: opts.plannerAgent,
       synthesizerAgent: opts.synthesizerAgent,
       onPlanEvent: opts.onPlanEvent,
+      memoryManager: this.memory,
+      loadRecentMessages: opts.loadRecentMessages,
+      recentMessagesLimit: opts.recentMessagesLimit,
+      routerSeed: opts.routerSeed,
+      checkpointManager: opts.checkpointManager,
+      resumeFrom: opts.resumeFrom,
+      resumeFromRunId: opts.resumeFromRunId,
     });
     return { tracker, orchestrator };
   }
@@ -1089,6 +1406,10 @@ export class AssistantRuntime {
 
 export { RUNTIME_VERSION };
 export type { AgentResult, Store, TraceManager, OrchestratorMode, OrchestratorResult };
+export type { Checkpoint, CheckpointIndexEntry, SubTaskResult, CheckpointStatus };
+export { CheckpointManager, BenchmarksService };
+export type { BenchmarkSuiteSummary, BenchmarkSuiteSpec, BenchmarkEvent };
+export type { StorageBackend };
 export { createCodingAgentFromChat, ChatToolRegistry };
 export type { CodingAgentFactoryOptions };
 export { OpenAIProvider } from './llm-provider';

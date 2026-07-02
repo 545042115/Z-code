@@ -1,10 +1,10 @@
-// @z-assistant/runtime — episodic memory
+// @ziner/runtime — episodic memory
 //
 // Task-level "I did X on project Y" memories. Episodes are great for
 // few-shot retrieval: when the user asks something similar to a past
 // task, recall the episode and use it as an example.
 
-import type { MemoryRecord, MemoryHit } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryHit } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface Episode {

@@ -20,7 +20,7 @@ import type {
   PromptCandidate,
   RunStatus,
   SpanStatus,
-} from '@z-assistant/contracts';
+} from '@ziner/contracts';
 
 // ── Common Query ──────────────────────────────────────────────────────
 

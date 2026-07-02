@@ -10,7 +10,7 @@ import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { TraceManager, Instrumenter } from '../index';
-import { createFileStore, type Store } from '@z-assistant/infra-storage';
+import { createFileStore, type Store } from '@ziner/infra-storage';
 import type { InstrumentableLLM, InstrumentableTool } from '../instrumentation';
 
 // ── Mocks (duck-typed, no V1 dependencies) ────────────────────────────

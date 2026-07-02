@@ -1,10 +1,10 @@
-// @z-assistant/runtime — long-term memory
+// @ziner/runtime — long-term memory
 //
 // Durable cross-session facts and learnings. Use this for information
 // that should persist across runs: user facts, project conventions,
 // resolved decisions, error lessons, etc.
 
-import type { MemoryRecord, MemoryHit } from '@z-assistant/contracts';
+import type { MemoryRecord, MemoryHit } from '@ziner/contracts';
 import type { MemoryManager } from './memory-manager';
 
 export interface LongTermFact {

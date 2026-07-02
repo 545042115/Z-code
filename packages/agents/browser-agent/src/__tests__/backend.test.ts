@@ -1,4 +1,4 @@
-// @z-assistant/agent-browser — unit tests for backend, agent, overlay
+// @ziner/agent-browser — unit tests for backend, agent, overlay
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
@@ -22,7 +22,7 @@ describe('overlay', () => {
     const script = generateOverlayScript();
     assert.ok(typeof script === 'string');
     assert.ok(script.length > 100);
-    assert.ok(script.includes('z-assistant-overlay'));
+    assert.ok(script.includes('ziner-overlay'));
     assert.ok(script.includes('z-highlight'));
   });
 });

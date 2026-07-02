@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Audit Logger (P1-2 HITL).
+// @ziner/runtime — Audit Logger (P1-2 HITL).
 //
 // Appends AuditLogEntry records to `<rootDir>/audit.jsonl` so the user
 // can review everything the Agent did after the fact. Entries are
@@ -17,7 +17,7 @@ import { promises as fsp, existsSync, mkdirSync, createReadStream } from 'fs';
 import { join, dirname } from 'path';
 import { createInterface } from 'node:readline';
 import { randomUUID } from 'node:crypto';
-import type { AuditLogEntry, Decision, RiskLevel } from '@z-assistant/contracts';
+import type { AuditLogEntry, Decision, RiskLevel } from '@ziner/contracts';
 
 // ── Options ──────────────────────────────────────────────────────────
 

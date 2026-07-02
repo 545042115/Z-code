@@ -1,3 +1,3 @@
-// Shim: V1 extension → @z-assistant/contracts
+// Shim: V1 extension → @ziner/contracts
 // Migration re-export. See ADR 0007 (Phase 6 Runtime decoupling).
-export * from '@z-assistant/contracts';
+export * from '@ziner/contracts';

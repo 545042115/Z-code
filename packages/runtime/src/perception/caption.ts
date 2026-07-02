@@ -1,4 +1,4 @@
-// @z-assistant/runtime — Image Caption Service
+// @ziner/runtime — Image Caption Service
 //
 // Generates text descriptions of images using the Python sidecar
 // (Florence-2 / BLIP). Falls back to OCR-only if caption model is

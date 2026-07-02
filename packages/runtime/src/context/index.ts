@@ -1,4 +1,4 @@
-// @z-assistant/runtime — context
+// @ziner/runtime — context
 //
 // Context budget framework (mechanism layer). Pure Node, no vscode.
 //
@@ -14,3 +14,15 @@ export {
   type BudgetAllocationResult,
   type BudgetTrimEntry,
 } from './context-budget';
+
+export {
+  MemoryContextProvider,
+  type MemoryContextProviderOptions,
+} from './memory-provider';
+
+export {
+  ContextCompressor,
+  type CompressionOptions,
+  type CompressionResult,
+  type CompressionStrategy,
+} from './compressor';

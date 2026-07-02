@@ -4,8 +4,8 @@
 // check before and update after each billable operation. Throwing
 // `BudgetExceededError` is the contract that propagates through the agent.
 
-import { AgentErrorCode } from '@z-assistant/infra-errors';
-import type { Budget, BudgetPolicy } from '@z-assistant/contracts';
+import { AgentErrorCode } from '@ziner/infra-errors';
+import type { Budget, BudgetPolicy } from '@ziner/contracts';
 
 export class BudgetExceededError extends Error {
   readonly code = AgentErrorCode.BudgetExceeded;

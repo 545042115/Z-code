@@ -1,11 +1,11 @@
-// @z-assistant/runtime — planning
+// @ziner/runtime — planning
 //
 // Generic Plan / Step framework with two executors:
 //   - sequential-executor: runs steps in order
 //   - dag-executor:        runs steps respecting `dependsOn` edges
 //
 // Agent-specific planners (Coding / Browser / Research) implement
-// `IPlanner` from `@z-assistant/contracts` and use these executors
+// `IPlanner` from `@ziner/contracts` and use these executors
 // to run their `Plan`s.
 //
 // Phase 6A: minimal framework. Per ADR 4.2 the Coding Planner

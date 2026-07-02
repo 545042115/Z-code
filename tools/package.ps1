@@ -1,5 +1,5 @@
 # PowerShell script to compile and package the VS Code extension.
-$repoRoot = "D:\mycode\Z Code"
+$repoRoot = "D:\mycode\Ziner"
 $nodePath = Join-Path $repoRoot "tools\node-v20.14.0-win-x64"
 $extensionPath = Join-Path $repoRoot "extensions\coding-agent"
 $env:PATH = "$nodePath;$env:PATH"

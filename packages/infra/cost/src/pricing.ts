@@ -3,7 +3,7 @@
 // Source: official provider pricing pages, refreshed 2026-06.
 // In production this is loaded from the Config Center so users can override.
 
-import type { ModelSpec } from '@z-assistant/contracts';
+import type { ModelSpec } from '@ziner/contracts';
 
 export interface ModelPrice {
   /** USD per 1k input tokens */

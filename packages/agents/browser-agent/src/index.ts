@@ -1,4 +1,4 @@
-// @z-assistant/agent-browser — Browser Agent entry point
+// @ziner/agent-browser — Browser Agent entry point
 //
 // Exports the public API for the browser automation subsystem.
 

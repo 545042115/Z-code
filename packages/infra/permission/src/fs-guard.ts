@@ -8,8 +8,8 @@
 
 import { realpath, stat } from 'fs/promises';
 import { resolve, relative, sep, isAbsolute } from 'path';
-import { matchGlob, type ErrorRef } from '@z-assistant/contracts';
-import { ToolErrorCode } from '@z-assistant/infra-errors';
+import { matchGlob, type ErrorRef } from '@ziner/contracts';
+import { ToolErrorCode } from '@ziner/infra-errors';
 
 export interface FsPolicy {
   workspaceRoot: string;

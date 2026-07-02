@@ -1,11 +1,11 @@
-// @z-assistant/runtime — User Knowledge
+// @ziner/runtime — User Knowledge
 //
 // Stores user-level knowledge: expertise, preferences, skill level,
 // common workflows, and personal conventions.
 //
 // Builds on IMemoryProvider (long-term, user-scoped records).
 
-import type { IMemoryProvider, MemoryQuery } from '@z-assistant/contracts';
+import type { IMemoryProvider, MemoryQuery } from '@ziner/contracts';
 
 export interface UserKnowledge {
   /** Knowledge key (e.g. "preferred-language", "expertise-area"). */

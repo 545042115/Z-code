@@ -6,7 +6,7 @@
 // plan) live in their own packages and implement this interface.
 //
 // Framework-level executors (sequential / DAG / parallel) live in
-// `@z-assistant/runtime` and operate on these types.
+// `@ziner/runtime` and operate on these types.
 
 import type { ErrorRef } from './run';
 import type { TaskContext } from './agent';
@@ -60,7 +60,7 @@ export interface PlanResult {
 /**
  * The framework-level planner interface. Concrete planners (Coding
  * Planner, Browser Planner, Research Planner) build a `Plan` from a
- * task and execute it. The framework layer (`@z-assistant/runtime`)
+ * task and execute it. The framework layer (`@ziner/runtime`)
  * provides generic executors; the agent-specific planners live in
  * their own packages and implement this interface.
  */

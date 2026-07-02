@@ -1,14 +1,14 @@
 {
   "extends": "../../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": ".",
+    "rootDir": "src",
     "outDir": "out",
     "composite": true,
     "tsBuildInfoFile": "./out/.tsbuildinfo",
     "lib": ["ES2022", "DOM"]
   },
-  "include": ["src/**/*", "__tests__/**/*"],
-  "exclude": ["out", "node_modules"],
+  "include": ["src/**/*"],
+  "exclude": ["out", "node_modules", "**/__tests__/**", "**/*.test.ts"],
   "references": [
     { "path": "../../contracts" }
   ]
