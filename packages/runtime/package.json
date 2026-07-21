@@ -97,6 +97,7 @@
     "@ziner/infra-errors": "0.1.0",
     "@ziner/infra-permission": "0.1.0",
     "@ziner/infra-storage": "0.1.0",
+    "@ziner/runtime-core": "0.1.0",
     "@ziner/trace": "0.1.0",
     "better-sqlite3": "^12.11.1",
     "dockerode": "^4.0.2",

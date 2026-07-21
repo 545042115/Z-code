@@ -353,33 +353,38 @@ body::before {
 
 .memory-stats {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
   margin-bottom: 16px;
 }
 
 .stat-card {
   background: var(--surface);
   border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: 12px 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  align-items: center;
   box-shadow: var(--shadow-sm);
 }
 
 .stat-number {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--accent);
   font-family: var(--font-display);
 }
 
 .stat-label {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
+
+.stat-card-fact .stat-number { color: #5b7a9e; }
+.stat-card-pref .stat-number { color: #b98a5e; }
+.stat-card-ep .stat-number { color: #7a9e6b; }
 
 .memory-list {
   display: flex;
@@ -395,12 +400,76 @@ body::before {
   height: calc(100vh - 200px);
 }
 
+.trace-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.trace-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.trace-filter-row {
+  display: flex;
+  gap: 6px;
+}
+
+.trace-filter-tabs {
+  display: flex;
+  gap: 4px;
+  background: var(--surface-subtle);
+  padding: 3px;
+  border-radius: var(--radius-md);
+  flex: 1;
+}
+
+.trace-tab {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.trace-tab:hover { color: var(--text-primary); }
+
+.trace-tab.active {
+  background: var(--surface);
+  color: var(--text-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.trace-search {
+  flex: 1;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.trace-search:focus { border-color: var(--accent); }
+
 .trace-list {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding-right: 4px;
+  flex: 1;
 }
 
 .trace-item {
@@ -463,6 +532,63 @@ body::before {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 6px;
+}
+
+.memory-item-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.memory-expand-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.memory-expand-btn:hover { color: var(--text-secondary); }
+
+.memory-expand-btn svg {
+  transition: transform var(--transition);
+}
+
+.memory-item.expanded .memory-expand-btn svg {
+  transform: rotate(180deg);
+}
+
+.memory-details {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.memory-details-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 12px;
+}
+
+.detail-item {
+  display: contents;
+}
+
+.detail-label {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.detail-value {
+  color: var(--text-secondary);
+  word-break: break-all;
 }
 
 .memory-tag {
@@ -860,6 +986,159 @@ input:checked + .slider:before {
   }
 }
 
+/* ── Checkpoint 面板 ───────────────────────────────────────────── */
+.checkpoint-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1999;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.checkpoint-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.checkpoint-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: -80vh;
+  max-height: 80vh;
+  background: var(--surface);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  transition: bottom 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--shadow-lg);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.checkpoint-panel.open {
+  bottom: 0;
+}
+
+.checkpoint-panel-header {
+  height: 48px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.checkpoint-panel-header h2 {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.checkpoint-panel-subtitle {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.checkpoint-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.checkpoint-item {
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  position: relative;
+}
+
+.checkpoint-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.checkpoint-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.4;
+  flex: 1;
+}
+
+.checkpoint-item-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.checkpoint-status {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.checkpoint-status.in_progress {
+  background: rgba(91, 122, 158, 0.12);
+  color: var(--accent);
+}
+
+.checkpoint-status.completed {
+  background: rgba(107, 143, 107, 0.12);
+  color: var(--success);
+}
+
+.checkpoint-status.cancelled {
+  background: rgba(180, 180, 180, 0.15);
+  color: var(--text-secondary);
+}
+
+.checkpoint-status.failed {
+  background: rgba(196, 106, 106, 0.12);
+  color: var(--danger);
+}
+
+.checkpoint-progress {
+  height: 4px;
+  background: var(--border-light);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.checkpoint-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.checkpoint-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.checkpoint-actions button {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
 /* 响应式：更大屏幕 */
 @media (min-width: 768px) {
   #app {
@@ -957,6 +1236,7 @@ input:checked + .slider:before {
   cursor: pointer;
   border-bottom: 1px solid var(--border-light);
   transition: background 0.15s ease;
+  position: relative;
 }
 
 .session-item:active {
@@ -969,6 +1249,62 @@ input:checked + .slider:before {
   padding-left: 13px;
 }
 
+.session-delete-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.session-export-btn {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.session-item-actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--transition);
+}
+
+.session-item:active .session-item-actions,
+.session-item.active .session-item-actions {
+  opacity: 0.7;
+}
+
+.session-export-btn:active {
+  background: rgba(91, 122, 158, 0.15);
+  color: var(--accent);
+  opacity: 1;
+}
+
+.session-delete-btn:active {
+  background: rgba(196, 106, 106, 0.15);
+  color: var(--danger);
+  opacity: 1;
+}
+
 .session-item-title {
   font-size: 14px;
   font-weight: 500;
@@ -977,6 +1313,7 @@ input:checked + .slider:before {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-right: 72px;
 }
 
 .session-item-meta {
@@ -991,4 +1328,212 @@ input:checked + .slider:before {
   text-align: center;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* ── Markdown 渲染样式 ─────────────────────────────────────────── */
+.message-bubble pre {
+  background: #1f1d2a;
+  color: #e8e4de;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  margin: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-overflow-scrolling: touch;
+}
+
+.message-bubble pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  border-radius: 0;
+  white-space: pre;
+}
+
+.message-bubble code {
+  background: var(--surface-subtle);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  color: var(--accent-warm);
+  word-break: break-word;
+}
+
+.message-user .message-bubble code {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+.message-user .message-bubble pre {
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+}
+
+.message-user .message-bubble pre code {
+  color: inherit;
+}
+
+.message-bubble strong {
+  font-weight: 700;
+  color: inherit;
+}
+
+.message-bubble em {
+  font-style: italic;
+}
+
+.message-bubble h3,
+.message-bubble h4,
+.message-bubble h5 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  margin: 12px 0 6px;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.message-user .message-bubble h3,
+.message-user .message-bubble h4,
+.message-user .message-bubble h5 {
+  color: #fff;
+}
+
+.message-bubble h3 { font-size: 17px; }
+.message-bubble h4 { font-size: 15px; }
+.message-bubble h5 { font-size: 14px; }
+
+.message-bubble ul,
+.message-bubble ol {
+  margin: 6px 0;
+  padding-left: 22px;
+}
+
+.message-bubble li {
+  margin: 2px 0;
+}
+
+.message-bubble a {
+  color: var(--accent);
+  text-decoration: underline;
+  word-break: break-word;
+}
+
+.message-user .message-bubble a {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.message-bubble a:active {
+  opacity: 0.7;
+}
+
+/* ── 停止按钮样式 ──────────────────────────────────────────────── */
+.send-btn.is-stop {
+  background: var(--danger);
+}
+
+.send-btn.is-stop:active {
+  background: #a85555;
+  transform: scale(0.95);
+}
+
+/* ── Memory 工具栏样式 ─────────────────────────────────────────── */
+.memory-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.memory-filter-tabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.memory-filter-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.memory-tab {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: var(--font-body);
+  white-space: nowrap;
+}
+
+.memory-tab:active {
+  transform: scale(0.95);
+}
+
+.memory-tab.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.memory-search {
+  width: 100%;
+  padding: 9px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.memory-search:focus {
+  border-color: var(--accent);
+}
+
+.memory-item {
+  position: relative;
+}
+
+.memory-item-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+}
+
+.memory-delete-btn {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.memory-delete-btn:active {
+  background: rgba(196, 106, 106, 0.15);
+  color: var(--danger);
+  transform: scale(0.92);
+}
+
+.memory-item .memory-content {
+  padding-right: 32px;
 }

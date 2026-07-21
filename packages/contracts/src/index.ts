@@ -25,4 +25,5 @@ export * from './prompt-injection';
 export * from './budget';
 export * from './memory';
 export * from './confirmation';
+export * from './app';
 export * from './utils';

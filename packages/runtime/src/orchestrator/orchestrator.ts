@@ -37,6 +37,7 @@ import { ok as okResult, fail as failResult } from '@ziner/contracts';
 import type { RunTracker, Span } from '@ziner/trace';
 import { classify } from '@ziner/infra-errors';
 import { BudgetGuard, BudgetExceededError } from '@ziner/infra-cost';
+import type { OrchestratorMode, OrchestratorResult, PlanEvent, PlanSubTaskView } from '@ziner/runtime-core';
 import type { Checkpoint, CheckpointManager, SubTaskResult } from './checkpoint';
 import { AgentRegistry, DependencyCycleError } from './agent-registry';
 import { SharedState } from './shared-state';
@@ -53,7 +54,7 @@ import { deterministicMemoryId } from '../memory/types';
 import { recall as memoryRecall } from '../memory/recall';
 import { MemoryContextProvider } from '../context/memory-provider';
 
-export type OrchestratorMode = 'dag' | 'plan';
+export type { OrchestratorMode, OrchestratorResult, PlanSubTaskView } from '@ziner/runtime-core';
 
 export interface OrchestratorOptions {
   tracker: RunTracker;
@@ -99,7 +100,7 @@ export interface OrchestratorOptions {
    * plan.subtask.fallback). Used by the desktop UI to render a live
    * To-do list. The `data` payload mirrors the span-event attributes.
    */
-  onPlanEvent?: (event: { name: 'plan.dag' | 'plan.subtask.started' | 'plan.subtask.completed' | 'plan.subtask.fallback'; data: Record<string, unknown> }) => void;
+  onPlanEvent?: (event: PlanEvent) => void;
   /**
    * Optional MemoryManager. When set:
    *  - After each run, an episodic memory is auto-recorded
@@ -146,22 +147,6 @@ export interface OrchestratorOptions {
   resumeFrom?: Checkpoint;
   /** When resuming, reuse the original runId for the new run. */
   resumeFromRunId?: string;
-}
-
-/** A plan sub-task as observed by the UI (after the planner produced a PlanDag). */
-export interface PlanSubTaskView {
-  id: string;
-  title: string;
-  assignedTo: string;
-  dependsOn: string[];
-  status: 'pending' | 'running' | 'done' | 'failed';
-}
-
-export interface OrchestratorResult {
-  status: RunStatus;
-  outputs: AgentResult[];
-  sharedStateSnapshot: ReturnType<SharedState['snapshot']>;
-  error?: ErrorRef;
 }
 
 export class Orchestrator {

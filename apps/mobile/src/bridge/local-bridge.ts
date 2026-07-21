@@ -19,14 +19,46 @@ import type {
   MobileRuntimeBridge,
   BridgeStatus,
   BridgeEvent,
+  ChatRunOptions,
+  CheckpointSummary,
+  CheckpointDetail,
 } from './types';
-import { MemoryManager, type MemoryRecord as RuntimeMemoryRecord } from '../runtime/memory-manager';
-import { LLMProvider } from '../runtime/llm-provider';
+import {
+  MemoryManager,
+  LLMProvider,
+  connectMcpServers,
+  getTraceLogger,
+  createMobileToolRegistry,
+  MobileSessionManager,
+  MobileCheckpointStore,
+  type MemoryRecord as RuntimeMemoryRecord,
+  type McpServerConfig as McpCfg,
+  type MobileNativeBridge,
+  type MobileTool,
+  type TraceSpan,
+} from '@ziner/platform-web';
+import { getNativeCapabilities } from '../native';
 import { Orchestrator } from '../runtime/orchestrator';
-import { buildDefaultRegistry } from '../runtime/tools';
+import type { ToolRegistry as MobileToolRegistryShape } from '../runtime/tools';
 import { SkillRegistry } from '../runtime/skill-registry';
-import { connectMcpServers, type McpServerConfig as McpCfg } from '../runtime/mcp-client';
-import { getTraceLogger, type TraceSpan } from '../runtime/trace-logger';
+
+/** Combine an external AbortSignal with an internal one. */
+function combineSignals(external?: AbortSignal, internal?: AbortSignal): AbortSignal {
+  if (!external && !internal) return new AbortController().signal;
+  if (!external) return internal!;
+  if (!internal) return external;
+  if (external.aborted) return external;
+  if (internal.aborted) return internal;
+  if (typeof AbortSignal !== 'undefined' && 'any' in AbortSignal && typeof AbortSignal.any === 'function') {
+    return AbortSignal.any([external, internal]);
+  }
+  // Fallback for older runtimes (Capacitor Android webviews).
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  external.addEventListener('abort', onAbort, { once: true });
+  internal.addEventListener('abort', onAbort, { once: true });
+  return controller.signal;
+}
 
 export class LocalRuntimeBridge implements MobileRuntimeBridge {
   private settings: AppSettings | null = null;
@@ -39,6 +71,9 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
   private listeners = new Map<BridgeEventType, Set<BridgeEventListener>>();
   private msgCounter = 0;
   private conversations = new Map<string, ChatMessage[]>();
+  private sessionStore: MobileSessionManager | null = null;
+  private checkpointStore: MobileCheckpointStore | null = null;
+  private runAbortController: AbortController | null = null;
 
   readonly status: BridgeStatus = {
     connected: false,
@@ -54,6 +89,9 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
     this.memory = new MemoryManager({ userId: 'default' });
     await this.memory.init();
 
+    this.sessionStore = new MobileSessionManager();
+    this.checkpointStore = new MobileCheckpointStore();
+
     // Load bundled skills
     this.skills = new SkillRegistry({ maxInjected: 3 });
 
@@ -65,45 +103,68 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
     }
 
     this.provider = new LLMProvider({ api });
-    const tools = buildDefaultRegistry(this.memory);
-
-    // Apply tool policy to built-in tools (same as desktop)
     const policy = settings.toolPolicy ?? { allow: [], deny: [] };
-    try {
-      const { isToolAllowed } = await import('@ziner/contracts');
-      const allTools = tools.list();
-      for (const t of allTools) {
-        if (!isToolAllowed(policy, t.definition.function.name)) {
-          tools.remove?.(t.definition.function.name);
-        }
-      }
-    } catch (e) {
-      console.warn('[LocalRuntimeBridge] Tool policy filter failed:', e);
-    }
 
-    // Connect MCP servers (best-effort: failures don't block init)
+    let mcpTools: MobileTool[] = [];
     try {
       const cfgs = this.getEnabledMcpServers();
       if (cfgs.length > 0) {
-        const { tools: mcpTools, close } = await connectMcpServers(cfgs, policy);
-        for (const t of mcpTools) tools.register(t);
-        this.mcpCleanup = close;
+        const mcpResult = await connectMcpServers(cfgs, policy);
+        mcpTools = mcpResult.tools;
+        this.mcpCleanup = mcpResult.close;
         this.mcpConnected = cfgs.map((c) => c.name);
       }
     } catch (e) {
       console.warn('[LocalRuntimeBridge] MCP init failed:', e);
     }
 
+    const native = this.createMobileNativeBridge();
+    const registry = createMobileToolRegistry({ memory: this.memory, native, mcpTools });
+    const tools = registry as unknown as MobileToolRegistryShape;
+
+    try {
+      const { isToolAllowed } = await import('@ziner/contracts');
+      const all = tools.list();
+      for (const t of all) {
+        if (!isToolAllowed(policy, t.definition.function.name)) {
+          tools.remove(t.definition.function.name);
+        }
+      }
+    } catch (e) {
+      console.warn('[LocalRuntimeBridge] Tool policy filter failed:', e);
+    }
+
     this.orchestrator = new Orchestrator({
       provider: this.provider,
       memory: this.memory,
       tools,
+      checkpointStore: this.checkpointStore,
       // Will be set per-run via getSystemPromptAddition
     });
 
     this.status.connected = true;
     this.status.reason = undefined;
     this.emit('status', this.status);
+  }
+
+  private createMobileNativeBridge(): MobileNativeBridge {
+    const caps = getNativeCapabilities();
+    return {
+      requestNotificationPermission: () => caps.requestNotificationPermission(),
+      scheduleNotification: (input) => caps.scheduleNotification({
+        id: input.id,
+        title: input.title,
+        body: input.body,
+      }),
+      copyToClipboard: (text) => caps.copyToClipboard(text),
+      vibrate: (style) => caps.vibrate({ style }),
+      writeFile: (input) => caps.writeFile({
+        path: input.path,
+        data: input.content,
+        directory: (input.directory as 'Data' | 'Documents' | 'Cache' | 'External' | 'ExternalStorage') ?? 'Documents',
+      }),
+      readFile: (path, directory) => caps.readFile(path, directory as 'Data' | 'Documents' | 'Cache' | 'External' | 'ExternalStorage' | undefined),
+    };
   }
 
   async close(): Promise<void> {
@@ -120,43 +181,10 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
 
   // ── Chat ──────────────────────────────────────────────────────
 
-  async sendChat(message: string, conversationId?: string): Promise<ChatMessage> {
-    if (!this.orchestrator) {
-      throw new Error('Runtime not initialized. Configure an API in settings.');
-    }
-    const sessionId = conversationId ?? 'default';
-    const skills = this.skills?.selectFor(message);
-    const skillIds = skills?.map((s) => s.skill.id);
-
-    const trace = getTraceLogger();
-    trace.startRun({
-      sessionId,
-      userMessage: message,
-      skills: skillIds,
-      mcpServers: this.mcpConnected,
-    });
-
-    try {
-      const result = await this.orchestrator.run(message, {
-        sessionId,
-        systemPromptAddition: skills ? this.buildSkillPromptAddition(skills) : undefined,
-        onToolCall: (name, args, toolResult) => {
-          this.recordToolSpan(name, args, toolResult);
-        },
-      });
-      await trace.endRun({ assistantMessage: result.content });
-      return this.toChatMessage(result.content);
-    } catch (e) {
-      const err = e instanceof Error ? e.message : String(e);
-      await trace.endRun({ assistantMessage: '', error: err });
-      throw e;
-    }
-  }
-
-  async streamChat(
+  async sendChat(
     message: string,
-    conversationId: string | undefined,
-    onChunk: (delta: string, fullMessage: string) => void,
+    conversationId?: string,
+    options?: ChatRunOptions,
   ): Promise<ChatMessage> {
     if (!this.orchestrator) {
       throw new Error('Runtime not initialized. Configure an API in settings.');
@@ -166,7 +194,63 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
     const skillIds = skills?.map((s) => s.skill.id);
 
     const trace = getTraceLogger();
-    trace.startRun({
+    const runId = trace.startRun({
+      sessionId,
+      userMessage: message,
+      skills: skillIds,
+      mcpServers: this.mcpConnected,
+    });
+
+    this.runAbortController = new AbortController();
+
+    try {
+      const mode = this.resolvePlanMode(options?.mode);
+      const resumeFrom = options?.resumeFromRunId && this.checkpointStore
+        ? (await this.checkpointStore.load(options.resumeFromRunId)) ?? undefined
+        : undefined;
+      const result = await this.orchestrator.run(message, {
+        sessionId,
+        mode,
+        signal: this.runAbortController.signal,
+        systemPromptAddition: skills ? this.buildSkillPromptAddition(skills) : undefined,
+        onToolCall: (name, args, toolResult) => {
+          this.recordToolSpan(name, args, toolResult);
+        },
+        resumeFrom,
+        runId,
+      });
+      await trace.endRun({ assistantMessage: result.content });
+      this.persistTurn(sessionId, message, result.content);
+      return this.toChatMessage(result.content);
+    } catch (e) {
+      const err = e instanceof Error ? e.message : String(e);
+      await trace.endRun({ assistantMessage: '', error: err });
+      throw e;
+    } finally {
+      this.runAbortController = null;
+    }
+  }
+
+  async streamChat(
+    message: string,
+    conversationId: string | undefined,
+    onChunk: (delta: string, fullMessage: string) => void,
+    signal?: AbortSignal,
+    options?: ChatRunOptions,
+  ): Promise<ChatMessage> {
+    if (!this.orchestrator) {
+      throw new Error('Runtime not initialized. Configure an API in settings.');
+    }
+    // Bail out early if already aborted before starting any work.
+    if (signal?.aborted) {
+      throw new DOMException('Aborted', 'AbortError');
+    }
+    const sessionId = conversationId ?? 'default';
+    const skills = this.skills?.selectFor(message);
+    const skillIds = skills?.map((s) => s.skill.id);
+
+    const trace = getTraceLogger();
+    const runId = trace.startRun({
       sessionId,
       userMessage: message,
       skills: skillIds,
@@ -181,11 +265,20 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
       metadata: { model: this.settings?.defaultModel?.name },
     });
 
+    this.runAbortController = new AbortController();
+    const combined = combineSignals(signal, this.runAbortController.signal);
+
     try {
       let fullMessage = '';
+      const mode = this.resolvePlanMode(options?.mode);
+      const resumeFrom = options?.resumeFromRunId && this.checkpointStore
+        ? (await this.checkpointStore.load(options.resumeFromRunId)) ?? undefined
+        : undefined;
       const result = await this.orchestrator.run(message, {
         sessionId,
+        mode,
         stream: true,
+        signal: combined,
         onChunk: async (delta) => {
           fullMessage += delta;
           onChunk(delta, fullMessage);
@@ -194,17 +287,31 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
           this.recordToolSpan(name, args, toolResult);
         },
         systemPromptAddition: skills ? this.buildSkillPromptAddition(skills) : undefined,
+        resumeFrom,
+        runId,
       });
       // Mark LLM span as done
       await llmSpan.end(result.content);
       await trace.endRun({ assistantMessage: result.content });
+      this.persistTurn(sessionId, message, result.content);
       return this.toChatMessage(result.content);
     } catch (e) {
       const err = e instanceof Error ? e.message : String(e);
       await llmSpan.end(undefined, err);
       await trace.endRun({ assistantMessage: '', error: err });
       throw e;
+    } finally {
+      this.runAbortController = null;
     }
+  }
+
+  cancelRun(): boolean {
+    if (this.runAbortController) {
+      this.runAbortController.abort('User cancellation');
+      this.runAbortController = null;
+      return true;
+    }
+    return false;
   }
 
   /** Record a tool-call span into the active run. */
@@ -223,7 +330,138 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
   }
 
   async getChatHistory(conversationId?: string): Promise<ChatMessage[]> {
-    return this.conversations.get(conversationId ?? 'default') ?? [];
+    const id = conversationId ?? 'default';
+    if (this.sessionStore) {
+      const session = this.sessionStore.get(id);
+      if (session) {
+        return session.messages.map((m) => this.mobileMessageToChatMessage(m));
+      }
+      return [];
+    }
+    return this.conversations.get(id) ?? [];
+  }
+
+  async listSessions(): Promise<import('./types').ChatSessionSummary[]> {
+    if (this.sessionStore) {
+      return this.sessionStore.list().map((s) => this.mobileSessionToSummary(s));
+    }
+    return [];
+  }
+
+  async createSession(title?: string): Promise<import('./types').ChatSessionSummary> {
+    if (!this.sessionStore) {
+      throw new Error('Session store not initialized');
+    }
+    const created = this.sessionStore.create({ title });
+    return this.mobileSessionToSummary(created);
+  }
+
+  async deleteSession(id: string): Promise<boolean> {
+    return this.sessionStore?.delete(id) ?? false;
+  }
+
+  async renameSession(id: string, title: string): Promise<void> {
+    this.sessionStore?.rename(id, title);
+  }
+
+  async archiveSession(id: string, archived: boolean): Promise<void> {
+    if (archived) this.sessionStore?.archive(id);
+    else this.sessionStore?.unarchive(id);
+  }
+
+  async searchSessions(query: string, limit = 50): Promise<import('./types').ChatSessionSummary[]> {
+    if (!this.sessionStore) return [];
+    return this.sessionStore.search({ query, limit }).map((s) => this.mobileSessionToSummary(s));
+  }
+
+  async exportSession(id: string, format: 'json' | 'markdown'): Promise<string> {
+    const session = this.sessionStore?.get(id);
+    if (!session) throw new Error('Session not found');
+
+    if (format === 'json') {
+      return JSON.stringify(
+        {
+          id: session.id,
+          title: session.title,
+          createdAt: session.createdAt,
+          updatedAt: session.updatedAt,
+          messageCount: session.messages.length,
+          messages: session.messages,
+          tags: session.tags,
+        },
+        null,
+        2,
+      );
+    }
+
+    const lines: string[] = [];
+    lines.push(`# ${session.title}`);
+    lines.push('');
+    lines.push(`> 导出时间：${new Date().toLocaleString()}`);
+    lines.push(`> 消息数：${session.messages.length}`);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+
+    for (const msg of session.messages) {
+      const role = msg.role === 'user' ? '**用户**' : '**助手**';
+      const time = new Date(msg.timestamp).toLocaleString();
+      lines.push(`${role} · ${time}`);
+      lines.push('');
+      lines.push(msg.content);
+      lines.push('');
+      lines.push('---');
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  }
+
+  async exportMemories(): Promise<string> {
+    const memories = await this.listMemories();
+    return JSON.stringify(
+      {
+        exportedAt: Date.now(),
+        count: memories.length,
+        memories,
+      },
+      null,
+      2,
+    );
+  }
+
+  private mobileSessionToSummary(s: import('@ziner/platform-web').MobileChatSession): import('./types').ChatSessionSummary {
+    const last = s.messages[s.messages.length - 1];
+    return {
+      id: s.id,
+      title: s.title,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      messageCount: s.messages.length,
+      preview: last?.content.slice(0, 160),
+      tags: s.tags,
+      archived: s.archived,
+    };
+  }
+
+  private mobileMessageToChatMessage(m: import('@ziner/platform-web').MobileChatMessage): ChatMessage {
+    return {
+      id: `${m.timestamp}-${Math.random().toString(36).slice(2, 6)}`,
+      role: m.role,
+      content: m.content,
+      createdAt: m.timestamp,
+    };
+  }
+
+  private persistTurn(sessionId: string, userContent: string, assistantContent: string): void {
+    if (!this.sessionStore) return;
+    let session = this.sessionStore.get(sessionId);
+    if (!session) {
+      session = this.sessionStore.create({ title: userContent.slice(0, 60) });
+    }
+    const now = Date.now();
+    this.sessionStore.appendMessage(session.id, { role: 'user', content: userContent, timestamp: now });
+    this.sessionStore.appendMessage(session.id, { role: 'assistant', content: assistantContent, timestamp: now });
   }
 
   // ── Memory ────────────────────────────────────────────────────
@@ -418,6 +656,69 @@ export class LocalRuntimeBridge implements MobileRuntimeBridge {
       createdAt: m.createdAt,
       metadata: m.metadata,
     };
+  }
+
+  // ── Checkpoints & Plan mode ───────────────────────────────────
+
+  async listCheckpoints(options?: { sessionId?: string; limit?: number }): Promise<CheckpointSummary[]> {
+    if (!this.checkpointStore) return [];
+    const entries = await this.checkpointStore.list(options);
+    return entries.map((e) => ({
+      runId: e.runId,
+      task: e.task,
+      sessionId: e.sessionId,
+      status: e.status,
+      completedCount: e.completedCount,
+      totalCount: e.totalCount,
+      createdAt: e.createdAt,
+      updatedAt: e.updatedAt,
+    }));
+  }
+
+  async getCheckpoint(runId: string): Promise<CheckpointDetail | null> {
+    if (!this.checkpointStore) return null;
+    const ck = await this.checkpointStore.load(runId);
+    if (!ck) return null;
+    const completedSet = new Set(ck.completedSubTaskIds);
+    return {
+      runId: ck.runId,
+      task: ck.task,
+      sessionId: ck.sessionId,
+      status: ck.status,
+      completedCount: ck.completedSubTaskIds.length,
+      totalCount: ck.planDag.subtasks.length,
+      createdAt: ck.createdAt,
+      updatedAt: ck.updatedAt,
+      subtasks: ck.planDag.subtasks.map((st) => {
+        const output = ck.subtaskOutputs[st.id];
+        return {
+          id: st.id,
+          title: st.title,
+          status: completedSet.has(st.id)
+            ? output?.ok
+              ? 'done'
+              : 'failed'
+            : 'pending',
+          output: typeof output?.output === 'string' ? output.output : undefined,
+        };
+      }),
+    };
+  }
+
+  async deleteCheckpoint(runId: string): Promise<void> {
+    await this.checkpointStore?.delete(runId);
+  }
+
+  getPlanMode(): 'chat' | 'plan' | 'auto' {
+    return this.settings?.planMode ?? 'auto';
+  }
+
+  private resolvePlanMode(mode?: 'chat' | 'plan' | 'auto'): 'chat' | 'plan' {
+    const settingsMode = this.settings?.planMode ?? 'auto';
+    const effective = mode ?? settingsMode;
+    if (effective === 'chat' || effective === 'plan') return effective;
+    // Auto: use plan mode when the task looks like it needs multiple steps.
+    return 'plan';
   }
 
   private emit(type: BridgeEventType, data?: unknown): void {

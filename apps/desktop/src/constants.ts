@@ -88,6 +88,12 @@ export const IPC_CHANNELS = {
   // Storage backend
   GET_STORAGE_BACKEND: 'z:get-storage-backend',
   SET_STORAGE_BACKEND: 'z:set-storage-backend',
+  // Trace (Mobile parity)
+  LIST_TRACE_RUNS: 'z:list-trace-runs',
+  GET_TRACE_RUN: 'z:get-trace-run',
+  LIST_TRACE_SESSIONS: 'z:list-trace-sessions',
+  DELETE_TRACE_RUN: 'z:delete-trace-run',
+  CLEAR_TRACE: 'z:clear-trace',
 } as const;
 
 export const WINDOW_SIZES = {

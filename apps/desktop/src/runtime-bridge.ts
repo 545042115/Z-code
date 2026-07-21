@@ -35,6 +35,8 @@ import type {
 } from '@ziner/contracts';
 import { ConfirmationGate, AuditLogger } from '@ziner/runtime';
 import { SessionManager } from './session-manager';
+import { FileTraceStore } from '@ziner/platform-node';
+import type { TraceRunSummary, TraceRunDetail, TraceSessionSummary } from '@ziner/runtime-core';
 
 type ConfirmationListener = (req: ConfirmationRequest) => void;
 type PendingConfirmation = {
@@ -96,6 +98,7 @@ export class RuntimeBridge {
   private qqStatusListeners = new Set<(s: { online: boolean; nickname: string; userId: string; messageCount: number; lastEvent: string }) => void>();
   private settingsPath: string;
   private _sessions: SessionManager;
+  private _traceStore: FileTraceStore | null = null;
   private saveSettingsTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly SAVE_DEBOUNCE_MS = 200;
 
@@ -244,6 +247,9 @@ export class RuntimeBridge {
         detail: activity.detail,
       });
     });
+    if (!this._traceStore) {
+      this._traceStore = new FileTraceStore({ rootDir: this.settings.storageDir });
+    }
     await this.connector.start();
   }
 
@@ -810,6 +816,62 @@ export class RuntimeBridge {
       if (kind) filter.kind = kind as MemoryKind;
       return await memory.count(filter);
     } catch {
+      return 0;
+    }
+  }
+
+  // ── Trace (Mobile parity: listTraceRuns / getTraceRun / listTraceSessions / deleteTraceRun / clearTrace) ───
+
+  async listTraceRuns(limit = 50, sessionId?: string): Promise<TraceRunSummary[]> {
+    if (!this._traceStore) return [];
+    try {
+      return await this._traceStore.listRuns(limit, sessionId);
+    } catch (e) {
+      console.error('[RuntimeBridge] listTraceRuns error:', e);
+      return [];
+    }
+  }
+
+  async getTraceRun(id: string): Promise<TraceRunDetail | undefined> {
+    if (!this._traceStore) return undefined;
+    try {
+      return await this._traceStore.getRun(id);
+    } catch (e) {
+      console.error('[RuntimeBridge] getTraceRun error:', e);
+      return undefined;
+    }
+  }
+
+  async listTraceSessions(limit = 50): Promise<TraceSessionSummary[]> {
+    if (!this._traceStore) return [];
+    try {
+      return await this._traceStore.listSessions(limit);
+    } catch (e) {
+      console.error('[RuntimeBridge] listTraceSessions error:', e);
+      return [];
+    }
+  }
+
+  async deleteTraceRun(id: string): Promise<boolean> {
+    if (!this._traceStore) return false;
+    try {
+      await this._traceStore.deleteRun(id);
+      return true;
+    } catch (e) {
+      console.error('[RuntimeBridge] deleteTraceRun error:', e);
+      return false;
+    }
+  }
+
+  async clearTrace(): Promise<number> {
+    if (!this._traceStore) return 0;
+    try {
+      const runs = await this._traceStore.listRuns(10_000);
+      const count = runs.length;
+      await this._traceStore.clear();
+      return count;
+    } catch (e) {
+      console.error('[RuntimeBridge] clearTrace error:', e);
       return 0;
     }
   }

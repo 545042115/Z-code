@@ -281,6 +281,22 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.EXPORT_MEMORIES, withBridge(() =>
     bridge.exportMemories(),
   ));
+
+  ipcMain.handle(IPC_CHANNELS.LIST_TRACE_RUNS, withBridge((_event, limit?: number, sessionId?: string) =>
+    bridge.listTraceRuns(limit, sessionId),
+  ));
+  ipcMain.handle(IPC_CHANNELS.GET_TRACE_RUN, withBridge((_event, id: string) =>
+    bridge.getTraceRun(id),
+  ));
+  ipcMain.handle(IPC_CHANNELS.LIST_TRACE_SESSIONS, withBridge((_event, limit?: number) =>
+    bridge.listTraceSessions(limit),
+  ));
+  ipcMain.handle(IPC_CHANNELS.DELETE_TRACE_RUN, withBridge((_event, id: string) =>
+    bridge.deleteTraceRun(id),
+  ));
+  ipcMain.handle(IPC_CHANNELS.CLEAR_TRACE, withBridge(() =>
+    bridge.clearTrace(),
+  ));
   ipcMain.handle(IPC_CHANNELS.COUNT_MEMORIES, withBridge((_event, kind?: string) =>
     bridge.countMemories(kind),
   ));

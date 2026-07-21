@@ -1,4 +1,4 @@
-# Z Assistant Desktop
+# Ziner Desktop
 
 V2 独立桌面应用宿主，将 V2 Assistant Runtime 包装成可安装的跨平台程序。  
 内置 **AI 自动回复**能力，支持 **微信**（WeChatFerry DLL 注入）和 **QQ**（NapCat + OneBot 协议）。
@@ -83,7 +83,7 @@ V2 独立桌面应用宿主，将 V2 Assistant Runtime 包装成可安装的跨�
 
 1. **安装微信 3.9.12.17**（其他版本 DLL 注入会失败）
 2. 打开并登录微信
-3. 在 Z Assistant Settings → 微信卡片 → 点击 **连接微信**
+3. 在 Ziner Settings → 微信卡片 → 点击 **连接微信**
 4. 填写**微信昵称**（用于群聊 @检测，选填）
 5. 连接成功后，好友发消息会自动回复
 6. 可在 Settings 面板查看消息数和状态
@@ -97,7 +97,7 @@ V2 独立桌面应用宿主，将 V2 Assistant Runtime 包装成可安装的跨�
 ## QQ 自动回复（NapCat + OneBot）
 
 ### 原理
-通过 [NapCat](https://github.com/NapNeko/NapCatQQ) 注入 QQ 进程，暴露 OneBot v11 WebSocket 接口。Z Assistant 作为 WebSocket 客户端连接 NapCat：
+通过 [NapCat](https://github.com/NapNeko/NapCatQQ) 注入 QQ 进程，暴露 OneBot v11 WebSocket 接口。Ziner 作为 WebSocket 客户端连接 NapCat：
 - 接收 QQ 消息推送（好友私聊 + 群聊）
 - 调用 AI 生成回复并通过 WebSocket 发送
 
@@ -115,7 +115,7 @@ V2 独立桌面应用宿主，将 V2 Assistant Runtime 包装成可安装的跨�
    - 设置端口（如 `6009` 或 `3001`）
    - 设置 `accessToken`（可选）
    - 保存并重启 NapCat
-3. 在 Z Assistant Settings → QQ 卡片：
+3. 在 Ziner Settings → QQ 卡片：
    - **WebSocket 地址**：如 `ws://127.0.0.1:6009`
    - **Access Token**：与 NapCat 配置一致（可选）
    - **QQ 昵称**：用于群聊 @检测（选填）

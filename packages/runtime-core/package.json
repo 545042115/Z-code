@@ -1,0 +1,20 @@
+{
+  "name": "@ziner/runtime-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core runtime logic shared between Desktop and Mobile. Zero Node.js dependencies.",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "clean": "rm -rf out *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ziner/contracts": "*",
+    "@modelcontextprotocol/sdk": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

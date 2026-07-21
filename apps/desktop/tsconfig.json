@@ -14,15 +14,18 @@
   "references": [
     { "path": "../vscode-connector" },
     { "path": "../../packages/contracts" },
+    { "path": "../../packages/runtime-core" },
     { "path": "../../packages/runtime" },
     { "path": "../../packages/infra/cost" },
     { "path": "../../packages/infra/storage" },
+    { "path": "../../packages/platform-node" },
     { "path": "../../packages/trace" },
     { "path": "../../packages/agents/browser-agent" },
     { "path": "../../packages/agents/research-agent" },
     { "path": "../../packages/agents/office-agent" },
     { "path": "../../packages/agents/planner-agent" },
     { "path": "../../packages/agents/synthesizer-agent" },
-    { "path": "../../packages/agents/coding-agent" }
+    { "path": "../../packages/agents/coding-agent" },
+    { "path": "../../packages/app-shared" }
   ]
 }

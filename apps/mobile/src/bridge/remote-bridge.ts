@@ -24,6 +24,9 @@ import type {
   BridgeEvent,
   BridgeEventType,
   BridgeEventListener,
+  ChatRunOptions,
+  CheckpointSummary,
+  CheckpointDetail,
 } from './types';
 
 export class RemoteRuntimeBridge implements MobileRuntimeBridge {
@@ -89,7 +92,11 @@ export class RemoteRuntimeBridge implements MobileRuntimeBridge {
 
   // ── Chat ──────────────────────────────────────────────────────────
 
-  async sendChat(message: string, conversationId?: string): Promise<ChatMessage> {
+  async sendChat(
+    message: string,
+    conversationId?: string,
+    _options?: ChatRunOptions,
+  ): Promise<ChatMessage> {
     this._ensureConnected();
 
     const result = await this._fetch<{ message: ChatMessage }>('/api/chat', {
@@ -107,6 +114,8 @@ export class RemoteRuntimeBridge implements MobileRuntimeBridge {
     message: string,
     conversationId: string | undefined,
     onChunk: (delta: string, fullMessage: string) => void,
+    _signal?: AbortSignal,
+    _options?: ChatRunOptions,
   ): Promise<ChatMessage> {
     this._ensureConnected();
 
@@ -172,6 +181,15 @@ export class RemoteRuntimeBridge implements MobileRuntimeBridge {
     return this._makeMessage(fullContent);
   }
 
+  cancelRun(): boolean {
+    if (this.abortController) {
+      this.abortController.abort('User cancellation');
+      this.abortController = new AbortController();
+      return true;
+    }
+    return false;
+  }
+
   // ── Memory ────────────────────────────────────────────────────────
 
   async listMemories(filter: MemoryListFilter = {}): Promise<MemoryRecord[]> {
@@ -220,6 +238,13 @@ export class RemoteRuntimeBridge implements MobileRuntimeBridge {
 
     this._emit({ type: 'memoryUpdated', data: { id, deleted: true } });
   }
+
+  // ── Checkpoints (remote stub — server may expose later) ───────────
+
+  async listCheckpoints(_options?: { sessionId?: string; limit?: number }): Promise<CheckpointSummary[]> { return []; }
+  async getCheckpoint(_runId: string): Promise<CheckpointDetail | null> { return null; }
+  async deleteCheckpoint(_runId: string): Promise<void> { /* no-op */ }
+  getPlanMode(): 'chat' | 'plan' | 'auto' { return 'chat'; }
 
   // ── Trace (remote stub — server may expose later) ────────────────
 

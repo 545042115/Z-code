@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Universal document processing CLI for the Z Assistant desktop app.
+"""Universal document processing CLI for the Ziner desktop app.
 
 Supports extracting and creating DOCX, PPTX, XLSX, and PDF files.
 This script is intended to be packaged into document-tools.exe with PyInstaller.

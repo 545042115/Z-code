@@ -95,9 +95,12 @@
               placeholder="输入你的请求…"
               rows="1"
             ></textarea>
-            <button id="send-btn" class="send-btn">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <button id="send-btn" class="send-btn" aria-label="发送">
+              <svg class="send-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+              </svg>
+              <svg class="stop-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" style="display:none">
+                <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>
               </svg>
             </button>
           </div>
@@ -111,7 +114,22 @@
           <button class="btn-secondary" id="btn-clear-trace" style="font-size:0.85em;padding:6px 12px">清空</button>
         </header>
         <div class="trace-container">
-          <div id="trace-list" class="trace-list"></div>
+          <div class="trace-sidebar">
+            <div class="trace-filters">
+              <div class="trace-filter-row">
+                <div class="trace-filter-tabs" id="trace-status-tabs">
+                  <button class="trace-tab active" data-status="all">全部</button>
+                  <button class="trace-tab" data-status="ok">成功</button>
+                  <button class="trace-tab" data-status="error">失败</button>
+                  <button class="trace-tab" data-status="running">运行中</button>
+                </div>
+              </div>
+              <div class="trace-filter-row">
+                <input type="text" id="trace-search" class="trace-search" placeholder="搜索 trace…" autocomplete="off" />
+              </div>
+            </div>
+            <div id="trace-list" class="trace-list"></div>
+          </div>
           <div id="trace-detail" class="trace-detail"></div>
         </div>
       </section>
@@ -120,6 +138,10 @@
       <section id="page-memory" class="page">
         <header class="page-header">
           <h1>记忆</h1>
+          <div style="display:flex;gap:8px">
+            <button class="btn-secondary" id="btn-export-memory" style="font-size:0.85em;padding:6px 12px">导出</button>
+            <button class="btn-secondary" id="btn-clear-memory" style="font-size:0.85em;padding:6px 12px">清空全部</button>
+          </div>
         </header>
         <div class="memory-container">
           <div class="memory-stats">
@@ -127,10 +149,30 @@
               <span class="stat-number" id="memory-count">0</span>
               <span class="stat-label">条记忆</span>
             </div>
-            <div class="stat-card">
-              <span class="stat-number">SQLite</span>
-              <span class="stat-label">存储后端</span>
+            <div class="stat-card stat-card-fact">
+              <span class="stat-number" id="memory-fact-count">0</span>
+              <span class="stat-label">事实</span>
             </div>
+            <div class="stat-card stat-card-pref">
+              <span class="stat-number" id="memory-pref-count">0</span>
+              <span class="stat-label">偏好</span>
+            </div>
+            <div class="stat-card stat-card-ep">
+              <span class="stat-number" id="memory-ep-count">0</span>
+              <span class="stat-label">情景</span>
+            </div>
+          </div>
+          <div class="memory-toolbar">
+            <div class="memory-filter-tabs" id="memory-filter-tabs">
+              <button class="memory-tab active" data-kind="all">全部</button>
+              <button class="memory-tab" data-kind="fact">事实</button>
+              <button class="memory-tab" data-kind="preference">偏好</button>
+              <button class="memory-tab" data-kind="episodic">情景</button>
+              <button class="memory-tab" data-kind="procedural">程序</button>
+              <button class="memory-tab" data-kind="long-term">长期</button>
+              <button class="memory-tab" data-kind="short-term">短期</button>
+            </div>
+            <input type="text" id="memory-search" class="memory-search" placeholder="搜索记忆…" autocomplete="off" />
           </div>
           <div id="memory-list" class="memory-list">
             <div class="empty-state">
@@ -165,6 +207,25 @@
             <div class="settings-item" id="setting-runtime-apikey-group">
               <span>服务器密钥</span>
               <input type="password" id="setting-runtime-apikey" placeholder="可选" />
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <div class="settings-group-header" style="padding:12px 16px 0">
+              <h2>执行策略</h2>
+            </div>
+            <p class="settings-hint" style="padding:0 16px 12px">选择 Agent 如何处理复杂请求。多步 Plan 会在后台拆分子任务并支持断点续跑。</p>
+            <div class="settings-item">
+              <span>Plan 模式</span>
+              <select id="setting-plan-mode">
+                <option value="chat">直接对话</option>
+                <option value="plan">多步 Plan</option>
+                <option value="auto">自动选择</option>
+              </select>
+            </div>
+            <div class="settings-item">
+              <span>Plan 检查点</span>
+              <button id="btn-manage-checkpoints" class="btn-secondary">管理</button>
             </div>
           </div>
 
@@ -290,7 +351,19 @@
 
           <div class="settings-group">
             <div class="settings-group-header" style="padding:12px 16px 0">
-              <h2>数据同步</h2>
+              <h2>数据管理</h2>
+            </div>
+            <div class="settings-item">
+              <span>查看记忆</span>
+              <button id="btn-open-memory" class="btn-secondary">打开</button>
+            </div>
+            <div class="settings-item">
+              <span>导出记忆</span>
+              <button id="btn-export-mem-settings" class="btn-secondary">导出</button>
+            </div>
+            <div class="settings-item">
+              <span>清空记忆</span>
+              <button id="btn-clear-mem-settings" class="btn-secondary" style="color:var(--danger)">清空</button>
             </div>
             <div class="settings-item">
               <span>导出配置</span>
@@ -312,7 +385,7 @@
             </div>
             <div class="settings-item">
               <span>版本</span>
-              <span class="muted">1.8.0 (Mobile)</span>
+              <span class="muted">2.0.0 (Mobile)</span>
             </div>
           </div>
 
@@ -321,6 +394,27 @@
         </div>
       </section>
     </main>
+
+    <!-- Checkpoint 管理面板（从底部弹出） -->
+    <div id="checkpoint-overlay" class="checkpoint-overlay"></div>
+    <div id="checkpoint-panel" class="checkpoint-panel">
+      <div class="checkpoint-panel-header">
+        <h2>Plan 检查点</h2>
+        <button class="btn-icon" id="btn-close-checkpoint" title="关闭">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="checkpoint-panel-subtitle">可恢复被中断的多步 Plan，或删除旧记录</div>
+      <div id="checkpoint-list" class="checkpoint-list">
+        <div class="empty-state">
+          <p>没有检查点</p>
+          <p class="muted">使用多步 Plan 模式时，中断的任务会出现在这里</p>
+        </div>
+      </div>
+    </div>
 
     <!-- 底部导航栏 -->
     <nav class="bottom-nav">

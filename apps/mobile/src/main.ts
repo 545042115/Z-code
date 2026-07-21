@@ -8,8 +8,199 @@
 //   - Settings persistence with bridge mode selection
 
 import { createRuntimeBridge } from './bridge';
-import type { AppSettings, MobileRuntimeBridge, ChatMessage, MemoryRecord } from './bridge/types';
+import type { AppSettings, MobileRuntimeBridge, ChatMessage, MemoryRecord, ChatRunOptions, TraceRunSummary } from './bridge/types';
 import { getNativeCapabilities, type NativeCapabilities } from './native';
+
+// ── Session persistence (IndexedDB) ───────────────────────────────
+//
+// A lightweight IndexedDB-backed store for chat sessions. Keeps the
+// mobile app's conversation history reliable (no longer rebuilt from
+// trace logs). All operations swallow errors so a storage failure
+// never crashes the UI.
+
+interface SessionRecord {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  messages: ChatMessage[];
+}
+
+interface SessionMeta {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+}
+
+const SESSION_DB_NAME = 'ziner-mobile';
+const SESSION_DB_VERSION = 1;
+const SESSION_STORE = 'sessions';
+
+class SessionStore {
+  private dbPromise: Promise<IDBDatabase> | null = null;
+
+  private open(): Promise<IDBDatabase> {
+    if (this.dbPromise) return this.dbPromise;
+    this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      if (typeof indexedDB === 'undefined') {
+        reject(new Error('IndexedDB unavailable'));
+        return;
+      }
+      const req = indexedDB.open(SESSION_DB_NAME, SESSION_DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(SESSION_STORE)) {
+          db.createObjectStore(SESSION_STORE, { keyPath: 'id' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error ?? new Error('IndexedDB open failed'));
+    });
+    return this.dbPromise;
+  }
+
+  async createSession(sessionId: string, title: string): Promise<void> {
+    try {
+      const db = await this.open();
+      await new Promise<void>((resolve, reject) => {
+        const now = Date.now();
+        const record: SessionRecord = {
+          id: sessionId,
+          title,
+          createdAt: now,
+          updatedAt: now,
+          messageCount: 0,
+          messages: [],
+        };
+        const store = db.transaction(SESSION_STORE, 'readwrite').objectStore(SESSION_STORE);
+        const req = store.put(record);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] createSession failed:', e);
+    }
+  }
+
+  async saveSession(sessionId: string, messages: ChatMessage[]): Promise<void> {
+    try {
+      const db = await this.open();
+      await new Promise<void>((resolve, reject) => {
+        const store = db.transaction(SESSION_STORE, 'readwrite').objectStore(SESSION_STORE);
+        const getReq = store.get(sessionId);
+        getReq.onsuccess = () => {
+          const existing = getReq.result as SessionRecord | undefined;
+          const now = Date.now();
+          const title = existing?.title
+            ?? messages.find((m) => m.role === 'user')?.content?.slice(0, 30)
+            ?? '新对话';
+          const record: SessionRecord = {
+            id: sessionId,
+            title,
+            createdAt: existing?.createdAt ?? now,
+            updatedAt: now,
+            messageCount: messages.length,
+            messages,
+          };
+          const putReq = store.put(record);
+          putReq.onsuccess = () => resolve();
+          putReq.onerror = () => reject(putReq.error);
+        };
+        getReq.onerror = () => reject(getReq.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] saveSession failed:', e);
+    }
+  }
+
+  async loadSession(sessionId: string): Promise<ChatMessage[] | null> {
+    try {
+      const db = await this.open();
+      return await new Promise<ChatMessage[] | null>((resolve, reject) => {
+        const store = db.transaction(SESSION_STORE, 'readonly').objectStore(SESSION_STORE);
+        const req = store.get(sessionId);
+        req.onsuccess = () => {
+          const record = req.result as SessionRecord | undefined;
+          resolve(record?.messages ?? null);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] loadSession failed:', e);
+      return null;
+    }
+  }
+
+  async listSessions(): Promise<SessionMeta[]> {
+    try {
+      const db = await this.open();
+      return await new Promise<SessionMeta[]>((resolve, reject) => {
+        const store = db.transaction(SESSION_STORE, 'readonly').objectStore(SESSION_STORE);
+        const req = store.getAll();
+        req.onsuccess = () => {
+          const records = (req.result as SessionRecord[]) ?? [];
+          const metas = records
+            .map((r) => ({
+              id: r.id,
+              title: r.title,
+              createdAt: r.createdAt,
+              updatedAt: r.updatedAt,
+              messageCount: r.messageCount,
+            }))
+            .sort((a, b) => b.updatedAt - a.updatedAt);
+          resolve(metas);
+        };
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] listSessions failed:', e);
+      return [];
+    }
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    try {
+      const db = await this.open();
+      await new Promise<void>((resolve, reject) => {
+        const store = db.transaction(SESSION_STORE, 'readwrite').objectStore(SESSION_STORE);
+        const req = store.delete(sessionId);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] deleteSession failed:', e);
+    }
+  }
+
+  /** Update just the title (e.g. when the first user message arrives). */
+  async renameSession(sessionId: string, title: string): Promise<void> {
+    try {
+      const db = await this.open();
+      await new Promise<void>((resolve, reject) => {
+        const store = db.transaction(SESSION_STORE, 'readwrite').objectStore(SESSION_STORE);
+        const getReq = store.get(sessionId);
+        getReq.onsuccess = () => {
+          const existing = getReq.result as SessionRecord | undefined;
+          if (!existing) {
+            resolve();
+            return;
+          }
+          existing.title = title;
+          existing.updatedAt = Date.now();
+          const putReq = store.put(existing);
+          putReq.onsuccess = () => resolve();
+          putReq.onerror = () => reject(putReq.error);
+        };
+        getReq.onerror = () => reject(getReq.error);
+      });
+    } catch (e) {
+      console.warn('[SessionStore] renameSession failed:', e);
+    }
+  }
+}
 
 const DEFAULT_SETTINGS: AppSettings = {
   language: 'zh-CN',
@@ -26,6 +217,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     requireConfirm: [],
   },
   bridgeMode: 'local',
+  planMode: 'auto',
   runtimeServerUrl: '',
   runtimeApiKey: '',
 };
@@ -34,9 +226,20 @@ class MobileApp {
   private settings: AppSettings;
   private bridge: MobileRuntimeBridge;
   private native: NativeCapabilities;
+  private sessionStore = new SessionStore();
   private currentPage = 'chat';
   private currentConversation = 'default';
+  private currentMessages: ChatMessage[] = [];
   private isSending = false;
+  private abortController: AbortController | null = null;
+  private pendingResumeRunId: string | null = null;
+  private memoryFilterKind: MemoryRecord['kind'] | 'all' = 'all';
+  private memorySearchQuery = '';
+  private memoryCache: MemoryRecord[] = [];
+
+  private traceStatusFilter: 'all' | 'running' | 'ok' | 'error' = 'all';
+  private traceSearchQuery = '';
+  private traceCache: TraceRunSummary[] = [];
 
   constructor() {
     this.settings = this.loadSettings();
@@ -111,10 +314,16 @@ class MobileApp {
     this.setupNavigation();
     this.setupChat();
     this.setupSettings();
+    this.setupCheckpoints();
     this.setupTracePanel();
     this.setupNativeCapabilities();
+    this.setupMemory();
     this.applySettings();
     this.setupBridgeEvents();
+
+    // Ensure the default conversation record exists in IndexedDB so the
+    // sidebar / session list shows something on first launch.
+    await this.sessionStore.createSession(this.currentConversation, '新对话');
 
     try {
       await this.bridge.init(this.settings);
@@ -136,6 +345,57 @@ class MobileApp {
     toast.textContent = message;
     toast.classList.add('show');
     setTimeout(() => toast?.classList.remove('show'), 2000);
+  }
+
+  private downloadFile(filename: string, content: string, mimeType = 'text/plain;charset=utf-8'): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  private async handleExportSession(id: string): Promise<void> {
+    const useMd = confirm('导出为 Markdown？\n\n点击"确定"导出为 Markdown\n点击"取消"导出为 JSON');
+    const format: 'markdown' | 'json' = useMd ? 'markdown' : 'json';
+    try {
+      const content = await this.bridge.exportSession?.(id, format);
+      if (!content) {
+        this.showToast('导出失败：会话不存在');
+        return;
+      }
+      const ext = format === 'json' ? 'json' : 'md';
+      const sessions = await this.sessionStore.listSessions?.();
+      const session = sessions?.find((s) => s.id === id);
+      const safeTitle = (session?.title || 'chat').replace(/[\\/:*?"<>|]/g, '_');
+      const filename = `${safeTitle}_${id.slice(-8)}.${ext}`;
+      this.downloadFile(filename, content, format === 'json' ? 'application/json' : 'text/markdown');
+      this.showToast(`已导出为 ${format.toUpperCase()}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.showToast(`导出失败：${msg}`);
+    }
+  }
+
+  private async handleExportMemories(): Promise<void> {
+    try {
+      const content = await this.bridge.exportMemories?.();
+      if (!content) {
+        this.showToast('导出失败');
+        return;
+      }
+      const date = new Date().toISOString().slice(0, 10);
+      const filename = `ziner-memories-${date}.json`;
+      this.downloadFile(filename, content, 'application/json');
+      this.showToast('记忆已导出');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.showToast(`导出失败：${msg}`);
+    }
   }
 
   // ── Bridge Events ─────────────────────────────────────────────────
@@ -218,7 +478,15 @@ class MobileApp {
       }
     });
 
-    sendBtn.addEventListener('click', () => this.sendMessage());
+    sendBtn.addEventListener('click', () => {
+      // While streaming, the button acts as a stop button.
+      if (this.isSending) {
+        this.abortController?.abort();
+        this.bridge.cancelRun();
+        return;
+      }
+      this.sendMessage();
+    });
 
     menuBtn?.addEventListener('click', () => this.toggleSidebar(true));
     closeSidebarBtn?.addEventListener('click', () => this.toggleSidebar(false));
@@ -244,8 +512,8 @@ class MobileApp {
     if (!listEl) return;
 
     try {
-      const sessions = await this.bridge.listTraceSessions?.(50);
-      if (!sessions || sessions.length === 0) {
+      const sessions = await this.sessionStore.listSessions();
+      if (sessions.length === 0) {
         listEl.innerHTML = '<div class="session-empty">暂无对话记录</div>';
         return;
       }
@@ -256,11 +524,26 @@ class MobileApp {
           const time = this.formatTime(s.updatedAt);
           const active = s.id === this.currentConversation ? 'active' : '';
           return `
-            <div class="session-item ${active}" data-id="${s.id}">
+            <div class="session-item ${active}" data-id="${this.escapeHtml(s.id)}">
               <div class="session-item-title">${this.escapeHtml(title)}</div>
               <div class="session-item-meta">
                 <span>${time}</span>
                 <span>${s.messageCount} 条</span>
+              </div>
+              <div class="session-item-actions">
+                <button class="session-export-btn" data-export-id="${this.escapeHtml(s.id)}" aria-label="导出会话" title="导出">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                  </svg>
+                </button>
+                <button class="session-delete-btn" data-delete-id="${this.escapeHtml(s.id)}" aria-label="删除会话" title="删除">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  </svg>
+                </button>
               </div>
             </div>
           `;
@@ -268,12 +551,36 @@ class MobileApp {
         .join('');
 
       listEl.querySelectorAll('.session-item').forEach((item) => {
-        item.addEventListener('click', () => {
+        item.addEventListener('click', (e) => {
+          // Ignore clicks on action buttons.
+          if ((e.target as HTMLElement).closest('.session-item-actions')) return;
           const id = item.getAttribute('data-id');
           if (id) this.switchConversation(id);
         });
       });
-    } catch (e) {
+
+      listEl.querySelectorAll('.session-export-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = (btn as HTMLElement).getAttribute('data-export-id');
+          if (id) await this.handleExportSession(id);
+        });
+      });
+
+      listEl.querySelectorAll('.session-delete-btn').forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const id = (btn as HTMLElement).getAttribute('data-delete-id');
+          if (!id) return;
+          if (!confirm('删除该会话？此操作不可恢复。')) return;
+          await this.sessionStore.deleteSession(id);
+          if (id === this.currentConversation) {
+            this.newConversation();
+          }
+          this.refreshSessionList();
+        });
+      });
+    } catch {
       listEl.innerHTML = '<div class="session-empty">加载失败</div>';
     }
   }
@@ -295,8 +602,10 @@ class MobileApp {
     container.innerHTML = '<div class="session-empty">加载中...</div>';
 
     try {
-      const runs = await this.bridge.listTraceRuns?.(20, id);
-      if (!runs || runs.length === 0) {
+      const messages = await this.sessionStore.loadSession(id);
+      this.currentMessages = messages ?? [];
+
+      if (!messages || messages.length === 0) {
         container.innerHTML = `
           <div class="message message-assistant">
             <div class="message-avatar">Z</div>
@@ -309,26 +618,11 @@ class MobileApp {
       }
 
       container.innerHTML = '';
-      for (const run of runs) {
-        if (run.userMessage) {
-          this.addMessage({
-            id: `user-${run.id}`,
-            role: 'user',
-            content: run.userMessage,
-            createdAt: run.startTime,
-          });
-        }
-        if (run.assistantMessage) {
-          this.addMessage({
-            id: `assistant-${run.id}`,
-            role: 'assistant',
-            content: run.assistantMessage,
-            createdAt: run.startTime + (run.durationMs || 0),
-          });
-        }
+      for (const msg of messages) {
+        this.addMessage(msg);
       }
       container.scrollTop = container.scrollHeight;
-    } catch (e) {
+    } catch {
       container.innerHTML = '<div class="session-empty">加载失败</div>';
     }
   }
@@ -336,6 +630,7 @@ class MobileApp {
   private newConversation(): void {
     if (this.isSending) return;
     this.currentConversation = `conv-${Date.now()}`;
+    this.currentMessages = [];
     const container = document.getElementById('chat-messages') as HTMLElement;
     if (container) {
       container.innerHTML = `
@@ -350,6 +645,97 @@ class MobileApp {
     const input = document.getElementById('chat-input') as HTMLTextAreaElement;
     input?.focus();
     this.showToast('新对话已开始');
+    // Persist the new (empty) session record so it appears in the sidebar.
+    void this.sessionStore.createSession(this.currentConversation, '新对话');
+  }
+
+  private async handleSlashCommand(text: string): Promise<boolean> {
+    const parts = text.slice(1).split(/\s+/);
+    const cmd = parts[0].toLowerCase();
+    const arg = parts.slice(1).join(' ');
+
+    switch (cmd) {
+      case 'help':
+        this.addSystemMessage(
+          '可用命令：\n' +
+          '  /new        新建会话\n' +
+          '  /clear      清空当前会话\n' +
+          '  /simple     切换到直接对话模式\n' +
+          '  /plan       切换到多步 Plan 模式\n' +
+          '  /auto       切换到自动选择模式\n' +
+          '  /forget all 清空所有记忆\n' +
+          '  /help       显示此帮助',
+        );
+        return true;
+
+      case 'new':
+        this.newConversation();
+        this.showToast('已新建会话');
+        return true;
+
+      case 'clear':
+        if (!confirm('清空当前会话？')) return true;
+        this.currentMessages = [];
+        await this.sessionStore.saveSession(this.currentConversation, []);
+        const messagesEl = document.getElementById('chat-messages');
+        if (messagesEl) messagesEl.innerHTML = '';
+        await this.refreshSessionList();
+        this.showToast('已清空会话');
+        return true;
+
+      case 'simple':
+        this.settings.planMode = 'chat';
+        this.saveSettings();
+        this.addSystemMessage('已切换到直接对话模式');
+        return true;
+
+      case 'plan':
+        this.settings.planMode = 'plan';
+        this.saveSettings();
+        this.addSystemMessage('已切换到多步 Plan 模式');
+        return true;
+
+      case 'auto':
+        this.settings.planMode = 'auto';
+        this.saveSettings();
+        this.addSystemMessage('已切换到自动选择模式');
+        return true;
+
+      case 'forget': {
+        if (arg === 'all') {
+          if (!confirm('清空所有记忆？此操作不可恢复。')) return true;
+          try {
+            const memories = await this.bridge.listMemories({ limit: 1000 });
+            for (const m of memories) {
+              await this.bridge.deleteMemory(m.id);
+            }
+            this.memoryCache = [];
+            this.showToast('已清空所有记忆');
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            this.showToast(`清空失败：${msg}`);
+          }
+        } else {
+          this.showToast('用法：/forget all');
+        }
+        return true;
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  private addSystemMessage(content: string): void {
+    const msg: ChatMessage = {
+      id: `sys-${Date.now()}`,
+      role: 'assistant',
+      content,
+      createdAt: Date.now(),
+    };
+    this.addMessage(msg);
+    this.currentMessages.push(msg);
+    void this.sessionStore.saveSession(this.currentConversation, this.currentMessages);
   }
 
   private async sendMessage(): Promise<void> {
@@ -359,48 +745,92 @@ class MobileApp {
     const text = input.value.trim();
     if (!text) return;
 
-    this.addMessage({
+    if (text.startsWith('/')) {
+      const handled = await this.handleSlashCommand(text);
+      if (handled) {
+        input.value = '';
+        input.style.height = 'auto';
+        return;
+      }
+    }
+
+    const userMsg: ChatMessage = {
       id: `user-${Date.now()}`,
       role: 'user',
       content: text,
       createdAt: Date.now(),
-    });
+    };
+    this.addMessage(userMsg);
+    this.currentMessages.push(userMsg);
 
     input.value = '';
     input.style.height = 'auto';
     this.isSending = true;
-    this.setSendButtonEnabled(false);
+
+    // Persist the user message immediately so it survives a refresh / crash.
+    await this.sessionStore.saveSession(this.currentConversation, this.currentMessages);
+
+    // Switch the send button into stop mode for the duration of the request.
+    this.abortController = new AbortController();
+    this.setSendButtonState('stop');
 
     // Show typing indicator
     const assistantMsgId = `assistant-${Date.now()}`;
-    this.addMessage({
+    const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       role: 'assistant',
       content: '',
       createdAt: Date.now(),
       streaming: true,
-    });
+    };
+    this.addMessage(assistantMsg);
+    this.currentMessages.push(assistantMsg);
 
+    const runOptions: ChatRunOptions = {};
+    if (this.pendingResumeRunId) {
+      runOptions.resumeFromRunId = this.pendingResumeRunId;
+      this.pendingResumeRunId = null;
+    }
+
+    let aborted = false;
     try {
       if (this.bridge.streamChat) {
         await this.bridge.streamChat(
           text,
           this.currentConversation,
           (_delta, fullMessage) => {
+            this.currentMessages = this.currentMessages.map((m) =>
+              m.id === assistantMsgId ? { ...m, content: fullMessage } : m,
+            );
             this.updateMessageContent(assistantMsgId, fullMessage);
           },
+          this.abortController.signal,
+          runOptions,
         );
       } else {
-        const response = await this.bridge.sendChat(text, this.currentConversation);
+        const response = await this.bridge.sendChat(text, this.currentConversation, runOptions);
+        this.currentMessages = this.currentMessages.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: response.content } : m,
+        );
         this.updateMessageContent(assistantMsgId, response.content);
       }
     } catch (e) {
-      const errorMsg = e instanceof Error ? e.message : String(e);
-      this.updateMessageContent(assistantMsgId, `⚠️ 出错了：${errorMsg}`);
+      aborted = e instanceof DOMException && e.name === 'AbortError';
+      const errorMsg = aborted
+        ? '（已停止）'
+        : (e instanceof Error ? e.message : String(e));
+      const display = aborted ? `⚠️ ${errorMsg}` : `⚠️ 出错了：${errorMsg}`;
+      this.currentMessages = this.currentMessages.map((m) =>
+        m.id === assistantMsgId ? { ...m, content: display } : m,
+      );
+      this.updateMessageContent(assistantMsgId, display);
     } finally {
       this.removeStreamingFlag(assistantMsgId);
       this.isSending = false;
-      this.setSendButtonEnabled(true);
+      this.abortController = null;
+      this.setSendButtonState('send');
+      // Persist the final assistant message (or error/abort marker).
+      await this.sessionStore.saveSession(this.currentConversation, this.currentMessages);
       input.focus();
     }
   }
@@ -465,17 +895,157 @@ class MobileApp {
     }
   }
 
-  private setSendButtonEnabled(enabled: boolean): void {
-    const btn = document.getElementById('send-btn') as HTMLButtonElement;
-    if (btn) btn.disabled = !enabled;
+  private setSendButtonState(state: 'send' | 'stop' | 'disabled'): void {
+    const btn = document.getElementById('send-btn') as HTMLButtonElement | null;
+    if (!btn) return;
+    const sendIcon = btn.querySelector('.send-icon') as SVGElement | null;
+    const stopIcon = btn.querySelector('.stop-icon') as SVGElement | null;
+    const isStop = state === 'stop';
+    btn.disabled = state === 'disabled';
+    btn.classList.toggle('is-stop', isStop);
+    btn.setAttribute('aria-label', isStop ? '停止生成' : '发送');
+    if (sendIcon) sendIcon.style.display = isStop ? 'none' : '';
+    if (stopIcon) stopIcon.style.display = isStop ? '' : 'none';
   }
 
+  /**
+   * Lightweight Markdown renderer (no external deps).
+   *
+   * Pipeline: escape HTML first → extract fenced code blocks → apply
+   * inline/block Markdown replacements → restore code blocks. Escaping
+   * first prevents XSS from raw model output.
+   */
   private formatMessageContent(text: string): string {
-    return text
-      .split('\n')
-      .map((p) => p.trim() ? `<p>${this.escapeHtml(p)}</p>` : '')
-      .filter(Boolean)
-      .join('');
+    if (!text) return '';
+
+    // 1. Extract fenced code blocks so their contents are not touched
+    //    by inline Markdown processing. Use placeholders.
+    const codeBlocks: string[] = [];
+    const fenced = text.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_m, lang, code) => {
+      const langClass = lang ? ` class="language-${this.escapeHtml(lang)}"` : '';
+      const idx = codeBlocks.length;
+      codeBlocks.push(`<pre><code${langClass}>${this.escapeHtml(code.replace(/\n$/, ''))}</code></pre>`);
+      return `\u0000CODEBLOCK_${idx}\u0000`;
+    });
+
+    // 2. Escape the remaining text.
+    let html = this.escapeHtml(fenced);
+
+    // 3. Process line by line for block-level constructs (headings, lists).
+    const lines = html.split('\n');
+    const out: string[] = [];
+    let listType: 'ul' | 'ol' | null = null;
+    let paragraphBuffer: string[] = [];
+
+    const flushParagraph = () => {
+      if (paragraphBuffer.length > 0) {
+        const content = paragraphBuffer.join('<br/>');
+        if (content.trim()) out.push(`<p>${content}</p>`);
+        paragraphBuffer = [];
+      }
+    };
+    const closeList = () => {
+      if (listType) {
+        out.push(`</${listType}>`);
+        listType = null;
+      }
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine;
+
+      // Fenced code block placeholder on its own line — emit as-is.
+      const codeBlockMatch = line.match(/^\u0000CODEBLOCK_(\d+)\u0000$/);
+      if (codeBlockMatch) {
+        flushParagraph();
+        closeList();
+        out.push(codeBlocks[Number(codeBlockMatch[1])]);
+        continue;
+      }
+
+      // Heading: #, ##, ###
+      const heading = line.match(/^(#{1,3})\s+(.*)$/);
+      if (heading) {
+        flushParagraph();
+        closeList();
+        const level = heading[1].length + 2; // # → h3, ## → h4, ### → h5
+        out.push(`<h${level}>${this.applyInlineMarkdown(heading[2])}</h${level}>`);
+        continue;
+      }
+
+      // Ordered list item: 1. ...
+      const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+      if (ol) {
+        flushParagraph();
+        if (listType !== 'ol') {
+          closeList();
+          out.push('<ol>');
+          listType = 'ol';
+        }
+        out.push(`<li>${this.applyInlineMarkdown(ol[1])}</li>`);
+        continue;
+      }
+
+      // Unordered list item: - or * ...
+      const ul = line.match(/^\s*[-*]\s+(.*)$/);
+      if (ul) {
+        flushParagraph();
+        if (listType !== 'ul') {
+          closeList();
+          out.push('<ul>');
+          listType = 'ul';
+        }
+        out.push(`<li>${this.applyInlineMarkdown(ul[1])}</li>`);
+        continue;
+      }
+
+      // Blank line → paragraph break.
+      if (line.trim() === '') {
+        flushParagraph();
+        closeList();
+        continue;
+      }
+
+      // Default: accumulate as a paragraph line. Inline code block
+      // placeholders (when embedded mid-paragraph) are restored here too.
+      closeList();
+      paragraphBuffer.push(this.applyInlineMarkdown(line));
+    }
+    flushParagraph();
+    closeList();
+
+    html = out.join('\n');
+
+    // 4. Restore any code block placeholders that ended up inline.
+    html = html.replace(/\u0000CODEBLOCK_(\d+)\u0000/g, (_m, idx) => codeBlocks[Number(idx)] ?? '');
+
+    return html;
+  }
+
+  /** Apply inline Markdown (bold, italic, inline code, links) to a string. */
+  private applyInlineMarkdown(text: string): string {
+    let result = text;
+    // Inline code (do first to protect its contents from other replacements).
+    const inlineCodes: string[] = [];
+    result = result.replace(/`([^`\n]+)`/g, (_m, code) => {
+      const idx = inlineCodes.length;
+      inlineCodes.push(`<code>${this.escapeHtml(code)}</code>`);
+      return `\u0001INLINE_${idx}\u0001`;
+    });
+
+    // Bold: **...**
+    result = result.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    // Italic: *...* (avoid matching bold leftovers)
+    result = result.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    // Links: [text](url)
+    result = result.replace(
+      /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
+    );
+
+    // Restore inline code.
+    result = result.replace(/\u0001INLINE_(\d+)\u0001/g, (_m, idx) => inlineCodes[Number(idx)] ?? '');
+    return result;
   }
 
   private escapeHtml(text: string): string {
@@ -486,6 +1056,54 @@ class MobileApp {
 
   // ── Memory ────────────────────────────────────────────────────────
 
+  private setupMemory(): void {
+    const tabs = document.getElementById('memory-filter-tabs');
+    if (tabs) {
+      tabs.querySelectorAll('.memory-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          const kind = (tab as HTMLElement).dataset.kind as MemoryRecord['kind'] | 'all';
+          this.memoryFilterKind = kind;
+          tabs.querySelectorAll('.memory-tab').forEach((t) => t.classList.remove('active'));
+          tab.classList.add('active');
+          this.renderMemoryList();
+        });
+      });
+    }
+
+    const searchInput = document.getElementById('memory-search') as HTMLInputElement | null;
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        this.memorySearchQuery = searchInput.value.trim().toLowerCase();
+        this.renderMemoryList();
+      });
+    }
+
+    const clearBtn = document.getElementById('btn-clear-memory');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', async () => {
+        if (!confirm('清空所有记忆？此操作不可恢复。')) return;
+        try {
+          // Best-effort: delete every cached memory. Memory IDs are stable.
+          const ids = this.memoryCache.map((m) => m.id);
+          for (const id of ids) {
+            await this.bridge.deleteMemory(id);
+          }
+          this.memoryCache = [];
+          await this.refreshMemoryList();
+          this.showToast('已清空所有记忆');
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          this.showToast(`清空失败：${msg}`);
+        }
+      });
+    }
+
+    const exportBtn = document.getElementById('btn-export-memory');
+    if (exportBtn) {
+      exportBtn.addEventListener('click', () => this.handleExportMemories());
+    }
+  }
+
   private async refreshMemoryList(): Promise<void> {
     const countEl = document.getElementById('memory-count');
     const listEl = document.getElementById('memory-list');
@@ -495,30 +1113,13 @@ class MobileApp {
     listEl.innerHTML = '<div class="empty-state"><p>加载中...</p></div>';
 
     try {
-      const memories = await this.bridge.listMemories({ limit: 50 });
-      countEl.textContent = String(memories.length);
-
-      if (memories.length === 0) {
-        listEl.innerHTML = `
-          <div class="empty-state">
-            <p>还没有记忆</p>
-            <p class="muted">和我聊天，我会记住重要的信息</p>
-          </div>
-        `;
-        return;
-      }
-
-      listEl.innerHTML = memories.map((m) => `
-        <div class="memory-item" data-id="${m.id}">
-          <div class="memory-item-header">
-            <span class="memory-tag">${this.memoryKindLabel(m.kind)}</span>
-            <span class="memory-time">${this.formatTime(m.createdAt)}</span>
-          </div>
-          <div class="memory-content">${this.escapeHtml(m.content)}</div>
-        </div>
-      `).join('');
+      const memories = await this.bridge.listMemories({ limit: 100 });
+      this.memoryCache = memories;
+      this.updateMemoryStats();
+      this.renderMemoryList();
     } catch (e) {
       const errorMsg = e instanceof Error ? e.message : String(e);
+      this.memoryCache = [];
       listEl.innerHTML = `
         <div class="empty-state">
           <p>加载失败</p>
@@ -526,6 +1127,117 @@ class MobileApp {
         </div>
       `;
     }
+  }
+
+  /** Render the memory list from the cache, applying filter + search. */
+  private renderMemoryList(): void {
+    const listEl = document.getElementById('memory-list');
+    if (!listEl) return;
+
+    let memories = this.memoryCache;
+    if (this.memoryFilterKind !== 'all') {
+      memories = memories.filter((m) => m.kind === this.memoryFilterKind);
+    }
+    if (this.memorySearchQuery) {
+      memories = memories.filter((m) => m.content.toLowerCase().includes(this.memorySearchQuery));
+    }
+
+    if (memories.length === 0) {
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <p>${this.memoryCache.length === 0 ? '还没有记忆' : '没有匹配的记忆'}</p>
+          <p class="muted">${this.memoryCache.length === 0 ? '和我聊天，我会记住重要的信息' : '尝试更换筛选或搜索关键词'}</p>
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = memories.map((m) => {
+        const meta = m.metadata && typeof m.metadata === 'object' ? m.metadata as Record<string, unknown> : {};
+        const metaEntries = Object.entries(meta).filter(([k]) => k !== 'embedding' && k !== 'vector');
+        const hasDetails = m.scope || metaEntries.length > 0 || m.updatedAt;
+        return `
+      <div class="memory-item" data-id="${this.escapeHtml(m.id)}">
+        <div class="memory-item-header">
+          <span class="memory-tag">${this.memoryKindLabel(m.kind)}</span>
+          <div class="memory-item-header-right">
+            <span class="memory-time">${this.formatTime(m.createdAt)}</span>
+            ${hasDetails ? `<button class="memory-expand-btn" data-expand-id="${this.escapeHtml(m.id)}" aria-label="展开详情">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+            </button>` : ''}
+          </div>
+        </div>
+        <div class="memory-content">${this.escapeHtml(m.content)}</div>
+        ${hasDetails ? `
+        <div class="memory-details" data-details-id="${this.escapeHtml(m.id)}" style="display:none">
+          <div class="memory-details-grid">
+            ${m.scope ? `<div class="detail-item"><span class="detail-label">Scope</span><span class="detail-value">${this.escapeHtml(m.scope)}</span></div>` : ''}
+            ${m.updatedAt ? `<div class="detail-item"><span class="detail-label">更新时间</span><span class="detail-value">${this.formatTime(m.updatedAt)}</span></div>` : ''}
+            ${metaEntries.map(([k, v]) => `<div class="detail-item"><span class="detail-label">${this.escapeHtml(k)}</span><span class="detail-value">${this.escapeHtml(typeof v === 'object' ? JSON.stringify(v) : String(v))}</span></div>`).join('')}
+          </div>
+        </div>` : ''}
+        <div class="memory-item-actions">
+          <button class="memory-delete-btn" data-delete-id="${this.escapeHtml(m.id)}" aria-label="删除记忆">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    `}).join('');
+
+    listEl.querySelectorAll('.memory-delete-btn').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).getAttribute('data-delete-id');
+        if (!id) return;
+        try {
+          await this.bridge.deleteMemory(id);
+          this.memoryCache = this.memoryCache.filter((m) => m.id !== id);
+          this.updateMemoryStats();
+          this.renderMemoryList();
+          this.showToast('已删除');
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.showToast(`删除失败：${msg}`);
+        }
+      });
+    });
+
+    listEl.querySelectorAll('.memory-expand-btn').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = (btn as HTMLElement).getAttribute('data-expand-id');
+        if (!id) return;
+        const details = listEl.querySelector(`[data-details-id="${id}"]`);
+        const item = (btn as HTMLElement).closest('.memory-item');
+        if (details && item) {
+          const isOpen = details.getAttribute('style')?.includes('block');
+          details.setAttribute('style', isOpen ? 'display:none' : 'display:block');
+          item.classList.toggle('expanded', !isOpen);
+        }
+      });
+    });
+  }
+
+  private updateMemoryStats(): void {
+    const total = this.memoryCache.length;
+    const factCount = this.memoryCache.filter((m) => m.kind === 'fact').length;
+    const prefCount = this.memoryCache.filter((m) => m.kind === 'preference').length;
+    const epCount = this.memoryCache.filter((m) => m.kind === 'episodic').length;
+
+    const totalEl = document.getElementById('memory-count');
+    const factEl = document.getElementById('memory-fact-count');
+    const prefEl = document.getElementById('memory-pref-count');
+    const epEl = document.getElementById('memory-ep-count');
+
+    if (totalEl) totalEl.textContent = String(total);
+    if (factEl) factEl.textContent = String(factCount);
+    if (prefEl) prefEl.textContent = String(prefCount);
+    if (epEl) epEl.textContent = String(epCount);
   }
 
   private memoryKindLabel(kind: MemoryRecord['kind']): string {
@@ -555,6 +1267,128 @@ class MobileApp {
   }
 
   // ── Settings ──────────────────────────────────────────────────────
+
+  private setupCheckpoints(): void {
+    const manageBtn = document.getElementById('btn-manage-checkpoints');
+    const closeBtn = document.getElementById('btn-close-checkpoint');
+    const overlay = document.getElementById('checkpoint-overlay');
+
+    manageBtn?.addEventListener('click', () => this.toggleCheckpointPanel(true));
+    closeBtn?.addEventListener('click', () => this.toggleCheckpointPanel(false));
+    overlay?.addEventListener('click', () => this.toggleCheckpointPanel(false));
+  }
+
+  private toggleCheckpointPanel(open: boolean): void {
+    const panel = document.getElementById('checkpoint-panel');
+    const overlay = document.getElementById('checkpoint-overlay');
+    if (open) {
+      void this.refreshCheckpointList();
+    }
+    panel?.classList.toggle('open', open);
+    overlay?.classList.toggle('show', open);
+  }
+
+  private async refreshCheckpointList(): Promise<void> {
+    const listEl = document.getElementById('checkpoint-list');
+    if (!listEl) return;
+
+    try {
+      const checkpoints = this.bridge.listCheckpoints
+        ? await this.bridge.listCheckpoints({ limit: 50 })
+        : [];
+
+      if (checkpoints.length === 0) {
+        listEl.innerHTML = `
+          <div class="empty-state">
+            <p>没有检查点</p>
+            <p class="muted">使用多步 Plan 模式时，中断的任务会出现在这里</p>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = checkpoints
+        .map((ck) => {
+          const progress = ck.totalCount > 0 ? Math.round((ck.completedCount / ck.totalCount) * 100) : 0;
+          const statusLabel = this.checkpointStatusLabel(ck.status);
+          const time = this.formatTime(ck.updatedAt);
+          return `
+            <div class="checkpoint-item" data-runid="${this.escapeHtml(ck.runId)}">
+              <div class="checkpoint-item-header">
+                <div class="checkpoint-item-title">${this.escapeHtml(ck.task || '未命名任务')}</div>
+                <span class="checkpoint-status ${ck.status}">${statusLabel}</span>
+              </div>
+              <div class="checkpoint-item-meta">
+                <span>${ck.completedCount}/${ck.totalCount} 子任务</span>
+                <span>${time}</span>
+              </div>
+              <div class="checkpoint-progress">
+                <div class="checkpoint-progress-bar" style="width:${progress}%"></div>
+              </div>
+              <div class="checkpoint-actions">
+                ${ck.status === 'in_progress' || ck.status === 'cancelled' || ck.status === 'failed'
+                  ? `<button class="btn-secondary btn-resume-checkpoint" data-runid="${this.escapeHtml(ck.runId)}" data-task="${this.escapeHtml(ck.task || '')}">继续</button>`
+                  : ''}
+                <button class="btn-secondary btn-delete-checkpoint" data-runid="${this.escapeHtml(ck.runId)}">删除</button>
+              </div>
+            </div>
+          `;
+        })
+        .join('');
+
+      listEl.querySelectorAll('.btn-resume-checkpoint').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const runId = (btn as HTMLElement).getAttribute('data-runid');
+          const task = (btn as HTMLElement).getAttribute('data-task');
+          if (!runId) return;
+          this.pendingResumeRunId = runId;
+          const input = document.getElementById('chat-input') as HTMLTextAreaElement | null;
+          if (input && task) {
+            input.value = task;
+            input.style.height = 'auto';
+            input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+          }
+          this.toggleCheckpointPanel(false);
+          this.switchPage('chat');
+          this.showToast('已加载检查点，点击发送继续');
+        });
+      });
+
+      listEl.querySelectorAll('.btn-delete-checkpoint').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const runId = (btn as HTMLElement).getAttribute('data-runid');
+          if (!runId) return;
+          if (!confirm('删除该检查点？')) return;
+          try {
+            await this.bridge.deleteCheckpoint?.(runId);
+            await this.refreshCheckpointList();
+            this.showToast('已删除');
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.showToast(`删除失败：${msg}`);
+          }
+        });
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      listEl.innerHTML = `
+        <div class="empty-state">
+          <p>加载失败</p>
+          <p class="muted">${this.escapeHtml(msg)}</p>
+        </div>
+      `;
+    }
+  }
+
+  private checkpointStatusLabel(status: string): string {
+    const labels: Record<string, string> = {
+      in_progress: '进行中',
+      completed: '已完成',
+      cancelled: '已中断',
+      failed: '失败',
+    };
+    return labels[status] || status;
+  }
 
   private setupSettings(): void {
     const saveBtn = document.getElementById('save-settings-btn');
@@ -669,6 +1503,34 @@ class MobileApp {
       importBtn.addEventListener('click', () => importFileInput.click());
       importFileInput.addEventListener('change', (e) => this.handleImportFile(e));
     }
+
+    // Memory quick actions
+    const openMemBtn = document.getElementById('btn-open-memory');
+    const exportMemBtn = document.getElementById('btn-export-mem-settings');
+    const clearMemBtn = document.getElementById('btn-clear-mem-settings');
+
+    openMemBtn?.addEventListener('click', () => {
+      this.switchPage('memory');
+    });
+
+    exportMemBtn?.addEventListener('click', () => {
+      this.handleExportMemories();
+    });
+
+    clearMemBtn?.addEventListener('click', async () => {
+      if (!confirm('清空所有记忆？此操作不可恢复。')) return;
+      try {
+        const memories = await this.bridge.listMemories({ limit: 1000 });
+        for (const m of memories) {
+          await this.bridge.deleteMemory(m.id);
+        }
+        this.memoryCache = [];
+        this.showToast('已清空所有记忆');
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        this.showToast(`清空失败：${msg}`);
+      }
+    });
   }
 
   // ── Settings Export / Import ──────────────────────────────────────
@@ -783,6 +1645,9 @@ class MobileApp {
       if (imported.bridgeMode === 'local' || imported.bridgeMode === 'remote') {
         this.settings.bridgeMode = imported.bridgeMode;
       }
+      if (imported.planMode === 'chat' || imported.planMode === 'plan' || imported.planMode === 'auto') {
+        this.settings.planMode = imported.planMode;
+      }
       if (imported.toolPolicy && typeof imported.toolPolicy === 'object') {
         this.settings.toolPolicy = {
           allow: Array.isArray(imported.toolPolicy.allow) ? imported.toolPolicy.allow.map(String) : [],
@@ -819,6 +1684,7 @@ class MobileApp {
     const memoryEnabledInput = document.getElementById('setting-memory-enabled') as HTMLInputElement | null;
     const storageBackendSelect = document.getElementById('setting-storage-backend') as HTMLSelectElement | null;
     const bridgeModeSelect = document.getElementById('setting-bridge-mode') as HTMLSelectElement | null;
+    const planModeSelect = document.getElementById('setting-plan-mode') as HTMLSelectElement | null;
     const runtimeServerUrlInput = document.getElementById('setting-runtime-server-url') as HTMLInputElement | null;
     const runtimeApiKeyInput = document.getElementById('setting-runtime-apikey') as HTMLInputElement | null;
     const serverUrlGroup = document.getElementById('setting-runtime-server-group');
@@ -841,6 +1707,7 @@ class MobileApp {
     if (toolConfirmInput) toolConfirmInput.value = (this.settings.toolPolicy?.requireConfirm ?? []).join('\n');
     if (storageBackendSelect) storageBackendSelect.value = this.settings.storageBackend;
     if (bridgeModeSelect) bridgeModeSelect.value = this.settings.bridgeMode;
+    if (planModeSelect) planModeSelect.value = this.settings.planMode ?? 'auto';
     if (runtimeServerUrlInput) runtimeServerUrlInput.value = this.settings.runtimeServerUrl ?? '';
     if (runtimeApiKeyInput) runtimeApiKeyInput.value = this.settings.runtimeApiKey ?? '';
     if (providerSelect) providerSelect.value = this.settings.defaultModel?.provider ?? 'sglang';
@@ -866,6 +1733,7 @@ class MobileApp {
       const memoryEnabledInput = document.getElementById('setting-memory-enabled') as HTMLInputElement | null;
       const storageBackendSelect = document.getElementById('setting-storage-backend') as HTMLSelectElement | null;
       const bridgeModeSelect = document.getElementById('setting-bridge-mode') as HTMLSelectElement | null;
+      const planModeSelect = document.getElementById('setting-plan-mode') as HTMLSelectElement | null;
       const runtimeServerUrlInput = document.getElementById('setting-runtime-server-url') as HTMLInputElement | null;
       const runtimeApiKeyInput = document.getElementById('setting-runtime-apikey') as HTMLInputElement | null;
       const providerSelect = document.getElementById('setting-provider') as HTMLSelectElement | null;
@@ -876,6 +1744,7 @@ class MobileApp {
       const amapKeyInput = document.getElementById('setting-amap-key') as HTMLInputElement | null;
 
       const oldBridgeMode = this.settings.bridgeMode;
+      const oldPlanMode = this.settings.planMode;
       const oldServerUrl = this.settings.runtimeServerUrl;
       const oldApiKey = this.settings.apiKey;
       const oldApiEndpoint = this.settings.apiEndpoint;
@@ -887,6 +1756,7 @@ class MobileApp {
       this.settings.memoryEnabled = memoryEnabledInput?.checked ?? true;
       this.settings.storageBackend = (storageBackendSelect?.value as 'sqlite' | 'jsonl') ?? 'sqlite';
       this.settings.bridgeMode = (bridgeModeSelect?.value as 'local' | 'remote') ?? 'local';
+      this.settings.planMode = (planModeSelect?.value as 'chat' | 'plan' | 'auto') ?? 'auto';
       this.settings.runtimeServerUrl = runtimeServerUrlInput?.value || undefined;
       this.settings.runtimeApiKey = runtimeApiKeyInput?.value || undefined;
       this.settings.defaultModel = {
@@ -914,6 +1784,7 @@ class MobileApp {
       // If bridge mode, API config, or MCP config changed, re-initialize the bridge
       const bridgeChanged =
         oldBridgeMode !== this.settings.bridgeMode ||
+        oldPlanMode !== this.settings.planMode ||
         oldServerUrl !== this.settings.runtimeServerUrl ||
         oldApiKey !== this.settings.apiKey ||
         oldApiEndpoint !== this.settings.apiEndpoint ||
@@ -970,46 +1841,71 @@ class MobileApp {
     detail.innerHTML = '<p class="muted">选择左侧 run 查看详情</p>';
 
     try {
-      const runs = await this.bridge.listTraceRuns(50);
-      if (runs.length === 0) {
-        list.innerHTML = '<p class="muted">还没有 trace 数据，发起一次对话后会出现。</p>';
-        return;
-      }
-      list.innerHTML = runs
-        .map((r) => {
-          const time = new Date(r.startTime).toLocaleTimeString();
-          const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : '—';
-          const tokens = r.totalTokens ? `${r.totalTokens} tok` : '';
-          const skills = r.skills && r.skills.length > 0 ? `🎯 ${r.skills.join(', ')}` : '';
-          const mcp = r.mcpServers && r.mcpServers.length > 0 ? `🔌 ${r.mcpServers.join(', ')}` : '';
-          return `
-            <div class="trace-item" data-runid="${this.escapeHtml(r.id)}">
-              <div class="trace-item-msg">${this.escapeHtml(r.userMessage)}</div>
-              <div class="trace-item-meta">
-                <span class="trace-item-status ${r.status}">${r.status}</span>
-                <span>${time}</span>
-                <span>${dur}</span>
-                <span>${r.llmCalls} LLM · ${r.toolCalls} tool</span>
-                ${tokens ? `<span>${tokens}</span>` : ''}
-                ${skills ? `<span>${this.escapeHtml(skills)}</span>` : ''}
-                ${mcp ? `<span>${this.escapeHtml(mcp)}</span>` : ''}
-              </div>
-            </div>
-          `;
-        })
-        .join('');
-
-      list.querySelectorAll('.trace-item').forEach((el) => {
-        el.addEventListener('click', () => {
-          const runId = (el as HTMLElement).dataset.runid;
-          if (runId) this.showTraceRun(runId);
-          list.querySelectorAll('.trace-item').forEach((x) => x.classList.remove('active'));
-          el.classList.add('active');
-        });
-      });
+      const runs = await this.bridge.listTraceRuns(100);
+      this.traceCache = runs;
+      this.renderTraceList();
     } catch (e) {
       list.innerHTML = `<p class="muted">加载失败：${this.escapeHtml(String(e))}</p>`;
     }
+  }
+
+  private renderTraceList(): void {
+    const list = document.getElementById('trace-list');
+    if (!list) return;
+
+    let runs = this.traceCache;
+
+    if (this.traceStatusFilter !== 'all') {
+      runs = runs.filter((r) => r.status === this.traceStatusFilter);
+    }
+
+    if (this.traceSearchQuery) {
+      const q = this.traceSearchQuery.toLowerCase();
+      runs = runs.filter((r) =>
+        r.userMessage.toLowerCase().includes(q) ||
+        r.assistantMessage?.toLowerCase().includes(q) ||
+        r.skills?.some((s) => s.toLowerCase().includes(q)) ||
+        r.mcpServers?.some((s) => s.toLowerCase().includes(q)),
+      );
+    }
+
+    if (runs.length === 0) {
+      list.innerHTML = '<p class="muted">没有匹配的 trace 记录</p>';
+      return;
+    }
+
+    list.innerHTML = runs
+      .map((r) => {
+        const time = new Date(r.startTime).toLocaleTimeString();
+        const dur = r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : '—';
+        const tokens = r.totalTokens ? `${r.totalTokens} tok` : '';
+        const skills = r.skills && r.skills.length > 0 ? `🎯 ${r.skills.join(', ')}` : '';
+        const mcp = r.mcpServers && r.mcpServers.length > 0 ? `🔌 ${r.mcpServers.join(', ')}` : '';
+        return `
+          <div class="trace-item" data-runid="${this.escapeHtml(r.id)}">
+            <div class="trace-item-msg">${this.escapeHtml(r.userMessage)}</div>
+            <div class="trace-item-meta">
+              <span class="trace-item-status ${r.status}">${r.status}</span>
+              <span>${time}</span>
+              <span>${dur}</span>
+              <span>${r.llmCalls} LLM · ${r.toolCalls} tool</span>
+              ${tokens ? `<span>${tokens}</span>` : ''}
+              ${skills ? `<span>${this.escapeHtml(skills)}</span>` : ''}
+              ${mcp ? `<span>${this.escapeHtml(mcp)}</span>` : ''}
+            </div>
+          </div>
+        `;
+      })
+      .join('');
+
+    list.querySelectorAll('.trace-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        const runId = (el as HTMLElement).dataset.runid;
+        if (runId) this.showTraceRun(runId);
+        list.querySelectorAll('.trace-item').forEach((x) => x.classList.remove('active'));
+        el.classList.add('active');
+      });
+    });
   }
 
   private async showTraceRun(runId: string): Promise<void> {
@@ -1091,8 +1987,31 @@ class MobileApp {
       if (!this.bridge) return;
       if (!confirm('清空所有 trace 记录？此操作不可恢复。')) return;
       await this.bridge.clearTrace();
-      this.refreshTraceList();
+      this.traceCache = [];
+      this.renderTraceList();
     });
+
+    const statusTabs = document.getElementById('trace-status-tabs');
+    if (statusTabs) {
+      statusTabs.querySelectorAll('.trace-tab').forEach((tab) => {
+        tab.addEventListener('click', () => {
+          const status = (tab as HTMLElement).dataset.status as 'all' | 'running' | 'ok' | 'error';
+          if (!status) return;
+          this.traceStatusFilter = status;
+          statusTabs.querySelectorAll('.trace-tab').forEach((t) => t.classList.remove('active'));
+          tab.classList.add('active');
+          this.renderTraceList();
+        });
+      });
+    }
+
+    const searchInput = document.getElementById('trace-search') as HTMLInputElement | null;
+    if (searchInput) {
+      searchInput.addEventListener('input', () => {
+        this.traceSearchQuery = searchInput.value.trim();
+        this.renderTraceList();
+      });
+    }
   }
 
   // ── Tool Policy settings UI ──────────────────────────────────────

@@ -20,6 +20,7 @@ export interface MemoryRecord {
   kind: 'fact' | 'preference' | 'episodic' | 'procedural' | 'long-term' | 'short-term' | 'working';
   scope: 'long-term' | 'short-term' | 'working' | 'user' | 'project' | 'session';
   createdAt: number;
+  updatedAt?: number;
   accessedAt?: number;
   metadata?: Record<string, unknown>;
 }
@@ -69,6 +70,13 @@ export interface AppSettings {
    *   - 'remote':  connect to a Ziner Runtime server
    */
   bridgeMode: 'local' | 'remote';
+  /**
+   * Plan mode:
+   *   - 'chat':    single-turn chat with tools (default)
+   *   - 'plan':    multi-agent plan mode with checkpoint persistence
+   *   - 'auto':    automatically choose based on task complexity
+   */
+  planMode: 'chat' | 'plan' | 'auto';
 }
 
 export interface BridgeStatus {
@@ -116,22 +124,62 @@ export interface MobileRuntimeBridge {
   // ── Chat ──────────────────────────────────────────────────────────
 
   /** Send a chat message; returns the response (non-streaming). */
-  sendChat(message: string, conversationId?: string): Promise<ChatMessage>;
+  sendChat(
+    message: string,
+    conversationId?: string,
+    options?: ChatRunOptions,
+  ): Promise<ChatMessage>;
 
   /** Stream a chat response (calls onChunk for each delta). */
   streamChat?(
     message: string,
     conversationId: string | undefined,
     onChunk: (delta: string, fullMessage: string) => void,
+    signal?: AbortSignal,
+    options?: ChatRunOptions,
   ): Promise<ChatMessage>;
+
+  /** Cancel the currently running task (chat/plan), if any. */
+  cancelRun(): boolean;
 
   /** Get chat history for a conversation. */
   getChatHistory?(conversationId?: string): Promise<ChatMessage[]>;
+
+  // ── Checkpoints ───────────────────────────────────────────────────
+
+  /** List persisted checkpoints (most recently updated first). */
+  listCheckpoints?(options?: { sessionId?: string; limit?: number }): Promise<CheckpointSummary[]>;
+
+  /** Load a single checkpoint by runId. */
+  getCheckpoint?(runId: string): Promise<CheckpointDetail | null>;
+
+  /** Delete a checkpoint by runId. */
+  deleteCheckpoint?(runId: string): Promise<void>;
+
+  /** Get the current active plan mode. */
+  getPlanMode?(): 'chat' | 'plan' | 'auto';
+
+  /** List chat sessions (most recent first). */
+  listSessions?(): Promise<ChatSessionSummary[]>;
+  /** Create a new chat session. */
+  createSession?(title?: string): Promise<ChatSessionSummary>;
+  /** Delete a chat session by id. */
+  deleteSession?(id: string): Promise<boolean>;
+  /** Rename a chat session. */
+  renameSession?(id: string, title: string): Promise<void>;
+  /** Archive / unarchive a chat session. */
+  archiveSession?(id: string, archived: boolean): Promise<void>;
+  /** Search chat sessions by query. */
+  searchSessions?(query: string, limit?: number): Promise<ChatSessionSummary[]>;
+  /** Export a session as JSON or Markdown. */
+  exportSession?(id: string, format: 'json' | 'markdown'): Promise<string>;
 
   // ── Memory ────────────────────────────────────────────────────────
 
   /** List memories with optional filters. */
   listMemories(filter?: MemoryListFilter): Promise<MemoryRecord[]>;
+  /** Export all memories as JSON. */
+  exportMemories?(): Promise<string>;
 
   /** Search memories by query (vector + keyword). */
   searchMemories(query: string, limit?: number): Promise<MemoryRecord[]>;
@@ -199,10 +247,51 @@ export interface TraceSpanInfo {
   metadata?: Record<string, unknown>;
 }
 
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount: number;
+  preview?: string;
+  tags?: string[];
+  archived?: boolean;
+}
+
 export interface TraceSessionSummary {
   id: string;
   title: string;
   createdAt: number;
   updatedAt: number;
   messageCount: number;
+}
+
+/** Per-run options for sendChat / streamChat. */
+export interface ChatRunOptions {
+  /** Explicit plan mode override for this run. */
+  mode?: 'chat' | 'plan' | 'auto';
+  /** Resume a previously interrupted plan run from its checkpoint. */
+  resumeFromRunId?: string;
+}
+
+/** Lightweight checkpoint summary exposed to the mobile UI. */
+export interface CheckpointSummary {
+  runId: string;
+  task: string;
+  sessionId: string;
+  status: 'in_progress' | 'completed' | 'cancelled' | 'failed';
+  completedCount: number;
+  totalCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** Checkpoint detail exposed to the mobile UI. */
+export interface CheckpointDetail extends CheckpointSummary {
+  subtasks: {
+    id: string;
+    title: string;
+    status: 'pending' | 'running' | 'done' | 'failed';
+    output?: string;
+  }[];
 }

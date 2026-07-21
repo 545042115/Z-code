@@ -1,4 +1,4 @@
-# Z Assistant Desktop — 使用说明
+# Ziner Desktop — 使用说明
 
 ## 环境要求
 
@@ -101,7 +101,7 @@ Settings → **模型/Model** 面板：
 
 | 快捷键 | 功能 |
 |---|---|
-| **Ctrl+Shift+Z** | 显示/隐藏 Z Assistant 窗口 |
+| **Ctrl+Shift+Z** | 显示/隐藏 Ziner 窗口 |
 
 ---
 
@@ -113,7 +113,7 @@ Settings → **模型/Model** 面板：
 .\tools\package-desktop.ps1
 ```
 
-产物：`apps\desktop\dist\Z Assistant-*-win-x64.exe`
+产物：`apps\desktop\dist\Ziner-*-win-x64.exe`
 
 ---
 

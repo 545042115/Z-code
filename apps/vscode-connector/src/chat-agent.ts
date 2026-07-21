@@ -6,6 +6,7 @@
 import type { IAgent, TaskContext, AgentResult, ILLMProvider, LLMMessage, LLMRequest, LLMResponse, IConfirmationGate, ToolInvocation, ToolPolicy } from '@ziner/contracts';
 import { ok as okResult, fail as failResult, isToolAllowed } from '@ziner/contracts';
 import { computeCost } from '@ziner/infra-cost';
+import { compressToolResult, parseXmlToolCalls } from '@ziner/runtime-core';
 import {
   MemoryManager,
   JsonlMemoryProvider,
@@ -126,75 +127,6 @@ export type ChatAttachment =
 export const CHAT_HISTORY_KEY = 'chat.history';
 
 const MAX_HISTORY_MESSAGES = 24;
-const MAX_TOOL_RESULT_CHARS = 2000;
-
-function truncateToolResult(text: string, max = MAX_TOOL_RESULT_CHARS): string {
-  if (text.length <= max) return text;
-  return text.slice(0, max) + '\n...[truncated]';
-}
-
-/**
- * Smarter compression for long tool outputs.
- * - Terminal / search: keep start + tail, drop the noisy middle.
- * - Web fetch / file read: keep headings, code blocks, and first/last chunks.
- * Falls back to plain truncation if the output is not structured.
- */
-function compressToolResult(name: string, text: string, max = MAX_TOOL_RESULT_CHARS): string {
-  if (text.length <= max) return text;
-
-  // MCP tools frequently return structured data (menus, store lists,
-  // route options) where dropping items would mislead the LLM into
-  // believing the data is incomplete and triggering retry loops. We
-  // expand the budget for MCP / list-shaped outputs and only fall back
-  // to truncation for very large payloads. Menu / catalogue data from
-  // McDonald's, KFC, AMap, etc. is the canonical example.
-  const isMcpList = /^mcp_/i.test(name)
-    || /menu|catalogue|store|product|item|order|cart|route|amap|poi|hotel/i.test(name);
-  if (isMcpList) {
-    const expanded = max * 6; // up to 12,000 chars for MCP list data
-    if (text.length <= expanded) return text;
-    // For structured JSON, try to keep the array intact and drop the
-    // tail (last N items) so the LLM still sees the head + count.
-    try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed)) {
-        const half = Math.floor(parsed.length / 2);
-        const head = parsed.slice(0, half);
-        const tail = parsed.slice(-Math.min(20, Math.floor(parsed.length / 4)));
-        const summarized = JSON.stringify({
-          _note: `Truncated: showing first ${head.length} of ${parsed.length} items and last ${tail.length}. Use pagination/filter parameters to see more.`,
-          first: head,
-          last: tail,
-        });
-        if (summarized.length <= expanded) return summarized;
-      }
-    } catch {
-      // not JSON, fall through
-    }
-    return truncateToolResult(text, expanded);
-  }
-
-  const lines = text.split('\n');
-  if (name === 'run_terminal' || name === 'web_search') {
-    const head = Math.ceil(max * 0.35 / lines.length) || 30;
-    const tail = 20;
-    if (lines.length > head + tail) {
-      const kept = [...lines.slice(0, head), `...[${lines.length - head - tail} lines omitted]...`, ...lines.slice(-tail)];
-      const compressed = kept.join('\n');
-      if (compressed.length <= max) return compressed;
-    }
-  }
-
-  if (name === 'web_fetch' || name === 'read_file' || name === 'search_code') {
-    // Preserve markdown/code headings and take the first usable chunk.
-    const headingLines = lines.filter((l) => /^#{1,6}\s+/.test(l) || /^```/.test(l));
-    const body = lines.slice(0, Math.floor(max / 80));
-    const compressed = [...headingLines.slice(0, 10), '---', ...body].join('\n');
-    if (compressed.length <= max) return compressed;
-  }
-
-  return truncateToolResult(text, max);
-}
 
 const DEFAULT_SYSTEM_PROMPT = `You are a friendly AI assistant having a conversation with the user.
 
@@ -765,91 +697,6 @@ export function createChatAgent(opts: ChatAgentOptions): IAgent {
 }
 
 // ── Tool executor ─────────────────────────────────────────────────────
-
-/**
- * Parse XML-style tool calls from LLM text output.
- * Some models (e.g. DeepSeek) may fall back to XML format when they
- * don't fully support native OpenAI function calling.
- *
- * Supported formats:
- *   <invoke name="tool_name"><parameter name="arg">value</parameter></invoke>
- *   <tool_calls><invoke name="tool_name"><parameter name="arg">value</parameter></invoke></tool_calls>
- *   DeepSeek DSML:
- *     <｜｜DSML｜｜tool_calls>
- *       <｜｜DSML｜｜invoke name="tool_name">
- *         <｜｜DSML｜｜parameter name="arg" string="true">value</｜｜DSML｜｜parameter>
- *       </｜｜DSML｜｜invoke>
- *     </｜｜DSML｜｜tool_calls>
- */
-function parseXmlToolCalls(text: string): Array<{ name: string; arguments: Record<string, unknown> }> | null {
-  // DeepSeek DSML format uses <｜｜DSML｜｜tag> delimiters.
-  if (text.includes('<｜｜DSML｜｜tool_calls>')) {
-    return parseDsmlToolCalls(text);
-  }
-
-  // Try to find <tool_calls> wrapper first, then individual <invoke> tags
-  const wrapperMatch = text.match(/<tool_calls>([\s\S]*?)<\/tool_calls>/);
-  const invokeContent = wrapperMatch ? wrapperMatch[1] : text;
-
-  // Find all <invoke name="..."> blocks
-  const invokeRegex = /<invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/invoke>/g;
-  const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = invokeRegex.exec(invokeContent)) !== null) {
-    const name = match[1];
-    const paramsText = match[2];
-
-    // Parse <parameter name="...">value</parameter>
-    const args: Record<string, unknown> = {};
-    const paramRegex = /<parameter\s+name="([^"]+)"\s*>([\s\S]*?)<\/parameter>/g;
-    let pm: RegExpExecArray | null;
-    while ((pm = paramRegex.exec(paramsText)) !== null) {
-      let value: string | number = pm[2].trim();
-      // Try to parse as number
-      const num = Number(value);
-      if (!isNaN(num) && value !== '') value = num;
-      args[pm[1]] = value;
-    }
-    calls.push({ name, arguments: args });
-  }
-
-  return calls.length > 0 ? calls : null;
-}
-
-/** Parse DeepSeek DSML-style tool calls. */
-function parseDsmlToolCalls(text: string): Array<{ name: string; arguments: Record<string, unknown> }> | null {
-  const wrapperMatch = text.match(/<｜｜DSML｜｜tool_calls>([\s\S]*?)<\/｜｜DSML｜｜tool_calls>/);
-  const invokeContent = wrapperMatch ? wrapperMatch[1] : text;
-
-  const invokeRegex = /<｜｜DSML｜｜invoke\s+name="([^"]+)"\s*>([\s\S]*?)<\/｜｜DSML｜｜invoke>/g;
-  const calls: Array<{ name: string; arguments: Record<string, unknown> }> = [];
-  let match: RegExpExecArray | null;
-
-  while ((match = invokeRegex.exec(invokeContent)) !== null) {
-    const name = match[1];
-    const paramsText = match[2];
-
-    const args: Record<string, unknown> = {};
-    const paramRegex = /<｜｜DSML｜｜parameter\s+name="([^"]+)"(?:\s+(string|number)="true")?\s*>([\s\S]*?)<\/｜｜DSML｜｜parameter>/g;
-    let pm: RegExpExecArray | null;
-    while ((pm = paramRegex.exec(paramsText)) !== null) {
-      const paramName = pm[1];
-      const paramType = pm[2];
-      const rawValue = pm[3].trim();
-
-      if (paramType === 'number') {
-        const num = Number(rawValue);
-        args[paramName] = !isNaN(num) && rawValue !== '' ? num : rawValue;
-      } else {
-        args[paramName] = rawValue;
-      }
-    }
-    calls.push({ name, arguments: args });
-  }
-
-  return calls.length > 0 ? calls : null;
-}
 
 // ── Tool executor ─────────────────────────────────────────────────────
 

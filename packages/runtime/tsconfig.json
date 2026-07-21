@@ -15,6 +15,7 @@
     { "path": "../infra/errors" },
     { "path": "../infra/permission" },
     { "path": "../infra/storage" },
+    { "path": "../runtime-core" },
     { "path": "../trace" }
   ]
 }

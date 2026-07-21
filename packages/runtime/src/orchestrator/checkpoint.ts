@@ -19,73 +19,12 @@
 
 import { promises as fsp } from 'fs';
 import { join } from 'path';
-import type { PlanDag } from '@ziner/contracts';
-
-/**
- * Status of a checkpoint / its parent run.
- *   - 'in_progress'  — at least one sub-task completed; run is not finished
- *   - 'completed'    — all sub-tasks done; the run reached a final state
- *   - 'cancelled'    — the run was aborted by the user (via cancelRun)
- *   - 'failed'       — the run crashed (e.g. uncaught throw, budget exhausted)
- */
-export type CheckpointStatus = 'in_progress' | 'completed' | 'cancelled' | 'failed';
-
-export interface Checkpoint {
-  /** Stable run id (matches the RunTracker.id). */
-  runId: string;
-  /** The original user task. */
-  task: string;
-  /** Run mode (plan / dag). */
-  mode: 'plan' | 'dag' | string;
-  /** Session id (for cross-session resume + recent-message loading). */
-  sessionId: string;
-  /** The full PlanDag produced by the Planner. */
-  planDag: PlanDag;
-  /** Sub-task ids whose `output` is already in `subtaskOutputs`. */
-  completedSubTaskIds: string[];
-  /** Final SubTaskResult for each completed sub-task. */
-  subtaskOutputs: Record<string, SubTaskResult>;
-  /** Snapshot of the SharedState at the point of the last save. */
-  sharedState: Record<string, { value: unknown; version: number; updatedAt: number; writer?: string }>;
-  /** Planner / Synthesizer agent names, for dispatch fallback. */
-  plannerAgent: string;
-  synthesizerAgent: string;
-  /** Routing seed at the time of the original run. */
-  routerSeed?: string[];
-  /** When the checkpoint was first created. */
-  createdAt: number;
-  /** When the checkpoint was last updated. */
-  updatedAt: number;
-  /** Current status. */
-  status: CheckpointStatus;
-}
-
-export interface SubTaskResult {
-  ok: boolean;
-  output?: unknown;
-  error?: { code: string; message: string };
-  agent: string;
-  durationMs?: number;
-  completedAt: number;
-}
-
-export interface CheckpointIndexEntry {
-  runId: string;
-  task: string;
-  sessionId: string;
-  status: CheckpointStatus;
-  completedCount: number;
-  totalCount: number;
-  createdAt: number;
-  updatedAt: number;
-}
+import type { Checkpoint, CheckpointIndexEntry } from '@ziner/runtime-core';
+export type { Checkpoint, CheckpointIndexEntry, CheckpointStatus, SubTaskResult } from '@ziner/runtime-core';
 
 export interface CheckpointManagerOptions {
-  /** Directory where checkpoints/<runId>.json live. */
   rootDir: string;
-  /** Max age (ms) before a checkpoint is purged by `cleanup()`. */
   ttlMs?: number;
-  /** Max total entries to keep (LRU by `updatedAt`). */
   maxEntries?: number;
 }
 

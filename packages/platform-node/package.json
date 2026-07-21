@@ -1,0 +1,23 @@
+{
+  "name": "@ziner/platform-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Node.js platform implementation for runtime-core interfaces. Used by Desktop (Electron).",
+  "main": "out/index.js",
+  "types": "out/index.d.ts",
+  "scripts": {
+    "build": "tsc -p ./",
+    "typecheck": "tsc -p ./ --noEmit",
+    "clean": "rm -rf out *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ziner/contracts": "*",
+    "@ziner/runtime-core": "*",
+    "@ziner/runtime": "*",
+    "@ziner/trace": "*",
+    "@ziner/infra-storage": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

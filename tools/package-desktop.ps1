@@ -84,7 +84,10 @@ $buildOrder = @(
   "@ziner/infra-config",
   "@ziner/infra-permission",
   "@ziner/trace",
+  "@ziner/runtime-core",
   "@ziner/runtime",
+  "@ziner/platform-node",
+  "@ziner/app-shared",
   "@ziner/agent-coding",
   "@ziner/agent-browser",
   "@ziner/agent-planner",
@@ -173,6 +176,7 @@ $appNodeModules = Join-Path $unpackedDir "resources\app\node_modules"
 $zinerDst = Join-Path $appNodeModules "@ziner"
 $neededPackages = @(
   @{Name="app-vscode-connector"; Source="apps\vscode-connector"}
+  @{Name="app-shared";          Source="packages\app-shared"}
   @{Name="agent-browser";       Source="packages\agents\browser-agent"}
   @{Name="agent-coding";        Source="packages\agents\coding-agent"}
   @{Name="agent-planner";       Source="packages\agents\planner-agent"}
@@ -180,7 +184,9 @@ $neededPackages = @(
   @{Name="agent-synthesizer";   Source="packages\agents\synthesizer-agent"}
   @{Name="agent-office";        Source="packages\agents\office-agent"}
   @{Name="runtime";             Source="packages\runtime"}
+  @{Name="runtime-core";        Source="packages\runtime-core"}
   @{Name="trace";               Source="packages\trace"}
+  @{Name="platform-node";       Source="packages\platform-node"}
   @{Name="infra-storage";       Source="packages\infra\storage"}
   @{Name="infra-cost";          Source="packages\infra\cost"}
   @{Name="infra-errors";        Source="packages\infra\errors"}

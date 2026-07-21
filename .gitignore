@@ -68,3 +68,14 @@ apps/mobile/node_modules/
 *.log
 package-desktop.log
 
+# 临时构建目录
+apps/desktop/--SkipPython/
+
+# 本地 npm 包缓存
+*.tgz
+
+# 临时文件 / 个人规划文档
+Z-code_agent_improvement_plan.md
+PROJECT_ROADMAP.md
+SKILL_SYSTEM_PLAN.md
+

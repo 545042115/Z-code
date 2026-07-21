@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "out"
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["out", "node_modules"],
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../runtime-core" },
+    { "path": "../runtime" },
+    { "path": "../trace" },
+    { "path": "../infra/storage" }
+  ]
+}

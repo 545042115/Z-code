@@ -1,5 +1,5 @@
-// Post-compilation script: injects @z-assistant/* V2 packages into out/vendor/
-// so that bootstrap.js can resolve require('@z-assistant/*') at runtime.
+// Post-compilation script: injects @ziner/* V2 packages into out/vendor/
+// so that bootstrap.js can resolve require('@ziner/*') at runtime.
 // This makes both F5 and VSIX work.
 
 import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs';
@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const extRoot = join(__dirname, '..');
 const v2Root = join(extRoot, '..', '..');
 const outDir = join(extRoot, 'out');
-const vendorDir = join(outDir, 'vendor', '@z-assistant');
+const vendorDir = join(outDir, 'vendor', '@ziner');
 
 // Map of package name → relative path from repo root
 const pkgMap = {
@@ -24,8 +24,8 @@ const pkgMap = {
   'infra-config': 'packages/infra/config',
 };
 
-// Step 1: Copy V2 package outputs into out/vendor/@z-assistant/*
-console.log('  [postcompile] Copying V2 dependencies to out/vendor/@z-assistant/...');
+// Step 1: Copy V2 package outputs into out/vendor/@ziner/*
+console.log('  [postcompile] Copying V2 dependencies to out/vendor/@ziner/...');
 if (!existsSync(vendorDir)) mkdirSync(vendorDir, { recursive: true });
 
 function copyRecursive(src, dst) {
@@ -52,7 +52,7 @@ for (const [pkgName, pkgPath] of Object.entries(pkgMap)) {
   // Also copy package.json (needed for "main" field resolution by Node module system)
   const srcPkg = join(v2Root, pkgPath, 'package.json');
   if (existsSync(srcPkg)) copyFileSync(srcPkg, join(tgtDir, 'package.json'));
-  console.log(`    @z-assistant/${pkgName}`);
+  console.log(`    @ziner/${pkgName}`);
 }
 
 // Also copy third-party deps needed by V2 packages (e.g., js-yaml for infra-config)
@@ -73,14 +73,14 @@ for (const dep of thirdPartyDeps) {
 // Step 2: Create out/bootstrap.js
 console.log('  [postcompile] Creating out/bootstrap.js...');
 const bootstrapCode = `
-// Bootstrap - resolve @z-assistant/* from vendor/@z-assistant/,
+// Bootstrap - resolve @ziner/* from vendor/@ziner/,
 // and other third-party modules from vendor/node_modules/ as fallback.
 const Module = require('module');
 const path = require('path');
 const originalResolve = Module._resolveFilename;
 Module._resolveFilename = function (request, parent) {
-  // @z-assistant/* → vendor/@z-assistant/*
-  if (request.startsWith('@z-assistant/')) {
+  // @ziner/* → vendor/@ziner/*
+  if (request.startsWith('@ziner/')) {
     const vendorPath = path.join(__dirname, 'vendor', request);
     try { return originalResolve.call(this, vendorPath, parent); } catch {}
   }

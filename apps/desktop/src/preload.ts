@@ -6,6 +6,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from './constants';
 import type { ConnectorEvent, Checkpoint, CheckpointIndexEntry } from '@ziner/app-vscode-connector';
 import type { AgentRun, AgentSpan, MemoryHit, MemoryRecord, ConfirmationRequest, Decision, AuditLogEntry, AlwaysRule, CandidateSkill } from '@ziner/contracts';
+import type { TraceRunSummary, TraceRunDetail, TraceSessionSummary } from '@ziner/runtime-core';
 import type { DesktopSettings } from './runtime-bridge';
 import type { ChatSession, ChatMessage } from './session-manager';
 
@@ -93,6 +94,12 @@ export interface ZDesktopAPI {
   // Storage backend
   getStorageBackend: () => Promise<'jsonl' | 'sqlite'>;
   setStorageBackend: (backend: 'jsonl' | 'sqlite') => Promise<boolean>;
+  // Trace (Mobile parity)
+  listTraceRuns: (limit?: number, sessionId?: string) => Promise<TraceRunSummary[]>;
+  getTraceRun: (id: string) => Promise<TraceRunDetail | undefined>;
+  listTraceSessions: (limit?: number) => Promise<TraceSessionSummary[]>;
+  deleteTraceRun: (id: string) => Promise<boolean>;
+  clearTrace: () => Promise<number>;
 }
 
 interface WeChatHookStatus {
@@ -213,6 +220,12 @@ const api: ZDesktopAPI = {
   // Storage backend
   getStorageBackend: () => ipcRenderer.invoke(IPC_CHANNELS.GET_STORAGE_BACKEND),
   setStorageBackend: (backend: 'jsonl' | 'sqlite') => ipcRenderer.invoke(IPC_CHANNELS.SET_STORAGE_BACKEND, backend),
+  // Trace (Mobile parity)
+  listTraceRuns: (limit, sessionId) => ipcRenderer.invoke(IPC_CHANNELS.LIST_TRACE_RUNS, limit, sessionId),
+  getTraceRun: (id) => ipcRenderer.invoke(IPC_CHANNELS.GET_TRACE_RUN, id),
+  listTraceSessions: (limit) => ipcRenderer.invoke(IPC_CHANNELS.LIST_TRACE_SESSIONS, limit),
+  deleteTraceRun: (id) => ipcRenderer.invoke(IPC_CHANNELS.DELETE_TRACE_RUN, id),
+  clearTrace: () => ipcRenderer.invoke(IPC_CHANNELS.CLEAR_TRACE),
 };
 
 contextBridge.exposeInMainWorld('zApi', api);
